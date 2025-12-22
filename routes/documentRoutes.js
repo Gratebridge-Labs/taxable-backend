@@ -5,7 +5,8 @@ const {
   getDocuments,
   getDocument,
   deleteDocument,
-  getDocumentStatus
+  getDocumentStatus,
+  processDocument
 } = require('../controllers/documentController');
 const authMiddleware = require('../middleware/authMiddleware');
 const { handleUpload } = require('../middleware/uploadMiddleware');
@@ -18,6 +19,9 @@ router.post('/upload', handleUpload, uploadDocument);
 
 // Get all documents
 router.get('/', getDocuments);
+
+// Process document
+router.post('/:id/process', processDocument);
 
 // Get document status
 router.get('/:id/status', getDocumentStatus);

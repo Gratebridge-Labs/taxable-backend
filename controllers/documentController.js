@@ -1,7 +1,9 @@
 const Document = require('../models/Document');
+const Transaction = require('../models/Transaction');
 const fs = require('fs');
 const path = require('path');
 const TAX_CONSTANTS = require('../config/constants');
+const documentProcessor = require('../services/documentProcessor');
 
 // @desc    Upload a document
 // @route   POST /api/documents/upload
@@ -166,6 +168,9 @@ const deleteDocument = async (req, res) => {
       });
     }
 
+    // Delete associated transactions
+    await Transaction.deleteMany({ document: id });
+
     // Delete file from filesystem
     if (document.filePath && fs.existsSync(document.filePath)) {
       try {
@@ -202,7 +207,7 @@ const getDocumentStatus = async (req, res) => {
     const document = await Document.findOne({
       _id: id,
       user: req.user._id
-    }).select('processingStatus errorMessage fileName documentType createdAt updatedAt');
+    }).select('processingStatus errorMessage fileName documentType createdAt updatedAt extractedData');
 
     if (!document) {
       return res.status(404).json({
@@ -220,6 +225,7 @@ const getDocumentStatus = async (req, res) => {
           documentType: document.documentType,
           processingStatus: document.processingStatus,
           errorMessage: document.errorMessage,
+          transactionsExtracted: document.extractedData?.transactionCount || 0,
           createdAt: document.createdAt,
           updatedAt: document.updatedAt
         }
@@ -234,11 +240,72 @@ const getDocumentStatus = async (req, res) => {
   }
 };
 
+// @desc    Process a document and extract transactions
+// @route   POST /api/documents/:id/process
+// @access  Private
+const processDocument = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify document belongs to user
+    const document = await Document.findOne({
+      _id: id,
+      user: req.user._id
+    });
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: 'Document not found'
+      });
+    }
+
+    // Check if already processed
+    if (document.processingStatus === TAX_CONSTANTS.PROCESSING_STATUS.COMPLETED) {
+      return res.json({
+        success: true,
+        message: 'Document already processed',
+        data: {
+          transactionsExtracted: document.extractedData?.transactionCount || 0
+        }
+      });
+    }
+
+    // Check if currently processing
+    if (document.processingStatus === TAX_CONSTANTS.PROCESSING_STATUS.PROCESSING) {
+      return res.status(400).json({
+        success: false,
+        message: 'Document is currently being processed'
+      });
+    }
+
+    // Process document (async - could be moved to queue in production)
+    const result = await documentProcessor.processDocument(id);
+
+    res.json({
+      success: true,
+      message: 'Document processed successfully',
+      data: {
+        transactionsExtracted: result.transactionsExtracted,
+        documentId: document._id,
+        processingStatus: TAX_CONSTANTS.PROCESSING_STATUS.COMPLETED
+      }
+    });
+  } catch (error) {
+    console.error('Process document error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error processing document'
+    });
+  }
+};
+
 module.exports = {
   uploadDocument,
   getDocuments,
   getDocument,
   deleteDocument,
-  getDocumentStatus
+  getDocumentStatus,
+  processDocument
 };
 
