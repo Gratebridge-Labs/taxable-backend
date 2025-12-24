@@ -7,6 +7,7 @@ const Document = require('../models/Document');
 const Transaction = require('../models/Transaction');
 const { parsePDF, extractTransactionsFromPDF } = require('../utils/pdfParser');
 const { parseCSV } = require('../utils/csvParser');
+const taxRecalculationService = require('./taxRecalculationService');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
@@ -70,6 +71,18 @@ class DocumentProcessor {
         processedAt: new Date()
       };
       await document.save();
+
+      // Recalculate tax profiles for affected years (non-blocking)
+      if (savedTransactions.length > 0) {
+        const affectedYears = savedTransactions
+          .map(tx => tx.transactionDate.getFullYear())
+          .filter((year, index, self) => self.indexOf(year) === index);
+        
+        taxRecalculationService.recalculateTaxProfilesForYears(
+          document.user,
+          affectedYears
+        ).catch(err => console.error('Background tax recalculation error:', err));
+      }
 
       return {
         success: true,

@@ -28,11 +28,18 @@ Edit `.env` with your configuration:
 ```env
 PORT=3000
 NODE_ENV=development
-MONGODB_URI=mongodb://localhost:27017/taxable
+MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/taxable?retryWrites=true&w=majority
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
 JWT_EXPIRES_IN=7d
 MAX_FILE_SIZE=10485760
 UPLOAD_PATH=./uploads
+EMAIL_HOST=mail.gettaxable.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=do_not_reply@gettaxable.com
+EMAIL_PASS=your-email-password
+EMAIL_FROM=do_not_reply@gettaxable.com
+EMAIL_FROM_NAME=Taxable
 ```
 
 ### 3. Start MongoDB

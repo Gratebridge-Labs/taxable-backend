@@ -7,6 +7,8 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const documentRoutes = require('./routes/documentRoutes');
+const transactionRoutes = require('./routes/transactionRoutes');
+const taxProfileRoutes = require('./routes/taxProfileRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,6 +39,8 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/documents', documentRoutes);
+app.use('/api/transactions', transactionRoutes);
+app.use('/api/tax-profiles', taxProfileRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
