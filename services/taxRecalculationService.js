@@ -12,10 +12,11 @@ const { getYearToDate } = require('../utils/helpers');
  * Recalculate tax profile for a specific year
  * This is called automatically when transactions change
  * @param {string} userId - User ID
+ * @param {string} accountId - Account ID
  * @param {number} taxYear - Tax year
  * @returns {Promise<Object>} Updated tax profile
  */
-const recalculateTaxProfileForYear = async (userId, taxYear) => {
+const recalculateTaxProfileForYear = async (userId, accountId, taxYear) => {
   try {
     // Get date range for tax year
     const startDate = new Date(taxYear, 0, 1);
@@ -24,6 +25,7 @@ const recalculateTaxProfileForYear = async (userId, taxYear) => {
     // Get all transactions for the tax year
     const transactions = await Transaction.find({
       user: userId,
+      account: accountId,
       transactionDate: {
         $gte: startDate,
         $lte: endDate
@@ -66,6 +68,7 @@ const recalculateTaxProfileForYear = async (userId, taxYear) => {
     // Update or create tax profile
     let taxProfile = await TaxProfile.findOne({
       user: userId,
+      account: accountId,
       taxYear
     });
 
@@ -80,6 +83,7 @@ const recalculateTaxProfileForYear = async (userId, taxYear) => {
     } else {
       taxProfile = await TaxProfile.create({
         user: userId,
+        account: accountId,
         taxYear,
         annualIncomeEstimate,
         totalDeductions: annualDeductionsEstimate,
@@ -102,13 +106,14 @@ const recalculateTaxProfileForYear = async (userId, taxYear) => {
  * Recalculate tax profile based on transaction date
  * Automatically determines which tax year(s) need recalculation
  * @param {string} userId - User ID
+ * @param {string} accountId - Account ID
  * @param {Date} transactionDate - Transaction date
  * @returns {Promise<void>}
  */
-const recalculateTaxProfileForTransaction = async (userId, transactionDate) => {
+const recalculateTaxProfileForTransaction = async (userId, accountId, transactionDate) => {
   try {
     const taxYear = transactionDate.getFullYear();
-    await recalculateTaxProfileForYear(userId, taxYear);
+    await recalculateTaxProfileForYear(userId, accountId, taxYear);
   } catch (error) {
     console.error('Error recalculating tax profile for transaction:', error);
     // Don't throw - non-blocking operation
@@ -119,14 +124,15 @@ const recalculateTaxProfileForTransaction = async (userId, transactionDate) => {
  * Recalculate tax profiles for multiple years
  * Useful when bulk importing transactions
  * @param {string} userId - User ID
+ * @param {string} accountId - Account ID
  * @param {Array<number>} taxYears - Array of tax years
  * @returns {Promise<void>}
  */
-const recalculateTaxProfilesForYears = async (userId, taxYears) => {
+const recalculateTaxProfilesForYears = async (userId, accountId, taxYears) => {
   try {
     const uniqueYears = [...new Set(taxYears)];
     await Promise.all(
-      uniqueYears.map(year => recalculateTaxProfileForYear(userId, year))
+      uniqueYears.map(year => recalculateTaxProfileForYear(userId, accountId, year))
     );
   } catch (error) {
     console.error('Error recalculating tax profiles for years:', error);

@@ -1,6 +1,7 @@
 const Transaction = require('../models/Transaction');
 const TAX_CONSTANTS = require('../config/constants');
 const taxRecalculationService = require('../services/taxRecalculationService');
+const { accountMiddleware } = require('../middleware/accountMiddleware');
 
 // @desc    Get all transactions for current user
 // @route   GET /api/transactions
@@ -20,8 +21,15 @@ const getTransactions = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Build query
-    const query = { user: req.user._id };
+    // Build query - require account context
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required. Provide accountId in query, body, or X-Account-ID header.'
+      });
+    }
+
+    const query = { user: req.user._id, account: req.account._id };
 
     // Filter by transaction type
     if (transactionType) {
@@ -134,9 +142,17 @@ const getTransaction = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required'
+      });
+    }
+
     const transaction = await Transaction.findOne({
       _id: id,
-      user: req.user._id
+      user: req.user._id,
+      account: req.account._id
     }).populate('document', 'fileName documentType');
 
     if (!transaction) {
@@ -212,9 +228,18 @@ const createTransaction = async (req, res) => {
       });
     }
 
+    // Require account context
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required. Provide accountId in query, body, or X-Account-ID header.'
+      });
+    }
+
     // Create transaction
     const transaction = await Transaction.create({
       user: req.user._id,
+      account: req.account._id,
       transactionType,
       category,
       amount,
@@ -230,6 +255,7 @@ const createTransaction = async (req, res) => {
     // Recalculate tax profile for the transaction year (non-blocking)
     taxRecalculationService.recalculateTaxProfileForTransaction(
       req.user._id,
+      req.account._id,
       transaction.transactionDate
     ).catch(err => console.error('Background tax recalculation error:', err));
 
@@ -265,10 +291,18 @@ const updateTransaction = async (req, res) => {
       metadata
     } = req.body;
 
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required'
+      });
+    }
+
     // Find transaction
     const transaction = await Transaction.findOne({
       _id: id,
-      user: req.user._id
+      user: req.user._id,
+      account: req.account._id
     });
 
     if (!transaction) {
@@ -356,9 +390,17 @@ const deleteTransaction = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required'
+      });
+    }
+
     const transaction = await Transaction.findOne({
       _id: id,
-      user: req.user._id
+      user: req.user._id,
+      account: req.account._id
     });
 
     if (!transaction) {
@@ -397,8 +439,15 @@ const getTransactionSummary = async (req, res) => {
   try {
     const { startDate, endDate, groupBy = 'category' } = req.query;
 
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required'
+      });
+    }
+
     // Build date filter
-    const dateFilter = { user: req.user._id };
+    const dateFilter = { user: req.user._id, account: req.account._id };
     if (startDate || endDate) {
       dateFilter.transactionDate = {};
       if (startDate) {
@@ -556,6 +605,13 @@ const getTransactionSummary = async (req, res) => {
 // @access  Private
 const bulkImportTransactions = async (req, res) => {
   try {
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required'
+      });
+    }
+
     const { transactions } = req.body;
 
     if (!Array.isArray(transactions) || transactions.length === 0) {
@@ -619,6 +675,7 @@ const bulkImportTransactions = async (req, res) => {
         // Check for duplicates
         const existing = await Transaction.findOne({
           user: req.user._id,
+          account: req.account._id,
           transactionDate: new Date(tx.transactionDate),
           amount: tx.amount,
           description: tx.description || ''
@@ -632,6 +689,7 @@ const bulkImportTransactions = async (req, res) => {
         // Create transaction
         await Transaction.create({
           user: req.user._id,
+          account: req.account._id,
           transactionType: tx.transactionType,
           category: tx.category,
           amount: tx.amount,
@@ -661,6 +719,7 @@ const bulkImportTransactions = async (req, res) => {
     
     taxRecalculationService.recalculateTaxProfilesForYears(
       req.user._id,
+      req.account._id,
       affectedYears
     ).catch(err => console.error('Background tax recalculation error:', err));
 

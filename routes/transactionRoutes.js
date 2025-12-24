@@ -10,9 +10,13 @@ const {
   bulkImportTransactions
 } = require('../controllers/transactionController');
 const authMiddleware = require('../middleware/authMiddleware');
+const { accountMiddleware } = require('../middleware/accountMiddleware');
 
 // All routes require authentication
 router.use(authMiddleware);
+
+// All routes require account context
+router.use(accountMiddleware);
 
 // Summary endpoint (before :id route)
 router.get('/summary', getTransactionSummary);

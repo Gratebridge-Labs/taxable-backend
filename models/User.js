@@ -40,6 +40,12 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['employed', 'self_employed', 'unemployed', 'retired', 'student'],
     default: 'employed'
+  },
+  // Default individual account (created automatically on registration)
+  defaultIndividualAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    default: null
   }
 }, {
   timestamps: true

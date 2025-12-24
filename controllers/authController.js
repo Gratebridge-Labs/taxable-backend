@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Account = require('../models/Account');
 const jwt = require('jsonwebtoken');
 
 // Generate JWT Token
@@ -45,6 +46,24 @@ const register = async (req, res) => {
       dateOfBirth,
       employmentStatus
     });
+
+    // Create default individual account
+    const defaultAccount = await Account.create({
+      user: user._id,
+      accountType: 'individual',
+      name: `${firstName || ''} ${lastName || ''}`.trim() || 'My Account',
+      tin: tin,
+      dateOfBirth: dateOfBirth,
+      employmentStatus: employmentStatus,
+      phone: phone,
+      email: email,
+      isDefault: true,
+      isActive: true
+    });
+
+    // Update user with default account reference
+    user.defaultIndividualAccount = defaultAccount._id;
+    await user.save();
 
     // Generate token
     const token = generateToken(user._id);

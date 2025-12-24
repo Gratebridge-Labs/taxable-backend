@@ -8,6 +8,12 @@ const reportSchema = new mongoose.Schema({
     required: [true, 'User is required'],
     index: true
   },
+  account: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    required: [true, 'Account is required'],
+    index: true
+  },
   taxProfile: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'TaxProfile',
@@ -87,9 +93,10 @@ const reportSchema = new mongoose.Schema({
 });
 
 // Indexes for efficient queries
-reportSchema.index({ user: 1, generatedAt: -1 });
-reportSchema.index({ user: 1, reportType: 1, generatedAt: -1 });
-reportSchema.index({ user: 1, periodStart: 1, periodEnd: 1 });
+reportSchema.index({ account: 1, generatedAt: -1 });
+reportSchema.index({ account: 1, reportType: 1, generatedAt: -1 });
+reportSchema.index({ account: 1, periodStart: 1, periodEnd: 1 });
+reportSchema.index({ user: 1, account: 1, generatedAt: -1 });
 
 // Virtual for net amount
 reportSchema.virtual('netAmount').get(function() {

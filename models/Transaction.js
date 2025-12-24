@@ -8,6 +8,12 @@ const transactionSchema = new mongoose.Schema({
     required: [true, 'User is required'],
     index: true
   },
+  account: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    required: [true, 'Account is required'],
+    index: true
+  },
   document: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Document',
@@ -71,9 +77,10 @@ const transactionSchema = new mongoose.Schema({
 });
 
 // Compound indexes for common queries
-transactionSchema.index({ user: 1, transactionDate: -1 });
-transactionSchema.index({ user: 1, transactionType: 1, transactionDate: -1 });
-transactionSchema.index({ user: 1, category: 1 });
+transactionSchema.index({ account: 1, transactionDate: -1 });
+transactionSchema.index({ account: 1, transactionType: 1, transactionDate: -1 });
+transactionSchema.index({ account: 1, category: 1 });
+transactionSchema.index({ user: 1, account: 1, transactionDate: -1 });
 transactionSchema.index({ document: 1 });
 
 // Virtual for formatted amount

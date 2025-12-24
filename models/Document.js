@@ -7,6 +7,12 @@ const documentSchema = new mongoose.Schema({
     ref: 'User',
     required: [true, 'User is required']
   },
+  account: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    required: [true, 'Account is required'],
+    index: true
+  },
   documentType: {
     type: String,
     required: [true, 'Document type is required'],
@@ -56,7 +62,8 @@ const documentSchema = new mongoose.Schema({
 });
 
 // Index for faster queries
-documentSchema.index({ user: 1, createdAt: -1 });
+documentSchema.index({ account: 1, createdAt: -1 });
+documentSchema.index({ user: 1, account: 1, createdAt: -1 });
 documentSchema.index({ processingStatus: 1 });
 
 // Method to get file extension

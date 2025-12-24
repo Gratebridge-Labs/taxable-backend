@@ -78,10 +78,16 @@ class DocumentProcessor {
           .map(tx => tx.transactionDate.getFullYear())
           .filter((year, index, self) => self.indexOf(year) === index);
         
-        taxRecalculationService.recalculateTaxProfilesForYears(
-          document.user,
-          affectedYears
-        ).catch(err => console.error('Background tax recalculation error:', err));
+        // Get account from first transaction (all transactions from same document have same account)
+        const accountId = savedTransactions[0]?.account || document.account;
+        
+        if (accountId) {
+          taxRecalculationService.recalculateTaxProfilesForYears(
+            document.user,
+            accountId,
+            affectedYears
+          ).catch(err => console.error('Background tax recalculation error:', err));
+        }
       }
 
       return {
@@ -325,7 +331,7 @@ class DocumentProcessor {
   /**
    * Save transactions to database
    */
-  async saveTransactions(transactions, userId, documentId) {
+  async saveTransactions(transactions, userId, documentId, accountId) {
     const savedTransactions = [];
     
     for (const tx of transactions) {
@@ -333,6 +339,7 @@ class DocumentProcessor {
         // Check for duplicates (same date, amount, description)
         const existing = await Transaction.findOne({
           user: userId,
+          account: accountId,
           transactionDate: tx.transactionDate,
           amount: tx.amount,
           description: tx.description
@@ -341,6 +348,7 @@ class DocumentProcessor {
         if (!existing) {
           const transaction = await Transaction.create({
             user: userId,
+            account: accountId,
             document: documentId,
             ...tx
           });

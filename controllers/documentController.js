@@ -20,9 +20,18 @@ const uploadDocument = async (req, res) => {
       });
     }
 
+    // Require account context
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required. Provide accountId in query, body, or X-Account-ID header.'
+      });
+    }
+
     // Create document record
     const document = await Document.create({
       user: req.user._id,
+      account: req.account._id,
       documentType: documentType || TAX_CONSTANTS.DOCUMENT_TYPES.BANK_STATEMENT,
       fileName: file.originalname,
       filePath: file.path,
@@ -73,8 +82,16 @@ const getDocuments = async (req, res) => {
   try {
     const { documentType, status, page = 1, limit = 10 } = req.query;
     
+    // Require account context
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required'
+      });
+    }
+
     // Build query
-    const query = { user: req.user._id };
+    const query = { user: req.user._id, account: req.account._id };
     if (documentType) {
       query.documentType = documentType;
     }
@@ -124,9 +141,17 @@ const getDocument = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required'
+      });
+    }
+
     const document = await Document.findOne({
       _id: id,
-      user: req.user._id
+      user: req.user._id,
+      account: req.account._id
     });
 
     if (!document) {
@@ -156,9 +181,17 @@ const deleteDocument = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required'
+      });
+    }
+
     const document = await Document.findOne({
       _id: id,
-      user: req.user._id
+      user: req.user._id,
+      account: req.account._id
     });
 
     if (!document) {
@@ -248,9 +281,17 @@ const processDocument = async (req, res) => {
     const { id } = req.params;
 
     // Verify document belongs to user
+    if (!req.account) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account context is required'
+      });
+    }
+
     const document = await Document.findOne({
       _id: id,
-      user: req.user._id
+      user: req.user._id,
+      account: req.account._id
     });
 
     if (!document) {

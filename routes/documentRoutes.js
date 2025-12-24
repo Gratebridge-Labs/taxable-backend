@@ -9,10 +9,15 @@ const {
   processDocument
 } = require('../controllers/documentController');
 const authMiddleware = require('../middleware/authMiddleware');
+const { accountMiddleware } = require('../middleware/accountMiddleware');
 const { handleUpload } = require('../middleware/uploadMiddleware');
 
 // All routes require authentication
 router.use(authMiddleware);
+
+// All routes require account context (except upload which gets it from body)
+router.post('/upload', handleUpload, uploadDocument);
+router.use(accountMiddleware);
 
 // Upload document
 router.post('/upload', handleUpload, uploadDocument);

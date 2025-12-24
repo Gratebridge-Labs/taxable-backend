@@ -7,6 +7,12 @@ const taxProfileSchema = new mongoose.Schema({
     required: [true, 'User is required'],
     index: true
   },
+  account: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    required: [true, 'Account is required'],
+    index: true
+  },
   taxYear: {
     type: Number,
     required: [true, 'Tax year is required'],
@@ -52,11 +58,12 @@ const taxProfileSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Ensure one tax profile per user per year
-taxProfileSchema.index({ user: 1, taxYear: 1 }, { unique: true });
+// Ensure one tax profile per account per year
+taxProfileSchema.index({ account: 1, taxYear: 1 }, { unique: true });
 
 // Index for queries
-taxProfileSchema.index({ user: 1, taxYear: -1 });
+taxProfileSchema.index({ account: 1, taxYear: -1 });
+taxProfileSchema.index({ user: 1, account: 1, taxYear: -1 });
 
 // Virtual for weekly estimate
 taxProfileSchema.virtual('weeklyEstimate').get(function() {
