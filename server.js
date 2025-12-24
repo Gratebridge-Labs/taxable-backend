@@ -10,6 +10,8 @@ const documentRoutes = require('./routes/documentRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
 const taxProfileRoutes = require('./routes/taxProfileRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const tipRoutes = require('./routes/tipRoutes');
+const suggestionRoutes = require('./routes/suggestionRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -43,6 +45,8 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/tax-profiles', taxProfileRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/tips', tipRoutes);
+app.use('/api/suggestions', suggestionRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
