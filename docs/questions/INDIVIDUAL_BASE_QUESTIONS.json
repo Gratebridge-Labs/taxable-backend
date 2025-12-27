@@ -8,28 +8,27 @@
       "questionId": "IND_BASE_001",
       "order": 1,
       "category": "income_source",
-      "questionText": "What is your primary source of income?",
+      "questionText": "What are your sources of income?",
       "questionType": "multiple_choice",
       "required": true,
+      "allowMultiple": true,
       "options": [
         "Employment (Salary/Wages)",
         "Business/Self-Employment",
-        "Both Employment and Business",
-        "Investment Income Only",
-        "Rental Income Only",
-        "Other"
+        "Rental Income",
+        "Investment Income (dividends, interest, capital gains)",
+        "Other Income"
       ],
-      "explanation": "Your primary income source determines which forms and calculations apply. Employment income uses PAYE (Pay As You Earn), while business income requires detailed profit/loss tracking.",
-      "helpText": "Select your main source of income. If you have multiple sources, select the one that generates the most income.",
+      "explanation": "You can have multiple sources of income. Each source is taxed differently: Employment uses PAYE, business requires profit/loss tracking, rental income has specific deductions, and investment income may have withholding taxes. Select all that apply.",
+      "helpText": "Select ALL sources of income you have. You can select multiple options. For example, you can have employment income AND rental income at the same time.",
       "dependsOn": [],
       "profileType": ["Individual", "Joint_Spouse"],
       "conditionalQuestions": {
         "Employment (Salary/Wages)": ["IND_DET_EMPLOYMENT"],
         "Business/Self-Employment": ["IND_DET_BUSINESS"],
-        "Both Employment and Business": ["IND_DET_EMPLOYMENT", "IND_DET_BUSINESS"],
-        "Investment Income Only": ["IND_DET_INVESTMENT"],
-        "Rental Income Only": ["IND_DET_RENTAL"],
-        "Other": ["IND_DET_OTHER"]
+        "Rental Income": ["IND_DET_RENTAL"],
+        "Investment Income (dividends, interest, capital gains)": ["IND_DET_INVESTMENT"],
+        "Other Income": ["IND_DET_OTHER"]
       }
     },
     {
@@ -88,31 +87,6 @@
     {
       "questionId": "IND_BASE_004",
       "order": 4,
-      "category": "additional_income",
-      "questionText": "Do you have any additional sources of income?",
-      "questionType": "multiple_choice",
-      "required": false,
-      "options": [
-        "Rental income from properties",
-        "Investment income (dividends, interest, capital gains)",
-        "Other income sources",
-        "No additional income"
-      ],
-      "allowMultiple": true,
-      "explanation": "Additional income sources must be declared and may be taxed differently. Rental income and investment income have specific tax treatments.",
-      "helpText": "Select all that apply. Even if you selected a primary source above, you should declare all income sources.",
-      "dependsOn": ["IND_BASE_001"],
-      "profileType": ["Individual", "Joint_Spouse"],
-      "conditionalQuestions": {
-        "Rental income from properties": ["IND_DET_RENTAL_INCOME"],
-        "Investment income (dividends, interest, capital gains)": ["IND_DET_INVESTMENT_INCOME"],
-        "Other income sources": ["IND_DET_OTHER_INCOME"],
-        "No additional income": []
-      }
-    },
-    {
-      "questionId": "IND_BASE_005",
-      "order": 5,
       "category": "capital_gains",
       "questionText": "Did you sell or dispose of any assets during the tax year?",
       "questionType": "yes_no",
@@ -127,8 +101,8 @@
       }
     },
     {
-      "questionId": "IND_BASE_006",
-      "order": 6,
+      "questionId": "IND_BASE_005",
+      "order": 5,
       "category": "exemptions",
       "questionText": "Do any of these exemptions apply to you?",
       "questionType": "multiple_choice",

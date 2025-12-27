@@ -55,8 +55,10 @@ const createProfile = async (req, res) => {
     }
 
     // Create new profile
+    // Author is the authenticated user who creates the profile
     const profile = await TaxableProfile.create({
       user: userId,
+      author: userId, // Author is the authenticated user
       year: yearNum,
       profileType: profileType,
       status: 'draft'

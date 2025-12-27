@@ -36,6 +36,7 @@ const loadQuestions = (profileType) => {
 
 /**
  * Get base questions for a profile
+ * Returns ALL base questions at once (ordered by their order field)
  */
 const getBaseQuestions = async (req, res) => {
   try {
@@ -61,22 +62,22 @@ const getBaseQuestions = async (req, res) => {
       });
     }
 
-    // Get existing responses to determine which questions to show
+    // Get existing responses to show which are already answered
     const existingResponses = await QuestionResponse.find({ 
       profileId: profile._id 
     });
 
-    // Filter questions based on dependencies and existing responses
-    const availableQuestions = questions.baseQuestions.questions.filter(q => {
-      if (!q.dependsOn || q.dependsOn.length === 0) {
-        return true;
-      }
-      
-      // Check if all dependencies are answered
-      return q.dependsOn.every(depId => {
-        return existingResponses.some(resp => resp.questionId === depId);
+    // Return ALL base questions, sorted by order
+    const baseQuestions = questions.baseQuestions.questions
+      .sort((a, b) => (a.order || 0) - (b.order || 0))
+      .map(q => {
+        const existingResponse = existingResponses.find(r => r.questionId === q.questionId);
+        return {
+          ...q,
+          answered: !!existingResponse,
+          existingResponse: existingResponse ? existingResponse.response : null
+        };
       });
-    });
 
     res.status(200).json({
       success: true,
@@ -85,9 +86,14 @@ const getBaseQuestions = async (req, res) => {
         profileId: profile.profileId,
         profileType: profile.profileType,
         year: profile.year,
-        questions: availableQuestions,
-        totalQuestions: questions.baseQuestions.questions.length,
-        answeredQuestions: existingResponses.length
+        questions: baseQuestions,
+        totalQuestions: baseQuestions.length,
+        answeredQuestions: existingResponses.filter(r => 
+          baseQuestions.some(q => q.questionId === r.questionId)
+        ).length,
+        isComplete: existingResponses.filter(r => 
+          baseQuestions.some(q => q.questionId === r.questionId)
+        ).length === baseQuestions.length
       }
     });
 
@@ -102,7 +108,165 @@ const getBaseQuestions = async (req, res) => {
 };
 
 /**
- * Answer a question
+ * Answer all base questions at once
+ */
+const answerBaseQuestions = async (req, res) => {
+  try {
+    const { profileId } = req.params;
+    const { answers } = req.body; // Array of { questionId, response }
+
+    if (!answers || !Array.isArray(answers) || answers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Answers array is required and must not be empty'
+      });
+    }
+
+    const profile = await TaxableProfile.findOne({ 
+      profileId,
+      user: req.user.userId 
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    // Load questions to validate
+    const questions = loadQuestions(profile.profileType);
+    if (!questions) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error loading questions'
+      });
+    }
+
+    const baseQuestions = questions.baseQuestions.questions;
+    const allQuestions = [
+      ...baseQuestions,
+      ...Object.values(questions.detailedQuestions.questionSets).flatMap(set => set.questions || [])
+    ];
+
+    // Validate all answers
+    const savedResponses = [];
+    const errors = [];
+
+    for (const answer of answers) {
+      const { questionId, response } = answer;
+
+      if (!questionId || response === undefined) {
+        errors.push({
+          questionId: questionId || 'unknown',
+          error: 'Question ID and response are required'
+        });
+        continue;
+      }
+
+      // Check if it's a base question
+      const questionDef = allQuestions.find(q => q.questionId === questionId);
+      if (!questionDef) {
+        errors.push({
+          questionId,
+          error: 'Question not found'
+        });
+        continue;
+      }
+
+      // Check if it's actually a base question
+      const isBaseQuestion = baseQuestions.some(q => q.questionId === questionId);
+      if (!isBaseQuestion) {
+        errors.push({
+          questionId,
+          error: 'This is not a base question. Base questions must be answered first.'
+        });
+        continue;
+      }
+
+      // Validate response
+      const validationError = validateResponse(response, questionDef);
+      if (validationError) {
+        errors.push({
+          questionId,
+          error: validationError
+        });
+        continue;
+      }
+
+      // Save response
+      try {
+        const questionResponse = await QuestionResponse.findOneAndUpdate(
+          { 
+            profileId: profile._id,
+            questionId: questionId
+          },
+          {
+            profileId: profile._id,
+            questionId: questionId,
+            questionType: questionDef.questionType,
+            response: response,
+            tableData: questionDef.questionType === 'table' ? response : undefined,
+            updatedAt: Date.now()
+          },
+          { 
+            upsert: true, 
+            new: true 
+          }
+        );
+        savedResponses.push({
+          questionId,
+          responseId: questionResponse._id
+        });
+      } catch (saveError) {
+        errors.push({
+          questionId,
+          error: saveError.message
+        });
+      }
+    }
+
+    // Determine next questions based on all answers
+    const nextQuestions = [];
+    for (const answer of answers) {
+      const questionDef = allQuestions.find(q => q.questionId === answer.questionId);
+      if (questionDef && questionDef.conditionalQuestions) {
+        const conditionalQuestions = getNextQuestionsFromAnswer(questionDef, answer.response, questions);
+        nextQuestions.push(...conditionalQuestions);
+      }
+    }
+
+    // Remove duplicates
+    const uniqueNextQuestions = nextQuestions.filter((q, index, self) => 
+      index === self.findIndex(t => t.questionId === q.questionId)
+    );
+
+    res.status(200).json({
+      success: errors.length === 0,
+      message: errors.length === 0 
+        ? 'All base questions answered successfully' 
+        : 'Some questions failed to save',
+      data: {
+        savedResponses: savedResponses,
+        errors: errors.length > 0 ? errors : undefined,
+        nextQuestions: uniqueNextQuestions,
+        hasMoreQuestions: uniqueNextQuestions.length > 0,
+        baseQuestionsComplete: errors.length === 0
+      }
+    });
+
+  } catch (error) {
+    console.error('Answer base questions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error saving base question responses',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Answer a single question (for detailed questions after base questions)
  */
 const answerQuestion = async (req, res) => {
   try {
@@ -461,6 +625,34 @@ function validateResponse(response, questionDef) {
     return `${questionDef.questionText} is required`;
   }
 
+  // Validate multiple choice with allowMultiple
+  if (questionDef.questionType === 'multiple_choice') {
+    if (questionDef.allowMultiple) {
+      // When allowMultiple is true, response must be an array
+      if (!Array.isArray(response)) {
+        return `${questionDef.questionText} requires multiple selections. Please provide an array of selected options.`;
+      }
+      // Validate that all selected options are valid
+      if (response.length === 0 && questionDef.required) {
+        return `${questionDef.questionText} is required. Please select at least one option.`;
+      }
+      // Check if all selected options exist in the question's options
+      const invalidOptions = response.filter(opt => !questionDef.options.includes(opt));
+      if (invalidOptions.length > 0) {
+        return `Invalid option(s): ${invalidOptions.join(', ')}. Please select from the available options.`;
+      }
+    } else {
+      // When allowMultiple is false, response should be a single value
+      if (Array.isArray(response)) {
+        return `${questionDef.questionText} only allows a single selection. Please provide one option.`;
+      }
+      // Validate that the selected option exists in the question's options
+      if (response && !questionDef.options.includes(response)) {
+        return `Invalid option: ${response}. Please select from the available options.`;
+      }
+    }
+  }
+
   if (questionDef.questionType === 'number') {
     if (typeof response !== 'number' || isNaN(response)) {
       return 'Response must be a valid number';
@@ -517,6 +709,7 @@ function getConditionalQuestionIds(questionDef, response) {
 
 module.exports = {
   getBaseQuestions,
+  answerBaseQuestions,
   answerQuestion,
   getNextQuestions: getNextQuestionsEndpoint,
   getResponses,
