@@ -30,6 +30,20 @@ app.get('/', (req, res) => {
   });
 });
 
+// Welcome endpoint for testing
+app.get('/api/welcome', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Welcome to Taxable Backend API! 🎉',
+    version: '1.0.0',
+    status: 'running',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// API Routes
+app.use('/api/auth', require('./routes/authRoutes'));
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
