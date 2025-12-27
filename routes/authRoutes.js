@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const { register, verifyOTP } = require('../controllers/authController');
+const { register, verifyOTP, setup2FA, enable2FA, login } = require('../controllers/authController');
+const { authenticate } = require('../middleware/auth');
 
 // Validation rules for registration
 const registerValidation = [
@@ -49,11 +50,41 @@ const verifyOTPValidation = [
     .isNumeric().withMessage('OTP code must contain only numbers')
 ];
 
-// Register route
-router.post('/register', registerValidation, register);
+// Validation rules for login
+const loginValidation = [
+  body('email')
+    .trim()
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Please provide a valid email address')
+    .normalizeEmail(),
+  
+  body('password')
+    .notEmpty().withMessage('Password is required'),
+  
+  body('twoFactorCode')
+    .optional()
+    .trim()
+    .isLength({ min: 6, max: 6 }).withMessage('2FA code must be 6 digits')
+    .isNumeric().withMessage('2FA code must contain only numbers')
+];
 
-// Verify OTP route
+// Validation rules for enabling 2FA
+const enable2FAValidation = [
+  body('code')
+    .trim()
+    .notEmpty().withMessage('Verification code is required')
+    .isLength({ min: 6, max: 6 }).withMessage('Verification code must be 6 digits')
+    .isNumeric().withMessage('Verification code must contain only numbers')
+];
+
+// Public routes
+router.post('/register', registerValidation, register);
 router.post('/verify-otp', verifyOTPValidation, verifyOTP);
+router.post('/login', loginValidation, login);
+
+// Protected routes (require authentication)
+router.get('/setup-2fa', authenticate, setup2FA);
+router.post('/enable-2fa', authenticate, enable2FAValidation, enable2FA);
 
 module.exports = router;
 

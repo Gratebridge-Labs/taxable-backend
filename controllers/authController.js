@@ -1,7 +1,10 @@
 const User = require('../models/User');
 const OTP = require('../models/OTP');
 const { sendOTPEmail, sendWelcomeEmail } = require('../utils/emailService');
+const { generateToken } = require('../utils/jwt');
 const { validationResult } = require('express-validator');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 
 // Generate 6-digit OTP
 const generateOTP = () => {
@@ -188,6 +191,9 @@ const verifyOTP = async (req, res) => {
       // Continue with success response even if welcome email fails
     }
 
+    // Generate JWT token
+    const token = generateToken(user);
+
     res.status(200).json({
       success: true,
       message: 'Email verified successfully! Your account is now active.',
@@ -196,7 +202,8 @@ const verifyOTP = async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        emailVerified: user.emailVerified
+        emailVerified: user.emailVerified,
+        token: token
       }
     });
   } catch (error) {
@@ -209,8 +216,266 @@ const verifyOTP = async (req, res) => {
   }
 };
 
+/**
+ * Setup 2FA - Generate secret and QR code
+ * Requires authentication (user must be logged in)
+ */
+const setup2FA = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if email is verified
+    if (!user.emailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Please verify your email address before setting up 2FA'
+      });
+    }
+
+    // Check if 2FA is already enabled
+    if (user.twoFactorEnabled) {
+      return res.status(400).json({
+        success: false,
+        message: 'Two-factor authentication is already enabled'
+      });
+    }
+
+    // Generate a secret
+    const secret = speakeasy.generateSecret({
+      name: `Taxable (${user.email})`,
+      issuer: 'Taxable'
+    });
+
+    // Generate QR code
+    const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
+
+    // Store the secret temporarily (user needs to verify before enabling)
+    // We'll store it in the user model but mark 2FA as not enabled yet
+    user.twoFactorSecret = secret.base32;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: '2FA setup initiated. Scan the QR code with your authenticator app.',
+      data: {
+        secret: secret.base32, // For manual entry if QR code doesn't work
+        qrCode: qrCodeUrl, // Base64 encoded QR code image
+        manualEntryKey: secret.base32 // For manual entry
+      }
+    });
+  } catch (error) {
+    console.error('2FA setup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred during 2FA setup',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Enable 2FA - Verify the code and enable 2FA
+ * Requires authentication
+ */
+const enable2FA = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const userId = req.user?.userId;
+    const { code } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    const user = await User.findById(userId).select('+twoFactorSecret');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (!user.twoFactorSecret) {
+      return res.status(400).json({
+        success: false,
+        message: '2FA setup not initiated. Please setup 2FA first.'
+      });
+    }
+
+    if (user.twoFactorEnabled) {
+      return res.status(400).json({
+        success: false,
+        message: 'Two-factor authentication is already enabled'
+      });
+    }
+
+    // Verify the token
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token: code,
+      window: 2 // Allow 2 time steps (60 seconds) of drift
+    });
+
+    if (!verified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification code. Please try again.'
+      });
+    }
+
+    // Enable 2FA
+    user.twoFactorEnabled = true;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Two-factor authentication has been enabled successfully!',
+      data: {
+        twoFactorEnabled: user.twoFactorEnabled
+      }
+    });
+  } catch (error) {
+    console.error('Enable 2FA error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while enabling 2FA',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Login with email, password, and 2FA code
+ */
+const login = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { email, password, twoFactorCode } = req.body;
+
+    // Find user and include password for comparison
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+password +twoFactorSecret');
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    // Check if email is verified
+    if (!user.emailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Please verify your email address before logging in'
+      });
+    }
+
+    // Verify password
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    // If 2FA is enabled, verify the code
+    if (user.twoFactorEnabled) {
+      if (!twoFactorCode) {
+        return res.status(400).json({
+          success: false,
+          message: 'Two-factor authentication code is required'
+        });
+      }
+
+      if (!user.twoFactorSecret) {
+        return res.status(500).json({
+          success: false,
+          message: '2FA is enabled but secret is missing. Please contact support.'
+        });
+      }
+
+      const verified = speakeasy.totp.verify({
+        secret: user.twoFactorSecret,
+        encoding: 'base32',
+        token: twoFactorCode,
+        window: 2 // Allow 2 time steps (60 seconds) of drift
+      });
+
+      if (!verified) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid two-factor authentication code'
+        });
+      }
+    }
+
+    // Generate JWT token
+    const token = generateToken(user);
+
+    res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        userId: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        emailVerified: user.emailVerified,
+        twoFactorEnabled: user.twoFactorEnabled,
+        token: token
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred during login',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   register,
-  verifyOTP
+  verifyOTP,
+  setup2FA,
+  enable2FA,
+  login
 };
 
