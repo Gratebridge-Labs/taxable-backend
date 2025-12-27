@@ -43,6 +43,7 @@ app.get('/api/welcome', (req, res) => {
 
 // API Routes
 app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/taxableprofile', require('./routes/profileRoutes'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {
