@@ -1,0 +1,552 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2024-12-27",
+  "description": "FIRS tax form structures for auto-filling and generation",
+  "forms": {
+    "individualTaxReturn": {
+      "formCode": "ITF001",
+      "formName": "Individual Tax Return Form",
+      "basedOn": "Nigeria Tax Act 2025",
+      "sections": [
+        {
+          "section": "A - Personal Information",
+          "fields": [
+            {
+              "field": "surname",
+              "label": "Surname",
+              "mappedFrom": "personalInformation.lastName",
+              "required": true
+            },
+            {
+              "field": "firstName",
+              "label": "First Name",
+              "mappedFrom": "personalInformation.firstName",
+              "required": true
+            },
+            {
+              "field": "middleName",
+              "label": "Middle Name",
+              "mappedFrom": "personalInformation.middleName",
+              "required": false
+            },
+            {
+              "field": "dateOfBirth",
+              "label": "Date of Birth",
+              "mappedFrom": "personalInformation.dateOfBirth",
+              "required": true
+            },
+            {
+              "field": "nin",
+              "label": "National Identification Number (NIN)",
+              "mappedFrom": "primaryNIN",
+              "required": true,
+              "validation": "^[0-9]{11}$"
+            },
+            {
+              "field": "tin",
+              "label": "Tax Identification Number (TIN)",
+              "mappedFrom": "primaryTIN",
+              "required": false,
+              "validation": "^[0-9]{10,12}$"
+            },
+            {
+              "field": "residentialAddress",
+              "label": "Residential Address",
+              "mappedFrom": "personalInformation.residentialAddress",
+              "required": true
+            },
+            {
+              "field": "phoneNumber",
+              "label": "Phone Number",
+              "mappedFrom": "personalInformation.phoneNumber",
+              "required": true
+            },
+            {
+              "field": "email",
+              "label": "Email Address",
+              "mappedFrom": "personalInformation.email",
+              "required": true
+            },
+            {
+              "field": "occupation",
+              "label": "Occupation",
+              "mappedFrom": "personalInformation.occupation",
+              "required": true
+            },
+            {
+              "field": "maritalStatus",
+              "label": "Marital Status",
+              "mappedFrom": "personalInformation.maritalStatus",
+              "required": true
+            }
+          ]
+        },
+        {
+          "section": "B - Employment Income",
+          "fields": [
+            {
+              "field": "employerName",
+              "label": "Employer Name",
+              "mappedFrom": "employmentDetails.employerName",
+              "required": false
+            },
+            {
+              "field": "employerTIN",
+              "label": "Employer TIN",
+              "mappedFrom": "employmentDetails.employerTIN",
+              "required": false
+            },
+            {
+              "field": "grossSalary",
+              "label": "Gross Salary",
+              "mappedFrom": "employmentDetails.annualGrossSalary",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "basicSalary",
+              "label": "Basic Salary",
+              "mappedFrom": "employmentDetails.basicSalary",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "housingAllowance",
+              "label": "Housing Allowance",
+              "mappedFrom": "employmentDetails.housingAllowance",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "transportAllowance",
+              "label": "Transport Allowance",
+              "mappedFrom": "employmentDetails.transportAllowance",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "payeDeducted",
+              "label": "PAYE Deducted",
+              "mappedFrom": "employmentDetails.payeDeducted",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "benefitsInKind",
+              "label": "Benefits-in-Kind",
+              "mappedFrom": "employmentDetails.benefitsInKind",
+              "required": false,
+              "type": "currency",
+              "isArray": true
+            }
+          ]
+        },
+        {
+          "section": "C - Business Income",
+          "fields": [
+            {
+              "field": "businessName",
+              "label": "Business Name",
+              "mappedFrom": "businessDetails.businessName",
+              "required": false
+            },
+            {
+              "field": "businessIncome",
+              "label": "Business Income",
+              "mappedFrom": "businessDetails.annualBusinessIncome",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "businessExpenses",
+              "label": "Business Expenses",
+              "mappedFrom": "businessDetails.businessExpenses",
+              "required": false,
+              "type": "currency",
+              "isArray": true
+            },
+            {
+              "field": "assessableProfit",
+              "label": "Assessable Profit",
+              "mappedFrom": "calculated.businessProfit",
+              "required": false,
+              "type": "currency",
+              "autoCalculated": true
+            }
+          ]
+        },
+        {
+          "section": "D - Rental Income",
+          "fields": [
+            {
+              "field": "rentalIncome",
+              "label": "Rental Income",
+              "mappedFrom": "rentalIncome.totalRentalIncome",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "rentalExpenses",
+              "label": "Rental Expenses",
+              "mappedFrom": "rentalIncome.totalRentalExpenses",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "netRentalIncome",
+              "label": "Net Rental Income",
+              "mappedFrom": "calculated.netRentalIncome",
+              "required": false,
+              "type": "currency",
+              "autoCalculated": true
+            }
+          ]
+        },
+        {
+          "section": "E - Investment Income",
+          "fields": [
+            {
+              "field": "dividends",
+              "label": "Dividends",
+              "mappedFrom": "investmentIncome.dividends",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "interest",
+              "label": "Interest",
+              "mappedFrom": "investmentIncome.interest",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "capitalGains",
+              "label": "Capital Gains",
+              "mappedFrom": "capitalGains.totalCapitalGains",
+              "required": false,
+              "type": "currency"
+            }
+          ]
+        },
+        {
+          "section": "F - Eligible Deductions",
+          "fields": [
+            {
+              "field": "nhfContribution",
+              "label": "NHF Contribution",
+              "mappedFrom": "deductions.nhfContribution",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "nhisContribution",
+              "label": "NHIS Contribution",
+              "mappedFrom": "deductions.nhisContribution",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "pensionContribution",
+              "label": "Pension Contribution",
+              "mappedFrom": "deductions.pensionContribution",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "lifeInsurance",
+              "label": "Life Insurance Premium",
+              "mappedFrom": "deductions.lifeInsurancePremium",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "mortgageInterest",
+              "label": "Mortgage Interest",
+              "mappedFrom": "deductions.mortgageInterest",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "rentRelief",
+              "label": "Rent Relief",
+              "mappedFrom": "deductions.rentRelief",
+              "required": false,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "totalDeductions",
+              "label": "Total Eligible Deductions",
+              "mappedFrom": "calculated.totalDeductions",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            }
+          ]
+        },
+        {
+          "section": "G - Tax Calculation",
+          "fields": [
+            {
+              "field": "totalIncome",
+              "label": "Total Income",
+              "mappedFrom": "calculated.totalIncome",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "chargeableIncome",
+              "label": "Chargeable Income",
+              "mappedFrom": "calculated.chargeableIncome",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "taxCalculated",
+              "label": "Tax Calculated",
+              "mappedFrom": "calculated.taxCalculated",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "payeDeducted",
+              "label": "PAYE Already Deducted",
+              "mappedFrom": "employmentDetails.payeDeducted",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "taxWithheldAtSource",
+              "label": "Tax Withheld at Source",
+              "mappedFrom": "calculated.taxWithheldAtSource",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "finalTaxPayable",
+              "label": "Final Tax Payable/Refund",
+              "mappedFrom": "calculated.finalTaxLiability",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            }
+          ]
+        }
+      ]
+    },
+    "companyTaxReturn": {
+      "formCode": "CTF001",
+      "formName": "Company Tax Return Form",
+      "basedOn": "Nigeria Tax Act 2025",
+      "sections": [
+        {
+          "section": "A - Company Information",
+          "fields": [
+            {
+              "field": "companyName",
+              "label": "Company Name",
+              "mappedFrom": "businessInformation.businessName",
+              "required": true
+            },
+            {
+              "field": "registeredName",
+              "label": "Registered Name",
+              "mappedFrom": "businessInformation.registeredName",
+              "required": false
+            },
+            {
+              "field": "businessTIN",
+              "label": "Business TIN",
+              "mappedFrom": "primaryTIN",
+              "required": true,
+              "validation": "^[0-9]{10,12}$"
+            },
+            {
+              "field": "cacRegistrationNumber",
+              "label": "CAC Registration Number",
+              "mappedFrom": "businessInformation.cacRegistrationNumber",
+              "required": false
+            },
+            {
+              "field": "businessAddress",
+              "label": "Business Address",
+              "mappedFrom": "businessInformation.businessAddress",
+              "required": true
+            },
+            {
+              "field": "businessType",
+              "label": "Business Type",
+              "mappedFrom": "businessDetails.businessType",
+              "required": true
+            },
+            {
+              "field": "commencementDate",
+              "label": "Date of Commencement",
+              "mappedFrom": "businessInformation.commencementDate",
+              "required": true
+            }
+          ]
+        },
+        {
+          "section": "B - Income",
+          "fields": [
+            {
+              "field": "turnover",
+              "label": "Total Turnover/Revenue",
+              "mappedFrom": "businessIncome.totalTurnover",
+              "required": true,
+              "type": "currency"
+            },
+            {
+              "field": "otherIncome",
+              "label": "Other Income",
+              "mappedFrom": "businessIncome.otherIncome",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "totalIncome",
+              "label": "Total Income",
+              "mappedFrom": "calculated.totalIncome",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            }
+          ]
+        },
+        {
+          "section": "C - Expenses",
+          "fields": [
+            {
+              "field": "operatingExpenses",
+              "label": "Operating Expenses",
+              "mappedFrom": "businessExpenses.totalOperatingExpenses",
+              "required": true,
+              "type": "currency",
+              "isArray": true
+            },
+            {
+              "field": "capitalAllowances",
+              "label": "Capital Allowances",
+              "mappedFrom": "calculated.totalCapitalAllowances",
+              "required": false,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "rdDeduction",
+              "label": "R&D Deduction (max 5% of turnover)",
+              "mappedFrom": "calculated.rdDeduction",
+              "required": false,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "donationDeduction",
+              "label": "Donation Deduction (max 10% of profit)",
+              "mappedFrom": "calculated.donationDeduction",
+              "required": false,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "totalExpenses",
+              "label": "Total Expenses",
+              "mappedFrom": "calculated.totalExpenses",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            }
+          ]
+        },
+        {
+          "section": "D - Profit Calculation",
+          "fields": [
+            {
+              "field": "assessableProfit",
+              "label": "Assessable Profit",
+              "mappedFrom": "calculated.assessableProfit",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "isSmallCompany",
+              "label": "Small Company Status",
+              "mappedFrom": "calculated.isSmallCompany",
+              "required": true,
+              "type": "boolean",
+              "autoCalculated": true
+            }
+          ]
+        },
+        {
+          "section": "E - Tax Calculation",
+          "fields": [
+            {
+              "field": "companyTaxRate",
+              "label": "Tax Rate",
+              "mappedFrom": "calculated.companyTaxRate",
+              "required": true,
+              "type": "percentage",
+              "autoCalculated": true
+            },
+            {
+              "field": "companyTax",
+              "label": "Company Income Tax",
+              "mappedFrom": "calculated.companyTax",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "developmentLevy",
+              "label": "Development Levy (4%)",
+              "mappedFrom": "calculated.developmentLevy",
+              "required": false,
+              "type": "currency",
+              "autoCalculated": true
+            },
+            {
+              "field": "totalTaxPayable",
+              "label": "Total Tax Payable",
+              "mappedFrom": "calculated.totalTaxPayable",
+              "required": true,
+              "type": "currency",
+              "autoCalculated": true
+            }
+          ]
+        },
+        {
+          "section": "F - Employees",
+          "fields": [
+            {
+              "field": "numberOfEmployees",
+              "label": "Number of Employees",
+              "mappedFrom": "employees.numberOfEmployees",
+              "required": false
+            },
+            {
+              "field": "totalPayroll",
+              "label": "Total Payroll",
+              "mappedFrom": "employees.totalPayroll",
+              "required": false,
+              "type": "currency"
+            },
+            {
+              "field": "payeRemitted",
+              "label": "PAYE Remitted",
+              "mappedFrom": "employees.payeRemitted",
+              "required": false,
+              "type": "currency"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+

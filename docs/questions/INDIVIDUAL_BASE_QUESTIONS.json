@@ -1,0 +1,158 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2024-12-27",
+  "basedOn": "Nigeria Tax Act 2025",
+  "description": "Base questions that determine the flow of subsequent detailed questions. These are qualifying questions that lead to specific income/deduction collection paths.",
+  "questions": [
+    {
+      "questionId": "IND_BASE_001",
+      "order": 1,
+      "category": "income_source",
+      "questionText": "What is your primary source of income?",
+      "questionType": "multiple_choice",
+      "required": true,
+      "options": [
+        "Employment (Salary/Wages)",
+        "Business/Self-Employment",
+        "Both Employment and Business",
+        "Investment Income Only",
+        "Rental Income Only",
+        "Other"
+      ],
+      "explanation": "Your primary income source determines which forms and calculations apply. Employment income uses PAYE (Pay As You Earn), while business income requires detailed profit/loss tracking.",
+      "helpText": "Select your main source of income. If you have multiple sources, select the one that generates the most income.",
+      "dependsOn": [],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": {
+        "Employment (Salary/Wages)": ["IND_DET_EMPLOYMENT"],
+        "Business/Self-Employment": ["IND_DET_BUSINESS"],
+        "Both Employment and Business": ["IND_DET_EMPLOYMENT", "IND_DET_BUSINESS"],
+        "Investment Income Only": ["IND_DET_INVESTMENT"],
+        "Rental Income Only": ["IND_DET_RENTAL"],
+        "Other": ["IND_DET_OTHER"]
+      }
+    },
+    {
+      "questionId": "IND_BASE_002",
+      "order": 2,
+      "category": "housing",
+      "questionText": "What is your housing situation?",
+      "questionType": "multiple_choice",
+      "required": true,
+      "options": [
+        "I rent accommodation",
+        "I own my home (with mortgage)",
+        "I own my home (no mortgage)",
+        "I live in employer-provided accommodation",
+        "I live with family (no rent)"
+      ],
+      "explanation": "Your housing situation determines if you can claim rent relief (20% of rent, max ₦500,000) or mortgage interest deductions. Rent relief is a deduction that reduces your taxable income.",
+      "helpText": "Select the option that best describes your current housing arrangement.",
+      "dependsOn": ["IND_BASE_001"],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": {
+        "I rent accommodation": ["IND_DET_RENT"],
+        "I own my home (with mortgage)": ["IND_DET_MORTGAGE"],
+        "I own my home (no mortgage)": [],
+        "I live in employer-provided accommodation": [],
+        "I live with family (no rent)": []
+      }
+    },
+    {
+      "questionId": "IND_BASE_003",
+      "order": 3,
+      "category": "deductions",
+      "questionText": "Do you contribute to any of the following?",
+      "questionType": "multiple_choice",
+      "required": true,
+      "options": [
+        "National Housing Fund (NHF)",
+        "National Health Insurance Scheme (NHIS)",
+        "Pension Scheme (RSA)",
+        "Life Insurance",
+        "None of the above"
+      ],
+      "allowMultiple": true,
+      "explanation": "Contributions to NHF, NHIS, Pension, and Life Insurance are tax-deductible, meaning they reduce your taxable income. You can select multiple options if you contribute to more than one.",
+      "helpText": "Select all that apply. These contributions can reduce the tax you pay.",
+      "dependsOn": ["IND_BASE_001"],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": {
+        "National Housing Fund (NHF)": ["IND_DET_NHF"],
+        "National Health Insurance Scheme (NHIS)": ["IND_DET_NHIS"],
+        "Pension Scheme (RSA)": ["IND_DET_PENSION"],
+        "Life Insurance": ["IND_DET_LIFE_INSURANCE"],
+        "None of the above": []
+      }
+    },
+    {
+      "questionId": "IND_BASE_004",
+      "order": 4,
+      "category": "additional_income",
+      "questionText": "Do you have any additional sources of income?",
+      "questionType": "multiple_choice",
+      "required": false,
+      "options": [
+        "Rental income from properties",
+        "Investment income (dividends, interest, capital gains)",
+        "Other income sources",
+        "No additional income"
+      ],
+      "allowMultiple": true,
+      "explanation": "Additional income sources must be declared and may be taxed differently. Rental income and investment income have specific tax treatments.",
+      "helpText": "Select all that apply. Even if you selected a primary source above, you should declare all income sources.",
+      "dependsOn": ["IND_BASE_001"],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": {
+        "Rental income from properties": ["IND_DET_RENTAL_INCOME"],
+        "Investment income (dividends, interest, capital gains)": ["IND_DET_INVESTMENT_INCOME"],
+        "Other income sources": ["IND_DET_OTHER_INCOME"],
+        "No additional income": []
+      }
+    },
+    {
+      "questionId": "IND_BASE_005",
+      "order": 5,
+      "category": "capital_gains",
+      "questionText": "Did you sell or dispose of any assets during the tax year?",
+      "questionType": "yes_no",
+      "required": true,
+      "explanation": "Capital gains tax applies when you sell assets like property, shares, or other investments. Some disposals are exempt (like principal residence once in lifetime, or personal chattels under ₦5M).",
+      "helpText": "Answer 'Yes' if you sold any property, shares, vehicles, or other valuable assets during the tax year.",
+      "dependsOn": ["IND_BASE_001"],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": {
+        "yes": ["IND_DET_CAPITAL_GAINS"],
+        "no": []
+      }
+    },
+    {
+      "questionId": "IND_BASE_006",
+      "order": 6,
+      "category": "exemptions",
+      "questionText": "Do any of these exemptions apply to you?",
+      "questionType": "multiple_choice",
+      "required": false,
+      "options": [
+        "I earn minimum wage or less",
+        "I work in agricultural business (first 5 years)",
+        "I am a military officer",
+        "I work in a combat zone or hazardous area",
+        "None of the above"
+      ],
+      "allowMultiple": true,
+      "explanation": "Certain individuals and income types are exempt from tax. Minimum wage earners, agricultural businesses (first 5 years), and military officers have specific exemptions.",
+      "helpText": "Select all that apply. These exemptions may reduce or eliminate your tax liability.",
+      "dependsOn": ["IND_BASE_001"],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": {
+        "I earn minimum wage or less": [],
+        "I work in agricultural business (first 5 years)": ["IND_DET_AGRICULTURAL"],
+        "I am a military officer": [],
+        "I work in a combat zone or hazardous area": [],
+        "None of the above": []
+      }
+    }
+  ],
+  "note": "After these base questions, the system will ask detailed questions based on the answers. NIN/TIN collection happens after base questions are completed, before detailed income/deduction collection."
+}

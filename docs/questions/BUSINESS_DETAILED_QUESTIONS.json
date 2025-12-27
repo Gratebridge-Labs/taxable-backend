@@ -1,0 +1,541 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2024-12-27",
+  "basedOn": "Nigeria Tax Act 2025",
+  "description": "Detailed questions for collecting actual business data needed for tax filing",
+  "questionSets": {
+    "businessInformation": {
+      "triggeredBy": "After business base questions, before TIN",
+      "questions": [
+        {
+          "questionId": "BUS_DET_INFO_001",
+          "category": "business_info",
+          "questionText": "What is your business name?",
+          "questionType": "text",
+          "required": true,
+          "explanation": "Your business name as registered with CAC or as you operate it."
+        },
+        {
+          "questionId": "BUS_DET_INFO_002",
+          "category": "business_info",
+          "questionText": "What is your business registered name (if different)?",
+          "questionType": "text",
+          "required": false,
+          "explanation": "If your business is registered with CAC, enter the registered name."
+        },
+        {
+          "questionId": "BUS_DET_INFO_003",
+          "category": "business_info",
+          "questionText": "What is your business address?",
+          "questionType": "address",
+          "required": true,
+          "explanation": "The principal place of business."
+        },
+        {
+          "questionId": "BUS_DET_INFO_004",
+          "category": "business_info",
+          "questionText": "What is your business phone number?",
+          "questionType": "text",
+          "required": true,
+          "validation": {
+            "pattern": "^[0-9]{10,11}$"
+          }
+        },
+        {
+          "questionId": "BUS_DET_INFO_005",
+          "category": "business_info",
+          "questionText": "What is your business email address?",
+          "questionType": "email",
+          "required": true
+        },
+        {
+          "questionId": "BUS_DET_INFO_006",
+          "category": "business_info",
+          "questionText": "What is your business website (if any)?",
+          "questionType": "url",
+          "required": false
+        },
+        {
+          "questionId": "BUS_DET_INFO_007",
+          "category": "business_info",
+          "questionText": "When did your business commence operations?",
+          "questionType": "date",
+          "required": true,
+          "explanation": "The date your business started operating. This affects tax calculations for new businesses."
+        }
+      ]
+    },
+    "businessIncome": {
+      "triggeredBy": "BUS_BASE_003",
+      "questions": [
+        {
+          "questionId": "BUS_DET_INCOME_001",
+          "category": "income",
+          "questionText": "What is your total business revenue (turnover) for the tax year?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "Your total business income/revenue before expenses. This determines if you qualify as a small company (≤₦50M).",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "BUS_DET_INCOME_002",
+          "category": "income",
+          "questionText": "What are your revenue sources?",
+          "questionType": "table",
+          "required": true,
+          "explanation": "Break down your revenue by source. This helps determine tax treatment (e.g., exports may be exempt).",
+          "columns": [
+            {
+              "field": "source",
+              "label": "Revenue Source",
+              "type": "select",
+              "options": [
+                "Sale of Goods",
+                "Provision of Services",
+                "Rental Income",
+                "Consulting",
+                "Manufacturing",
+                "Trading",
+                "Export",
+                "Other"
+              ]
+            },
+            {
+              "field": "amount",
+              "label": "Amount (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "description",
+              "label": "Description",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "questionId": "BUS_DET_INCOME_003",
+          "category": "income",
+          "questionText": "Do you have any other income (dividends, interest, etc.)?",
+          "questionType": "yes_no",
+          "required": true,
+          "conditionalQuestions": {
+            "yes": ["BUS_DET_INCOME_004"]
+          }
+        },
+        {
+          "questionId": "BUS_DET_INCOME_004",
+          "category": "income",
+          "questionText": "What other income do you have?",
+          "questionType": "table",
+          "required": true,
+          "dependsOn": ["BUS_DET_INCOME_003"],
+          "columns": [
+            {
+              "field": "incomeType",
+              "label": "Income Type",
+              "type": "select",
+              "options": [
+                "Dividends",
+                "Interest",
+                "Rental Income",
+                "Capital Gains",
+                "Other"
+              ]
+            },
+            {
+              "field": "amount",
+              "label": "Amount (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "description",
+              "label": "Description",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    "businessExpenses": {
+      "triggeredBy": "BUS_BASE_004",
+      "questions": [
+        {
+          "questionId": "BUS_DET_EXPENSES_001",
+          "category": "expenses",
+          "questionText": "What are your business expenses?",
+          "questionType": "table",
+          "required": true,
+          "explanation": "Business expenses are fully deductible if incurred wholly and exclusively for business purposes. Enter all expenses by category.",
+          "columns": [
+            {
+              "field": "expenseCategory",
+              "label": "Expense Category",
+              "type": "select",
+              "options": [
+                "Rent and Lease",
+                "Utilities (Electricity, Water, Internet)",
+                "Salaries and Wages",
+                "Office Supplies",
+                "Marketing and Advertising",
+                "Professional Services",
+                "Transportation",
+                "Insurance",
+                "Repairs and Maintenance",
+                "Interest on Business Loans",
+                "Bad Debts",
+                "Research and Development",
+                "Pension Contributions (for employees)",
+                "NHF Contributions (for employees)",
+                "Other"
+              ]
+            },
+            {
+              "field": "amount",
+              "label": "Amount (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "description",
+              "label": "Description",
+              "type": "text"
+            },
+            {
+              "field": "period",
+              "label": "Period",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "questionId": "BUS_DET_EXPENSES_002",
+          "category": "expenses",
+          "questionText": "What is your total research and development expenditure?",
+          "questionType": "number",
+          "required": false,
+          "explanation": "R&D expenses can be deducted up to 5% of turnover. Enter your total R&D expenditure.",
+          "autoCalculate": {
+            "enabled": false,
+            "maxLimit": {
+              "formula": "turnover * 0.05",
+              "message": "Maximum R&D deduction is 5% of turnover (₦{maxValue}). Your expenditure of ₦{value} exceeds this limit. Only ₦{maxValue} will be deductible.",
+              "dependsOn": ["BUS_DET_INCOME_001"]
+            },
+            "claimableAmount": {
+              "formula": "Math.min(rdExpenditure, turnover * 0.05)",
+              "message": "Claimable R&D Deduction: ₦{value} (lower of actual expenditure or 5% of turnover)"
+            }
+          },
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "BUS_DET_EXPENSES_003",
+          "category": "expenses",
+          "questionText": "What donations did you make to qualifying institutions?",
+          "questionType": "table",
+          "required": false,
+          "explanation": "Donations to public funds, charities, educational institutions, etc. can be deducted up to 10% of profit before tax.",
+          "columns": [
+            {
+              "field": "recipient",
+              "label": "Recipient Name",
+              "type": "text"
+            },
+            {
+              "field": "recipientType",
+              "label": "Recipient Type",
+              "type": "select",
+              "options": [
+                "Public Fund",
+                "Statutory Body",
+                "Religious Institution",
+                "Charitable Institution",
+                "Educational Institution",
+                "Scientific Institution",
+                "Pandemic/Emergency Intervention",
+                "Other"
+              ]
+            },
+            {
+              "field": "amount",
+              "label": "Amount (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "date",
+              "label": "Date",
+              "type": "date"
+            }
+          ]
+        }
+      ]
+    },
+    "capitalAssets": {
+      "triggeredBy": "BUS_BASE_004 includes Capital assets",
+      "questions": [
+        {
+          "questionId": "BUS_DET_CAPITAL_001",
+          "category": "capital_assets",
+          "questionText": "What capital assets does your business own?",
+          "questionType": "table",
+          "required": true,
+          "explanation": "Capital assets qualify for capital allowances: 10% (buildings), 20% (plant/equipment), 25% (vehicles/software).",
+          "columns": [
+            {
+              "field": "assetClass",
+              "label": "Asset Class",
+              "type": "select",
+              "options": [
+                "Building",
+                "Plant and Machinery",
+                "Motor Vehicle",
+                "Furniture and Fittings",
+                "Software",
+                "Agricultural Equipment",
+                "Mining Equipment",
+                "Other Equipment"
+              ]
+            },
+            {
+              "field": "description",
+              "label": "Description",
+              "type": "text"
+            },
+            {
+              "field": "cost",
+              "label": "Cost (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "dateAcquired",
+              "label": "Date Acquired",
+              "type": "date"
+            },
+            {
+              "field": "isNew",
+              "label": "Is this a new asset?",
+              "type": "yes_no"
+            },
+            {
+              "field": "previousAllowance",
+              "label": "Capital Allowance Claimed Previously (₦)",
+              "type": "number",
+              "validation": {"min": 0},
+              "helpText": "If this asset was acquired before 2025, enter total allowances claimed previously"
+            }
+          ]
+        }
+      ]
+    },
+    "employees": {
+      "triggeredBy": "BUS_BASE_005 = Yes",
+      "questions": [
+        {
+          "questionId": "BUS_DET_EMPLOYEES_001",
+          "category": "employees",
+          "questionText": "How many employees do you have?",
+          "questionType": "number",
+          "required": true,
+          "validation": {
+            "min": 1
+          }
+        },
+        {
+          "questionId": "BUS_DET_EMPLOYEES_002",
+          "category": "employees",
+          "questionText": "What is your total payroll (salaries and wages)?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "Total amount paid to employees as salaries and wages. This is deductible as a business expense.",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "BUS_DET_EMPLOYEES_003",
+          "category": "employees",
+          "questionText": "How much PAYE did you deduct and remit?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "As an employer, you must deduct PAYE from employee salaries and remit to FIRS.",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "BUS_DET_EMPLOYEES_004",
+          "category": "employees",
+          "questionText": "How much pension contributions did you make for employees?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "Employer pension contributions are deductible business expenses.",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "BUS_DET_EMPLOYEES_005",
+          "category": "employees",
+          "questionText": "How much NHF contributions did you make for employees?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "NHF contributions (2.5% of basic salary) are mandatory for employees earning above ₦30,000/month.",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        }
+      ]
+    },
+    "smallCompanyDetails": {
+      "triggeredBy": "BUS_BASE_002 = Small Company",
+      "questions": [
+        {
+          "questionId": "BUS_DET_SMALL_001",
+          "category": "small_company",
+          "questionText": "What is your total fixed assets value?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "To qualify as a small company, fixed assets must not exceed ₦250 million.",
+          "autoCalculate": {
+            "enabled": false,
+            "qualificationCheck": {
+              "formula": "(turnover <= 50000000) && (fixedAssets <= 250000000) && (!isProfessionalServices)",
+              "dependsOn": ["BUS_DET_INCOME_001", "BUS_DET_SMALL_002"],
+              "message": {
+                "qualified": "✓ Qualifies as Small Company - Tax Rate: 0%",
+                "notQualified": "✗ Does not qualify as Small Company - Tax Rate: 30%",
+                "reasons": {
+                  "turnover": "Turnover exceeds ₦50M",
+                  "fixedAssets": "Fixed assets exceed ₦250M",
+                  "professionalServices": "Professional services businesses cannot be small companies"
+                }
+              }
+            }
+          },
+          "validation": {
+            "min": 0,
+            "max": 250000000,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "BUS_DET_SMALL_002",
+          "category": "small_company",
+          "questionText": "Are you engaged in professional services?",
+          "questionType": "yes_no",
+          "required": true,
+          "explanation": "Professional services businesses (law, accounting, consulting, etc.) cannot be classified as small companies, even if turnover is ≤₦50M.",
+          "conditionalQuestions": {
+            "yes": []
+          }
+        }
+      ]
+    },
+    "agriculturalBusiness": {
+      "triggeredBy": "BUS_BASE_003 includes Agricultural Business",
+      "questions": [
+        {
+          "questionId": "BUS_DET_AGRIC_001",
+          "category": "agricultural",
+          "questionText": "What agricultural activities do you engage in?",
+          "questionType": "multiple_choice",
+          "required": true,
+          "allowMultiple": true,
+          "options": [
+            "Crop Production",
+            "Livestock",
+            "Aquaculture",
+            "Forestry",
+            "Dairy",
+            "Other"
+          ],
+          "explanation": "Agricultural businesses are exempt from tax for the first 5 years upon commencement."
+        },
+        {
+          "questionId": "BUS_DET_AGRIC_002",
+          "category": "agricultural",
+          "questionText": "When did your agricultural business commence?",
+          "questionType": "date",
+          "required": true,
+          "explanation": "The 5-year exemption period starts from business commencement date."
+        },
+        {
+          "questionId": "BUS_DET_AGRIC_003",
+          "category": "agricultural",
+          "questionText": "What is your agricultural income?",
+          "questionType": "number",
+          "required": true,
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        }
+      ]
+    },
+    "exportBusiness": {
+      "triggeredBy": "BUS_BASE_003 includes Export",
+      "questions": [
+        {
+          "questionId": "BUS_DET_EXPORT_001",
+          "category": "export",
+          "questionText": "What is your export revenue?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "Export income may be exempt from tax if proceeds are repatriated through official channels.",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "BUS_DET_EXPORT_002",
+          "category": "export",
+          "questionText": "Were export proceeds repatriated through official channels?",
+          "questionType": "yes_no",
+          "required": true,
+          "explanation": "Export income is only exempt if proceeds are repatriated through official channels (banks, etc.)."
+        },
+        {
+          "questionId": "BUS_DET_EXPORT_003",
+          "category": "export",
+          "questionText": "What products/services did you export?",
+          "questionType": "table",
+          "required": true,
+          "columns": [
+            {
+              "field": "product",
+              "label": "Product/Service",
+              "type": "text"
+            },
+            {
+              "field": "amount",
+              "label": "Amount (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "destination",
+              "label": "Destination Country",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+

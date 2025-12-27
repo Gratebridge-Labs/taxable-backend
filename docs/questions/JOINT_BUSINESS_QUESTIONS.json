@@ -1,0 +1,47 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2024-12-27",
+  "basedOn": "Nigeria Tax Act 2025",
+  "description": "Joint business base questions - these determine the flow for business partners",
+  "note": "After these base questions, business base questions are answered, then NIN/TIN is collected for all partners",
+  "questions": [
+    {
+      "questionId": "JBUS_BASE_001",
+      "order": 1,
+      "category": "partnership_structure",
+      "questionText": "How many business partners are involved?",
+      "questionType": "number",
+      "required": true,
+      "explanation": "A joint business filing includes multiple partners or stakeholders. Each partner's share of income and expenses needs to be tracked separately for accurate tax calculations.",
+      "helpText": "Enter the number of partners or stakeholders in this business.",
+      "dependsOn": [],
+      "profileType": ["Joint_Business"],
+      "validation": {
+        "min": 2,
+        "max": 10,
+        "errorMessage": "Must have between 2 and 10 partners"
+      },
+      "conditionalQuestions": {}
+    },
+    {
+      "questionId": "JBUS_BASE_002",
+      "order": 2,
+      "category": "profit_sharing",
+      "questionText": "How is profit/loss shared among partners?",
+      "questionType": "multiple_choice",
+      "required": true,
+      "options": [
+        "Equal shares (50/50 or equal for all)",
+        "Based on capital contribution",
+        "Based on partnership agreement",
+        "Other arrangement"
+      ],
+      "explanation": "Partnership profit sharing determines how income and expenses are allocated to each partner for tax purposes. Each partner is taxed on their share of the business income.",
+      "helpText": "Select how profits and losses are divided among the partners.",
+      "dependsOn": ["JBUS_BASE_001"],
+      "profileType": ["Joint_Business"],
+      "conditionalQuestions": {}
+    }
+  ],
+  "note_after_base": "After these questions, business base questions (BUS_BASE_001 through BUS_BASE_006) will be answered. Then business TIN and each partner's NIN/TIN will be collected before detailed income/expense collection."
+}

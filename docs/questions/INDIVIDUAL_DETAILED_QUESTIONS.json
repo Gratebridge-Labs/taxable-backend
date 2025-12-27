@@ -1,0 +1,836 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2024-12-27",
+  "basedOn": "Nigeria Tax Act 2025",
+  "description": "Detailed questions for collecting actual data needed for tax filing - triggered by base questions",
+  "questionSets": {
+    "personalInformation": {
+      "triggeredBy": "After base questions, before NIN/TIN",
+      "questions": [
+        {
+          "questionId": "IND_DET_PERSONAL_001",
+          "category": "personal_info",
+          "questionText": "What is your full name?",
+          "questionType": "text",
+          "required": true,
+          "explanation": "Your full legal name as it appears on official documents. This will be used on your tax return forms.",
+          "fields": [
+            {
+              "field": "firstName",
+              "label": "First Name",
+              "required": true
+            },
+            {
+              "field": "lastName",
+              "label": "Last Name",
+              "required": true
+            },
+            {
+              "field": "middleName",
+              "label": "Middle Name",
+              "required": false
+            }
+          ]
+        },
+        {
+          "questionId": "IND_DET_PERSONAL_002",
+          "category": "personal_info",
+          "questionText": "What is your date of birth?",
+          "questionType": "date",
+          "required": true,
+          "explanation": "Your date of birth is required for tax identification and verification purposes.",
+          "validation": {
+            "maxDate": "today",
+            "minDate": "1900-01-01"
+          }
+        },
+        {
+          "questionId": "IND_DET_PERSONAL_003",
+          "category": "personal_info",
+          "questionText": "What is your residential address?",
+          "questionType": "address",
+          "required": true,
+          "explanation": "Your residential address is required for tax filing. This should be your current address in Nigeria.",
+          "fields": [
+            {
+              "field": "streetAddress",
+              "label": "Street Address",
+              "required": true
+            },
+            {
+              "field": "city",
+              "label": "City",
+              "required": true
+            },
+            {
+              "field": "state",
+              "label": "State",
+              "required": true,
+              "type": "select",
+              "options": "Nigerian states"
+            },
+            {
+              "field": "postalCode",
+              "label": "Postal Code",
+              "required": false
+            }
+          ]
+        },
+        {
+          "questionId": "IND_DET_PERSONAL_004",
+          "category": "personal_info",
+          "questionText": "What is your phone number?",
+          "questionType": "text",
+          "required": true,
+          "explanation": "Your phone number is required for communication regarding your tax filing.",
+          "validation": {
+            "pattern": "^[0-9]{10,11}$",
+            "errorMessage": "Please enter a valid Nigerian phone number"
+          }
+        },
+        {
+          "questionId": "IND_DET_PERSONAL_005",
+          "category": "personal_info",
+          "questionText": "What is your email address?",
+          "questionType": "email",
+          "required": true,
+          "explanation": "Your email address will be used for tax filing notifications and document delivery."
+        },
+        {
+          "questionId": "IND_DET_PERSONAL_006",
+          "category": "personal_info",
+          "questionText": "What is your occupation?",
+          "questionType": "text",
+          "required": true,
+          "explanation": "Your occupation helps categorize your income source and may affect tax treatment."
+        },
+        {
+          "questionId": "IND_DET_PERSONAL_007",
+          "category": "personal_info",
+          "questionText": "What is your marital status?",
+          "questionType": "multiple_choice",
+          "required": true,
+          "options": [
+            "Single",
+            "Married",
+            "Divorced",
+            "Widowed"
+          ],
+          "explanation": "Marital status may affect tax calculations, especially for joint filing options."
+        }
+      ]
+    },
+    "employmentDetails": {
+      "triggeredBy": "IND_BASE_001 = Employment or Both",
+      "questions": [
+        {
+          "questionId": "IND_DET_EMPLOYMENT_001",
+          "category": "employment",
+          "questionText": "What is your employer's name?",
+          "questionType": "text",
+          "required": true,
+          "explanation": "Your employer's name is required for tax filing. This should match the name on your payslips."
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_002",
+          "category": "employment",
+          "questionText": "What is your employer's address?",
+          "questionType": "address",
+          "required": true,
+          "explanation": "Your employer's address is required for tax documentation."
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_003",
+          "category": "employment",
+          "questionText": "What is your employer's TIN (Tax Identification Number)?",
+          "questionType": "text",
+          "required": true,
+          "explanation": "Your employer's TIN is required for PAYE (Pay As You Earn) documentation.",
+          "validation": {
+            "pattern": "^[0-9]{10,12}$",
+            "errorMessage": "TIN must be 10-12 digits"
+          }
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_004",
+          "category": "employment",
+          "questionText": "What is your employment start date?",
+          "questionType": "date",
+          "required": true,
+          "explanation": "Your employment start date helps determine the period for which income is taxable."
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_005",
+          "category": "employment",
+          "questionText": "Are you still employed with this employer?",
+          "questionType": "yes_no",
+          "required": true,
+          "conditionalQuestions": {
+            "no": ["IND_DET_EMPLOYMENT_006"]
+          }
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_006",
+          "category": "employment",
+          "questionText": "What was your employment end date?",
+          "questionType": "date",
+          "required": true,
+          "dependsOn": ["IND_DET_EMPLOYMENT_005"]
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_007",
+          "category": "employment",
+          "questionText": "What is your annual gross salary?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "Your gross salary is your total income before deductions. This is the amount before tax, pension, NHF, etc. are deducted.",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_008",
+          "category": "employment",
+          "questionText": "What is your basic salary?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "Basic salary is used to calculate NHF contributions (2.5% of basic salary) and housing allowance (up to 25% of basic salary).",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_009",
+          "category": "employment",
+          "questionText": "What is your housing allowance?",
+          "questionType": "number",
+          "required": false,
+          "explanation": "Housing allowance is part of your employment package. You can claim up to 25% of basic salary or actual rent paid, whichever is lower.",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_010",
+          "category": "employment",
+          "questionText": "What is your transport allowance?",
+          "questionType": "number",
+          "required": false,
+          "explanation": "Transport allowance can be claimed up to ₦200,000 annually. This reduces your taxable income.",
+          "validation": {
+            "min": 0,
+            "max": 200000,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_011",
+          "category": "employment",
+          "questionText": "How much PAYE (tax) was deducted from your salary?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "PAYE (Pay As You Earn) is tax deducted by your employer. This amount is shown on your payslip and will be credited against your final tax liability.",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_012",
+          "category": "employment",
+          "questionText": "Do you receive any benefits-in-kind?",
+          "questionType": "yes_no",
+          "required": true,
+          "explanation": "Benefits-in-kind are non-cash benefits like company car, housing, medical insurance, etc. These are taxable and must be declared.",
+          "conditionalQuestions": {
+            "yes": ["IND_DET_EMPLOYMENT_013"]
+          }
+        },
+        {
+          "questionId": "IND_DET_EMPLOYMENT_013",
+          "category": "employment",
+          "questionText": "What benefits-in-kind do you receive and their value?",
+          "questionType": "table",
+          "required": true,
+          "dependsOn": ["IND_DET_EMPLOYMENT_012"],
+          "columns": [
+            {
+              "field": "benefitType",
+              "label": "Type of Benefit",
+              "type": "select",
+              "options": [
+                "Company Car",
+                "Housing",
+                "Medical Insurance",
+                "Life Insurance",
+                "Other"
+              ]
+            },
+            {
+              "field": "value",
+              "label": "Annual Value (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "description",
+              "label": "Description",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    "businessDetails": {
+      "triggeredBy": "IND_BASE_001 = Business or Both",
+      "questions": [
+        {
+          "questionId": "IND_DET_BUSINESS_001",
+          "category": "business",
+          "questionText": "What is your business name?",
+          "questionType": "text",
+          "required": true,
+          "explanation": "Your business name as registered or as you operate it."
+        },
+        {
+          "questionId": "IND_DET_BUSINESS_002",
+          "category": "business",
+          "questionText": "What is your business address?",
+          "questionType": "address",
+          "required": true,
+          "explanation": "The address where your business operates."
+        },
+        {
+          "questionId": "IND_DET_BUSINESS_003",
+          "category": "business",
+          "questionText": "What is your business type?",
+          "questionType": "multiple_choice",
+          "required": true,
+          "options": [
+            "Sole Proprietorship",
+            "Partnership",
+            "Unincorporated"
+          ],
+          "explanation": "Business type determines how your business income is taxed."
+        },
+        {
+          "questionId": "IND_DET_BUSINESS_004",
+          "category": "business",
+          "questionText": "What is your annual business income (revenue)?",
+          "questionType": "number",
+          "required": true,
+          "explanation": "Your total business revenue for the tax year. This is income before expenses are deducted.",
+          "validation": {
+            "min": 0,
+            "currency": "NGN"
+          }
+        },
+        {
+          "questionId": "IND_DET_BUSINESS_005",
+          "category": "business",
+          "questionText": "What are your business expenses?",
+          "questionType": "table",
+          "required": true,
+          "explanation": "Business expenses reduce your taxable profit. Enter all expenses incurred wholly and exclusively for your business.",
+          "columns": [
+            {
+              "field": "expenseCategory",
+              "label": "Expense Category",
+              "type": "select",
+              "options": [
+                "Rent and Lease",
+                "Utilities (Electricity, Water, Internet)",
+                "Salaries and Wages",
+                "Office Supplies",
+                "Marketing and Advertising",
+                "Professional Services",
+                "Transportation",
+                "Insurance",
+                "Repairs and Maintenance",
+                "Interest on Business Loans",
+                "Bad Debts",
+                "Research and Development",
+                "Other"
+              ]
+            },
+            {
+              "field": "amount",
+              "label": "Amount (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "description",
+              "label": "Description",
+              "type": "text"
+            },
+            {
+              "field": "period",
+              "label": "Period",
+              "type": "text",
+              "helpText": "e.g., Jan-Dec 2025"
+            }
+          ]
+        },
+        {
+          "questionId": "IND_DET_BUSINESS_006",
+          "category": "business",
+          "questionText": "Do you have capital assets (equipment, vehicles, buildings)?",
+          "questionType": "yes_no",
+          "required": true,
+          "explanation": "Capital assets qualify for capital allowances (depreciation deductions). This reduces your taxable profit.",
+          "conditionalQuestions": {
+            "yes": ["IND_DET_BUSINESS_007"]
+          }
+        },
+        {
+          "questionId": "IND_DET_BUSINESS_007",
+          "category": "business",
+          "questionText": "What capital assets do you own?",
+          "questionType": "table",
+          "required": true,
+          "dependsOn": ["IND_DET_BUSINESS_006"],
+          "columns": [
+            {
+              "field": "assetType",
+              "label": "Asset Type",
+              "type": "select",
+              "options": [
+                "Building",
+                "Plant and Machinery",
+                "Motor Vehicle",
+                "Furniture and Fittings",
+                "Software",
+                "Agricultural Equipment",
+                "Other Equipment"
+              ]
+            },
+            {
+              "field": "description",
+              "label": "Description",
+              "type": "text"
+            },
+            {
+              "field": "cost",
+              "label": "Cost (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "dateAcquired",
+              "label": "Date Acquired",
+              "type": "date"
+            },
+            {
+              "field": "isNew",
+              "label": "Is this a new asset?",
+              "type": "yes_no"
+            }
+          ],
+          "explanation": "Capital assets qualify for annual capital allowances: 10% (buildings), 20% (plant/equipment), 25% (vehicles/software)."
+        }
+      ]
+    },
+    "rentalIncome": {
+      "triggeredBy": "IND_BASE_004 includes Rental income",
+      "questions": [
+        {
+          "questionId": "IND_DET_RENTAL_001",
+          "category": "rental",
+          "questionText": "How many properties do you rent out?",
+          "questionType": "number",
+          "required": true,
+          "validation": {
+            "min": 1
+          }
+        },
+        {
+          "questionId": "IND_DET_RENTAL_002",
+          "category": "rental",
+          "questionText": "What is your rental income and expenses?",
+          "questionType": "table",
+          "required": true,
+          "explanation": "Rental income is taxable, but expenses like repairs, maintenance, management fees, and interest on loans can be deducted.",
+          "columns": [
+            {
+              "field": "propertyAddress",
+              "label": "Property Address",
+              "type": "text"
+            },
+            {
+              "field": "annualRentalIncome",
+              "label": "Annual Rental Income (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "repairs",
+              "label": "Repairs & Maintenance (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "managementFees",
+              "label": "Management Fees (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "insurance",
+              "label": "Insurance (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "interestOnLoan",
+              "label": "Interest on Property Loan (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "otherExpenses",
+              "label": "Other Expenses (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            }
+          ]
+        }
+      ]
+    },
+    "investmentIncome": {
+      "triggeredBy": "IND_BASE_004 includes Investment income",
+      "questions": [
+        {
+          "questionId": "IND_DET_INVESTMENT_001",
+          "category": "investment",
+          "questionText": "What types of investment income do you have?",
+          "questionType": "table",
+          "required": true,
+          "explanation": "Investment income includes dividends, interest, and capital gains. Some may be exempt or already taxed at source.",
+          "columns": [
+            {
+              "field": "incomeType",
+              "label": "Income Type",
+              "type": "select",
+              "options": [
+                "Dividends from Nigerian Companies",
+                "Dividends from Foreign Companies",
+                "Interest from Savings",
+                "Interest from Bonds",
+                "Interest from Fixed Deposits",
+                "Capital Gains from Shares",
+                "Capital Gains from Property",
+                "Other Investment Income"
+              ]
+            },
+            {
+              "field": "amount",
+              "label": "Amount (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "taxWithheld",
+              "label": "Tax Withheld at Source (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "source",
+              "label": "Source/Description",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    },
+    "deductions": {
+      "nhf": {
+        "triggeredBy": "IND_BASE_003 includes NHF",
+        "questions": [
+          {
+            "questionId": "IND_DET_NHF_001",
+            "category": "deduction",
+            "questionText": "What is your total NHF contribution for the tax year?",
+            "questionType": "number",
+            "required": true,
+            "explanation": "NHF contributions are 2.5% of basic salary and are tax-deductible. Enter the total amount you contributed during the tax year.",
+            "autoCalculate": {
+              "enabled": true,
+              "formula": "basicSalary * 0.025",
+              "condition": "basicSalary > 360000",
+              "message": "Auto-calculated: ₦{value} (2.5% of basic salary). You can edit if your actual contribution differs.",
+              "dependsOn": ["IND_DET_EMPLOYMENT_008"]
+            },
+            "validation": {
+              "min": 0,
+              "currency": "NGN"
+            }
+          }
+        ]
+      },
+      "nhis": {
+        "triggeredBy": "IND_BASE_003 includes NHIS",
+        "questions": [
+          {
+            "questionId": "IND_DET_NHIS_001",
+            "category": "deduction",
+            "questionText": "What is your total NHIS contribution for the tax year?",
+            "questionType": "number",
+            "required": true,
+            "explanation": "NHIS contributions are tax-deductible. Enter the total amount you contributed during the tax year.",
+            "validation": {
+              "min": 0,
+              "currency": "NGN"
+            }
+          }
+        ]
+      },
+      "pension": {
+        "triggeredBy": "IND_BASE_003 includes Pension",
+        "questions": [
+          {
+            "questionId": "IND_DET_PENSION_001",
+            "category": "deduction",
+            "questionText": "What is your total pension contribution for the tax year?",
+            "questionType": "number",
+            "required": true,
+            "explanation": "Pension contributions (RSA) are tax-deductible. Enter the total amount you contributed during the tax year (up to 25% of income).",
+            "autoCalculate": {
+              "enabled": false,
+              "maxLimit": {
+                "formula": "totalIncome * 0.25",
+                "message": "Maximum pension deduction is 25% of income (₦{maxValue}). Your contribution of ₦{value} exceeds this limit.",
+                "dependsOn": ["totalIncome"]
+              }
+            },
+            "validation": {
+              "min": 0,
+              "currency": "NGN"
+            }
+          },
+          {
+            "questionId": "IND_DET_PENSION_002",
+            "category": "deduction",
+            "questionText": "What is your pension fund administrator?",
+            "questionType": "text",
+            "required": true,
+            "explanation": "The name of your pension fund administrator (PFA)."
+          }
+        ]
+      },
+      "lifeInsurance": {
+        "triggeredBy": "IND_BASE_003 includes Life Insurance",
+        "questions": [
+          {
+            "questionId": "IND_DET_LIFE_INSURANCE_001",
+            "category": "deduction",
+            "questionText": "What is your total life insurance premium paid?",
+            "questionType": "number",
+            "required": true,
+            "explanation": "Life insurance premiums paid during the year preceding the tax year are tax-deductible. This includes premiums for your life or your spouse's life.",
+            "validation": {
+              "min": 0,
+              "currency": "NGN"
+            }
+          },
+          {
+            "questionId": "IND_DET_LIFE_INSURANCE_002",
+            "category": "deduction",
+            "questionText": "What is your insurance company?",
+            "questionType": "text",
+            "required": true
+          }
+        ]
+      },
+      "rentRelief": {
+        "triggeredBy": "IND_BASE_002 = I rent accommodation",
+        "questions": [
+          {
+            "questionId": "IND_DET_RENT_001",
+            "category": "deduction",
+            "questionText": "What is your total annual rent paid?",
+            "questionType": "number",
+            "required": true,
+            "explanation": "Rent relief is 20% of annual rent paid, subject to a maximum of ₦500,000. Enter the total rent you paid during the tax year.",
+            "validation": {
+              "min": 0,
+              "currency": "NGN"
+            }
+          },
+          {
+            "questionId": "IND_DET_RENT_RELIEF",
+            "category": "deduction",
+            "questionText": "Rent Relief (Auto-calculated)",
+            "questionType": "number",
+            "required": false,
+            "readOnly": true,
+            "explanation": "Rent relief is automatically calculated as 20% of your annual rent, capped at ₦500,000.",
+            "autoCalculate": {
+              "enabled": true,
+              "formula": "Math.min(annualRent * 0.20, 500000)",
+              "dependsOn": ["IND_DET_RENT_001"],
+              "message": "Auto-calculated: ₦{value} (20% of rent, capped at ₦500,000)"
+            }
+          },
+          {
+            "questionId": "IND_DET_RENT_002",
+            "category": "deduction",
+            "questionText": "What is the address of the rented property?",
+            "questionType": "address",
+            "required": true
+          },
+          {
+            "questionId": "IND_DET_RENT_003",
+            "category": "deduction",
+            "questionText": "Do you have rent receipts?",
+            "questionType": "yes_no",
+              "required": true,
+              "explanation": "Rent receipts are required as proof for claiming rent relief. You may be asked to upload them."
+          }
+        ]
+      },
+      "mortgageInterest": {
+        "triggeredBy": "IND_BASE_002 = I own my home (with mortgage)",
+        "questions": [
+          {
+            "questionId": "IND_DET_MORTGAGE_001",
+            "category": "deduction",
+            "questionText": "What is the total interest paid on your mortgage during the tax year?",
+            "questionType": "number",
+            "required": true,
+            "explanation": "Interest on loans for developing an owner-occupied residential house is tax-deductible. Enter the total interest paid during the tax year.",
+            "validation": {
+              "min": 0,
+              "currency": "NGN"
+            }
+          },
+          {
+            "questionId": "IND_DET_MORTGAGE_002",
+            "category": "deduction",
+            "questionText": "What is your lender's name?",
+            "questionType": "text",
+            "required": true
+          },
+          {
+            "questionId": "IND_DET_MORTGAGE_003",
+            "category": "deduction",
+            "questionText": "What is the property address?",
+            "questionType": "address",
+            "required": true
+          }
+        ]
+      }
+    },
+    "capitalGains": {
+      "triggeredBy": "IND_BASE_005 = Yes",
+      "questions": [
+        {
+          "questionId": "IND_DET_CAPITAL_GAINS_001",
+          "category": "capital_gains",
+          "questionText": "What assets did you dispose of?",
+          "questionType": "table",
+          "required": true,
+          "explanation": "Capital gains tax applies when you sell assets. Some disposals are exempt (principal residence once in lifetime, personal chattels under ₦5M).",
+          "columns": [
+            {
+              "field": "assetType",
+              "label": "Asset Type",
+              "type": "select",
+              "options": [
+                "Principal Private Residence",
+                "Shares/Stocks",
+                "Property (Investment)",
+                "Motor Vehicle",
+                "Personal Chattels",
+                "Other"
+              ]
+            },
+            {
+              "field": "description",
+              "label": "Description",
+              "type": "text"
+            },
+            {
+              "field": "dateAcquired",
+              "label": "Date Acquired",
+              "type": "date"
+            },
+            {
+              "field": "dateDisposed",
+              "label": "Date Disposed",
+              "type": "date"
+            },
+            {
+              "field": "cost",
+              "label": "Acquisition Cost (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "disposalProceeds",
+              "label": "Disposal Proceeds (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "expenses",
+              "label": "Disposal Expenses (₦)",
+              "type": "number",
+              "validation": {"min": 0}
+            }
+          ]
+        }
+      ]
+    },
+    "dependents": {
+      "triggeredBy": "IND_BASE_006 or general",
+      "questions": [
+        {
+          "questionId": "IND_DET_DEPENDENTS_001",
+          "category": "dependents",
+          "questionText": "What are your dependents' details?",
+          "questionType": "table",
+          "required": false,
+          "explanation": "Dependents are people who rely on you financially. You can claim allowances for up to 4 dependents.",
+          "columns": [
+            {
+              "field": "name",
+              "label": "Name",
+              "type": "text"
+            },
+            {
+              "field": "relationship",
+              "label": "Relationship",
+              "type": "select",
+              "options": [
+                "Child",
+                "Elderly Parent",
+                "Disabled Family Member",
+                "Other Relative"
+              ]
+            },
+            {
+              "field": "age",
+              "label": "Age",
+              "type": "number",
+              "validation": {"min": 0}
+            },
+            {
+              "field": "isInSchool",
+              "label": "In School?",
+              "type": "yes_no"
+            }
+          ],
+          "validation": {
+            "maxRows": 4
+          }
+        }
+      ]
+    }
+  }
+}
+

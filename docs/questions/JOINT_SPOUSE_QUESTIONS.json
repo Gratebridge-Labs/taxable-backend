@@ -1,0 +1,28 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2024-12-27",
+  "basedOn": "Nigeria Tax Act 2025",
+  "description": "Joint spouse base questions - these determine the flow for both spouses",
+  "note": "After these base questions, each spouse answers individual base questions separately, then NIN/TIN is collected for both",
+  "questions": [
+    {
+      "questionId": "JOINT_BASE_001",
+      "order": 1,
+      "category": "filing_approach",
+      "questionText": "How do you want to combine your incomes for tax purposes?",
+      "questionType": "multiple_choice",
+      "required": true,
+      "options": [
+        "Combine all income together (joint filing)",
+        "File separately but show combined totals",
+        "One spouse files, other spouse's income included"
+      ],
+      "explanation": "In joint filing, you can combine both spouses' incomes together, which may result in different tax calculations. The system will help you determine the most tax-efficient approach based on your combined income and deductions.",
+      "helpText": "Select how you want to handle the combination of both spouses' income for tax purposes.",
+      "dependsOn": [],
+      "profileType": ["Joint_Spouse"],
+      "conditionalQuestions": {}
+    }
+  ],
+  "note_after_base": "After this question, both spouses will answer individual base questions (IND_BASE_001 through IND_BASE_006) separately. Then NIN/TIN will be collected for both spouses before detailed income/deduction collection."
+}

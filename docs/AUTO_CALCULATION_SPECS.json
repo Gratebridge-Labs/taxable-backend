@@ -1,0 +1,219 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2024-12-27",
+  "description": "Specifications for auto-calculations and smart logic in the tax engine",
+  "autoCalculations": {
+    "nhfContribution": {
+      "trigger": "basicSalary entered",
+      "formula": "basicSalary * 0.025",
+      "condition": "basicSalary > 360000",
+      "message": "Auto-calculated: ₦{value} (2.5% of basic salary)",
+      "editable": true,
+      "dependsOn": ["basicSalary"]
+    },
+    "rentRelief": {
+      "trigger": "annualRent entered",
+      "formula": "Math.min(annualRent * 0.20, 500000)",
+      "message": "Auto-calculated: ₦{value} (20% of rent, capped at ₦500,000)",
+      "editable": false,
+      "dependsOn": ["annualRent"]
+    },
+    "housingAllowance": {
+      "trigger": "basicSalary or actualRent entered",
+      "formula": "Math.min(actualRent || 0, basicSalary * 0.25)",
+      "message": "Auto-calculated: ₦{value} (lower of actual rent or 25% of basic salary)",
+      "editable": true,
+      "dependsOn": ["basicSalary", "actualRent"]
+    },
+    "smallCompanyStatus": {
+      "trigger": "turnover and fixedAssets entered",
+      "formula": "(turnover <= 50000000) && (fixedAssets <= 250000000) && (!isProfessionalServices)",
+      "message": {
+        "qualified": "✓ Qualifies as Small Company - Tax Rate: 0%",
+        "notQualified": "✗ Does not qualify - Tax Rate: 30%"
+      },
+      "dependsOn": ["turnover", "fixedAssets", "isProfessionalServices"]
+    },
+    "capitalAllowance": {
+      "trigger": "assetCost and assetType entered",
+      "formula": {
+        "Building": "assetCost * 0.10",
+        "Plant and Machinery": "assetCost * 0.20",
+        "Motor Vehicle": "assetCost * 0.25",
+        "Software": "assetCost * 0.25",
+        "Furniture and Fittings": "assetCost * 0.20"
+      },
+      "message": "Annual Capital Allowance: ₦{value} ({percentage}% of cost)",
+      "dependsOn": ["assetCost", "assetType"]
+    },
+    "taxableIncome": {
+      "trigger": "totalIncome and all deductions entered",
+      "formula": "totalIncome - nhf - nhis - pension - lifeInsurance - mortgageInterest - rentRelief",
+      "message": "Taxable Income: ₦{value}",
+      "dependsOn": ["totalIncome", "nhf", "nhis", "pension", "lifeInsurance", "mortgageInterest", "rentRelief"]
+    },
+    "individualTax": {
+      "trigger": "taxableIncome entered",
+      "formula": "progressiveTaxBrackets(taxableIncome)",
+      "brackets": [
+        {"min": 0, "max": 800000, "rate": 0.00},
+        {"min": 800001, "max": 3000000, "rate": 0.15},
+        {"min": 3000001, "max": 12000000, "rate": 0.18},
+        {"min": 12000001, "max": 25000000, "rate": 0.21},
+        {"min": 25000001, "max": 50000000, "rate": 0.23},
+        {"min": 50000001, "max": null, "rate": 0.25}
+      ],
+      "message": "Estimated Tax: ₦{value}",
+      "dependsOn": ["taxableIncome"]
+    },
+    "companyTax": {
+      "trigger": "assessableProfit and companyType entered",
+      "formula": "isSmallCompany ? 0 : assessableProfit * 0.30",
+      "message": "Company Tax: ₦{value} ({rate}%)",
+      "dependsOn": ["assessableProfit", "isSmallCompany"]
+    },
+    "developmentLevy": {
+      "trigger": "assessableProfit and isCompany entered",
+      "formula": "isCompany && !isSmallCompany ? assessableProfit * 0.04 : 0",
+      "message": "Development Levy: ₦{value} (4% of assessable profit)",
+      "dependsOn": ["assessableProfit", "isCompany", "isSmallCompany"]
+    },
+    "rdDeductionLimit": {
+      "trigger": "rdExpenditure and turnover entered",
+      "formula": "turnover * 0.05",
+      "claimable": "Math.min(rdExpenditure, turnover * 0.05)",
+      "message": "Maximum R&D Deduction: ₦{maxValue} (5% of turnover). Claimable: ₦{claimable}",
+      "dependsOn": ["rdExpenditure", "turnover"]
+    },
+    "donationDeductionLimit": {
+      "trigger": "donations and profitBeforeTax entered",
+      "formula": "profitBeforeTax * 0.10",
+      "claimable": "Math.min(totalDonations, profitBeforeTax * 0.10)",
+      "message": "Maximum Donation Deduction: ₦{maxValue} (10% of profit before tax). Claimable: ₦{claimable}",
+      "dependsOn": ["totalDonations", "profitBeforeTax"]
+    },
+    "capitalGain": {
+      "trigger": "disposalProceeds, acquisitionCost, disposalExpenses entered",
+      "formula": "disposalProceeds - acquisitionCost - disposalExpenses",
+      "exemptions": {
+        "principalResidence": "Once in lifetime",
+        "personalChattels": "If disposal proceeds <= 5000000",
+        "minimumWage": "If individual earns minimum wage or less"
+      },
+      "message": "Capital Gain: ₦{value}",
+      "dependsOn": ["disposalProceeds", "acquisitionCost", "disposalExpenses", "assetType"]
+    },
+    "transportAllowanceLimit": {
+      "trigger": "transportAllowance entered",
+      "maxValue": 200000,
+      "validation": "transportAllowance <= 200000",
+      "message": "Transport allowance capped at ₦200,000",
+      "dependsOn": ["transportAllowance"]
+    },
+    "pensionDeductionLimit": {
+      "trigger": "pensionContribution and totalIncome entered",
+      "formula": "totalIncome * 0.25",
+      "validation": "pensionContribution <= totalIncome * 0.25",
+      "message": "Maximum Pension Deduction: ₦{maxValue} (25% of income)",
+      "dependsOn": ["pensionContribution", "totalIncome"]
+    },
+    "agriculturalExemption": {
+      "trigger": "businessType and commencementDate entered",
+      "formula": "(currentYear - commencementYear) <= 5 && businessType === 'Agricultural'",
+      "message": {
+        "exempt": "✓ Exempt from tax (within 5-year exemption period). Years remaining: {yearsRemaining}",
+        "taxable": "✗ Taxable (exemption period expired)"
+      },
+      "dependsOn": ["businessType", "commencementDate"]
+    },
+    "exportExemption": {
+      "trigger": "exportRevenue and proceedsRepatriated entered",
+      "formula": "exportRevenue > 0 && proceedsRepatriated === true",
+      "message": {
+        "exempt": "✓ Export income exempt (proceeds repatriated)",
+        "taxable": "✗ Export income taxable (proceeds not repatriated)"
+      },
+      "dependsOn": ["exportRevenue", "proceedsRepatriated"]
+    },
+    "minimumWageExemption": {
+      "trigger": "employmentIncome entered",
+      "formula": "employmentIncome <= minimumWage",
+      "minimumWage": 70000,
+      "message": {
+        "exempt": "✓ Exempt from tax (minimum wage earner)",
+        "taxable": "Taxable income"
+      },
+      "dependsOn": ["employmentIncome"]
+    },
+    "effectiveTaxRate": {
+      "trigger": "taxPaid and profits entered",
+      "formula": "(taxPaid / profits) * 100",
+      "minimumRate": 15,
+      "appliesTo": ["largeCompanies", "mneGroups"],
+      "message": "Effective Tax Rate: {rate}%",
+      "warning": "Minimum effective tax rate is 15%. Additional tax required: ₦{additionalTax}",
+      "dependsOn": ["taxPaid", "profits", "isLargeCompany"]
+    },
+    "businessProfit": {
+      "trigger": "businessIncome, expenses, capitalAllowances entered",
+      "formula": "businessIncome - totalExpenses - totalCapitalAllowances",
+      "message": "Assessable Profit: ₦{value}",
+      "dependsOn": ["businessIncome", "totalExpenses", "totalCapitalAllowances"]
+    },
+    "totalIncome": {
+      "trigger": "All income sources entered",
+      "formula": "employmentIncome + businessIncome + rentalIncome + investmentIncome + otherIncome",
+      "message": "Total Income: ₦{value}",
+      "dependsOn": ["employmentIncome", "businessIncome", "rentalIncome", "investmentIncome", "otherIncome"]
+    },
+    "finalTaxLiability": {
+      "trigger": "calculatedTax, payeDeducted, taxWithheldAtSource entered",
+      "formula": "calculatedTax - payeDeducted - taxWithheldAtSource",
+      "message": {
+        "payable": "Final Tax Payable: ₦{value}",
+        "refund": "Tax Refund: ₦{value}"
+      },
+      "dependsOn": ["calculatedTax", "payeDeducted", "taxWithheldAtSource"]
+    }
+  },
+  "smartDefaults": {
+    "taxYear": {
+      "value": "currentYear",
+      "description": "Default to current tax year"
+    },
+    "optionalQuestions": {
+      "value": "No",
+      "description": "Default optional questions to 'No'"
+    },
+    "nhfRate": {
+      "value": 0.025,
+      "description": "NHF is always 2.5% of basic salary"
+    }
+  },
+  "validationRules": {
+    "amounts": {
+      "min": 0,
+      "type": "number",
+      "currency": "NGN"
+    },
+    "dates": {
+      "format": "YYYY-MM-DD",
+      "withinTaxYear": true
+    },
+    "percentages": {
+      "min": 0,
+      "max": 100
+    },
+    "totals": {
+      "mustMatch": "sum of components"
+    }
+  },
+  "warnings": {
+    "nhfLow": "Your NHF contribution seems low. Expected: ₦{expected} based on basic salary",
+    "rentReliefCapped": "Rent relief capped at ₦500,000. You entered ₦{entered}, but 20% of rent is ₦{calculated}",
+    "transportExceeds": "Transport allowance exceeds maximum of ₦200,000",
+    "pensionExceeds": "Pension deduction limited to 25% of income",
+    "smallCompanyQualify": "You may qualify as small company. Check fixed assets."
+  }
+}
+

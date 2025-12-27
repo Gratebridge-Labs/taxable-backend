@@ -1,0 +1,299 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2024-12-27",
+  "basedOn": "Nigeria Tax Act 2025",
+  "effectiveYear": 2025,
+  "currency": "NGN",
+  "eligibleDeductions": {
+    "description": "Eligible Deductions for Individuals (Section 30)",
+    "section": "Section 30(2)(a)",
+    "note": "These deductions are subtracted from total income to arrive at chargeable income",
+    "deductions": [
+      {
+        "category": "nhf",
+        "name": "National Housing Fund (NHF) Contributions",
+        "section": "Section 30(2)(a)(i)",
+        "description": "Contributions made by the individual under the National Housing Fund",
+        "explanation": "NHF contributions are mandatory for employees earning above ₦30,000 per month. The contribution is 2.5% of basic salary and is tax-deductible, meaning it reduces your taxable income.",
+        "calculationMethod": "actual_contribution",
+        "qualifyingConditions": [
+          "Must be actual contributions made during the year of assessment",
+          "Mandatory for employees earning above ₦30,000/month",
+          "Voluntary for others"
+        ]
+      },
+      {
+        "category": "nhis",
+        "name": "National Health Insurance Scheme (NHIS) Contributions",
+        "section": "Section 30(2)(a)(ii)",
+        "description": "Contributions made by the individual under the National Health Insurance Scheme",
+        "explanation": "NHIS contributions provide health insurance coverage. These contributions are tax-deductible, reducing your taxable income. Keep records of your NHIS contributions.",
+        "calculationMethod": "actual_contribution",
+        "qualifyingConditions": [
+          "Must be actual contributions made during the year of assessment"
+        ]
+      },
+      {
+        "category": "pension",
+        "name": "Pension Contributions (Pension Reform Act)",
+        "section": "Section 30(2)(a)(iii)",
+        "description": "Contributions made by the individual under the Pension Reform Act",
+        "explanation": "Pension contributions to a Retirement Savings Account (RSA) are tax-deductible. These contributions help you save for retirement while reducing your current tax liability. Keep records of your pension contributions.",
+        "calculationMethod": "actual_contribution",
+        "qualifyingConditions": [
+          "Must be contributions under the Pension Reform Act",
+          "Must be actual contributions made during the year of assessment"
+        ]
+      },
+      {
+        "category": "mortgage_interest",
+        "name": "Interest on Loans for Owner-Occupied Residential House",
+        "section": "Section 30(2)(a)(iv)",
+        "description": "Interest paid on loans for developing an owner-occupied residential house",
+        "explanation": "If you took a loan to build or buy your primary residence (the house you live in), the interest you pay on that loan is tax-deductible. This helps reduce your taxable income. Keep records of your mortgage interest payments.",
+        "calculationMethod": "actual_interest_paid",
+        "qualifyingConditions": [
+          "Must be interest on loan for owner-occupied residential house",
+          "Must be actual interest paid during the year of assessment",
+          "House must be your primary residence"
+        ]
+      },
+      {
+        "category": "life_insurance",
+        "name": "Life Insurance Premiums",
+        "section": "Section 30(2)(a)(v)",
+        "description": "Annual amount of annuity or premium paid in respect of insurance on life or deferred annuity",
+        "explanation": "Life insurance premiums and annuity payments are tax-deductible. This includes premiums for insurance on your own life, your spouse's life, or deferred annuities. These payments reduce your taxable income.",
+        "calculationMethod": "actual_premium_paid",
+        "qualifyingConditions": [
+          "Must be annual amount paid during the year preceding the year of assessment",
+          "Covers insurance on individual's life or spouse's life",
+          "Includes deferred annuity contracts"
+        ]
+      },
+      {
+        "category": "rent_relief",
+        "name": "Rent Relief",
+        "section": "Section 30(2)(a)(vi)",
+        "description": "Rent relief of 20% of annual rent paid, subject to maximum of ₦500,000",
+        "amount": 500000,
+        "maxAmount": 500000,
+        "percentage": 0.20,
+        "percentageText": "20%",
+        "explanation": "Rent relief allows you to deduct 20% of the annual rent you paid, up to a maximum of ₦500,000. For example, if you paid ₦3,000,000 in rent, you can claim ₦600,000 (20%), but it's capped at ₦500,000. You must accurately declare the actual rent paid with supporting documents.",
+        "calculationMethod": "20% of annual rent paid, capped at ₦500,000",
+        "qualifyingConditions": [
+          "Must accurately declare actual amount of rent paid",
+          "Must provide relevant information as prescribed by tax authority",
+          "Maximum relief is ₦500,000 even if 20% of rent exceeds this amount"
+        ],
+        "formula": "Rent Relief = min(20% of annual rent, ₦500,000)"
+      }
+    ]
+  },
+  "housingAllowance": {
+    "description": "Housing Allowance",
+    "section": "Section 20",
+    "calculationMethod": "percentage_of_basic_salary",
+    "maxPercentage": 0.25,
+    "maxPercentageText": "25%",
+    "explanation": "Housing allowance is a deduction based on your basic salary. You can claim up to 25% of your basic salary as housing allowance. If you pay rent, you can claim the actual rent paid (with receipts) up to this 25% limit.",
+    "conditions": [
+      "Must be part of employment package",
+      "Or actual rent paid with receipts",
+      "Whichever is lower applies"
+    ]
+  },
+  "transportAllowance": {
+    "amount": 200000,
+    "description": "Transport Allowance - Maximum annual deduction",
+    "section": "Section 20",
+    "appliesTo": "All individuals",
+    "explanation": "Transport allowance is a deduction for transportation expenses. You can claim up to ₦200,000 annually for transport-related expenses such as fuel, vehicle maintenance, or public transport costs. Keep receipts as proof.",
+    "qualifyingExpenses": [
+      "Fuel costs",
+      "Vehicle maintenance",
+      "Public transport fares",
+      "Vehicle insurance (for business use)"
+    ]
+  },
+  "medicalAllowance": {
+    "description": "Medical Allowance - Actual expenses with receipts",
+    "section": "Section 20",
+    "calculationMethod": "actual_expenses",
+    "explanation": "Medical allowance allows you to deduct actual medical expenses you paid during the tax year. This includes doctor visits, medications, hospital bills, and health insurance premiums. You must keep receipts as proof of these expenses.",
+    "qualifyingExpenses": [
+      "Doctor consultations",
+      "Hospital bills",
+      "Medications and prescriptions",
+      "Health insurance premiums",
+      "NHIS contributions",
+      "Medical tests and procedures"
+    ],
+    "note": "No maximum limit, but must be actual expenses with receipts"
+  },
+  "educationAllowance": {
+    "description": "Education Allowance - For self and dependents",
+    "section": "Section 20",
+    "calculationMethod": "actual_expenses",
+    "explanation": "Education allowance allows you to deduct actual education expenses for yourself and your dependents. This includes tuition fees, school supplies, books, and other educational costs. Keep receipts as proof.",
+    "qualifyingExpenses": [
+      "Tuition fees",
+      "School fees",
+      "Books and educational materials",
+      "School supplies",
+      "Examination fees"
+    ],
+    "note": "No maximum limit, but must be actual expenses with receipts"
+  },
+  "pensionContribution": {
+    "description": "Pension Contribution (RSA)",
+    "section": "Section 20",
+    "calculationMethod": "percentage_of_income",
+    "maxPercentage": 0.25,
+    "maxPercentageText": "25%",
+    "explanation": "Pension contributions to a Retirement Savings Account (RSA) are tax-deductible up to 25% of your income. This means if you contribute to a pension fund, up to 25% of your income can be deducted from your taxable income, reducing the tax you pay.",
+    "qualifyingContributions": [
+      "Employer pension contributions",
+      "Personal pension contributions",
+      "RSA contributions"
+    ]
+  },
+  "nhfContribution": {
+    "description": "National Housing Fund (NHF) Contribution",
+    "section": "Section 20",
+    "calculationMethod": "percentage_of_basic_salary",
+    "rate": 0.025,
+    "ratePercentage": "2.5%",
+    "mandatoryFor": "Employees earning above ₦30,000 per month",
+    "explanation": "NHF (National Housing Fund) contributions are mandatory for employees earning above ₦30,000 per month. The contribution is 2.5% of your basic salary and is tax-deductible, meaning it reduces your taxable income.",
+    "note": "Mandatory for qualifying employees, voluntary for others"
+  },
+  "businessExpenses": {
+    "description": "Business Expenses - Fully deductible",
+    "section": "Section 20",
+    "calculationMethod": "actual_expenses",
+    "explanation": "Business expenses are costs you incur to run your business. These are fully deductible from your business income, reducing your taxable profit. Common business expenses include rent, utilities, salaries, supplies, and marketing costs.",
+    "qualifyingExpenses": [
+      "Rent and lease payments",
+      "Utilities (electricity, water, internet)",
+      "Salaries and wages",
+      "Office supplies",
+      "Marketing and advertising",
+      "Professional services",
+      "Transportation (for business)",
+      "Insurance",
+      "Depreciation",
+      "Other legitimate business expenses"
+    ],
+    "note": "Must be expenses incurred wholly, exclusively, and necessarily for business purposes"
+  },
+  "capitalAllowances": {
+    "description": "Capital Allowances - Depreciation on business assets (First Schedule, Part I)",
+    "section": "First Schedule, Part I, Table I",
+    "explanation": "Capital allowances allow you to claim depreciation (reduction in value over time) on business assets as deductions. This reduces your taxable profit. Different types of assets have different allowance rates. These are annual allowances (no initial allowance under 2025 Act).",
+    "rates": [
+      {
+        "class": 1,
+        "rate": 0.10,
+        "ratePercentage": "10%",
+        "assetTypes": [
+          "Building Expenditure",
+          "Agricultural Expenditure",
+          "Mast Expenditure",
+          "Intangible assets Expenditure",
+          "Heavy Transportation Expenditure"
+        ],
+        "description": "Buildings, agricultural assets, masts, intangible assets, heavy transportation"
+      },
+      {
+        "class": 2,
+        "rate": 0.20,
+        "ratePercentage": "20%",
+        "assetTypes": [
+          "Plant Expenditure",
+          "Agricultural Equipment Expenditure",
+          "Furniture and Fittings Expenditure",
+          "Mining Expenditure",
+          "Other Equipment Expenditure"
+        ],
+        "description": "Plant, equipment, furniture, mining equipment"
+      },
+      {
+        "class": 3,
+        "rate": 0.25,
+        "ratePercentage": "25%",
+        "assetTypes": [
+          "Motor Vehicle Expenditure",
+          "Software Expenditure",
+          "Other Capital Expenditure"
+        ],
+        "description": "Motor vehicles, software, other capital assets"
+      }
+    ],
+    "note": "All allowances are annual rates. No initial allowance under Nigeria Tax Act 2025. Allowances are claimed annually until asset is fully written off or disposed."
+  },
+  "vat": {
+    "description": "Value Added Tax (VAT)",
+    "section": "Section 148",
+    "rate": 0.075,
+    "ratePercentage": "7.5%",
+    "appliesTo": "All taxable supplies",
+    "exemptSupplies": [
+      "Oil and gas exports",
+      "Crude petroleum oil and feed gas",
+      "Goods for humanitarian donor funded projects",
+      "Baby products",
+      "Locally manufactured sanitary towels",
+      "Military hardware and uniforms",
+      "Shared passenger road-transport service",
+      "Agricultural equipment (tractors, ploughs)",
+      "Land or building",
+      "Money or securities",
+      "Government licences",
+      "Assistive devices and disability-related products"
+    ],
+    "zeroRatedSupplies": [
+      "Basic food items",
+      "Medical and pharmaceutical products",
+      "Educational books and materials",
+      "Fertilisers",
+      "Locally produced agricultural chemicals",
+      "Locally produced veterinary medicine",
+      "Locally produced animal feeds",
+      "Live cattle, goats, sheep and poultry",
+      "Agricultural seeds and seedlings",
+      "Electricity (GENCOs to Grid/NBET, TCN to DISCOs)",
+      "Medical services",
+      "Tuition (nursery, primary, secondary, tertiary)",
+      "Exported goods (excluding oil and gas)",
+      "Exported services",
+      "Exported incorporeal property",
+      "Medical equipment"
+    ]
+  },
+  "companyDonations": {
+    "description": "Deductible Donations (Section 164)",
+    "section": "Section 164",
+    "maxPercentage": 0.10,
+    "maxPercentageText": "10%",
+    "maxAmount": "10% of profit before tax",
+    "explanation": "Companies can deduct donations made to qualifying institutions, up to 10% of profit before tax for the year.",
+    "qualifyingRecipients": [
+      "Public funds",
+      "Statutory bodies or institutions",
+      "Religious, charitable, educational and scientific institutions",
+      "Bodies recognised under Diplomatic Immunities and Privileges Act",
+      "Pandemic, natural disaster or other public emergency interventions"
+    ]
+  },
+  "researchDevelopment": {
+    "description": "Research and Development Deduction (Section 165)",
+    "section": "Section 165",
+    "maxPercentage": 0.05,
+    "maxPercentageText": "5%",
+    "maxAmount": "5% of turnover",
+    "explanation": "Companies can deduct research and development expenses up to 5% of turnover for the year."
+  }
+}
+

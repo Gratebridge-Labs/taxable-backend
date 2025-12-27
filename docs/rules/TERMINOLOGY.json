@@ -1,0 +1,116 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2024-12-27",
+  "purpose": "Definitions of tax terms for user education",
+  "terms": {
+    "deduction": {
+      "term": "Deduction",
+      "definition": "An expense or allowance that reduces your taxable income, meaning you pay less tax.",
+      "example": "If you earn ₦1,000,000 and have ₦200,000 in deductions, you only pay tax on ₦800,000.",
+      "commonTypes": [
+        "Personal Relief",
+        "Housing Allowance",
+        "Transport Allowance",
+        "Medical Expenses",
+        "Pension Contributions"
+      ]
+    },
+    "taxableIncome": {
+      "term": "Taxable Income",
+      "definition": "The amount of income you pay tax on, calculated as: Gross Income minus Deductions.",
+      "formula": "Taxable Income = Gross Income - Deductions",
+      "example": "If your gross income is ₦1,000,000 and deductions are ₦300,000, your taxable income is ₦700,000."
+    },
+    "grossIncome": {
+      "term": "Gross Income",
+      "definition": "Your total income before any deductions or taxes are applied.",
+      "includes": [
+        "Salary from employment",
+        "Business income",
+        "Rental income",
+        "Investment income",
+        "Any other income sources"
+      ]
+    },
+    "paye": {
+      "term": "PAYE (Pay As You Earn)",
+      "definition": "A system where your employer deducts tax from your salary before paying you.",
+      "explanation": "If you're employed, your employer calculates and deducts tax from your salary each month and remits it to FIRS on your behalf."
+    },
+    "chargeableIncome": {
+      "term": "Chargeable Income",
+      "definition": "The income amount that is subject to tax after all deductions and allowances have been applied.",
+      "formula": "Chargeable Income = Taxable Income - Personal Relief - Dependent Allowances"
+    },
+    "capitalAllowance": {
+      "term": "Capital Allowance",
+      "definition": "A deduction for the depreciation (reduction in value over time) of business assets like equipment, vehicles, or buildings.",
+      "explanation": "Instead of deducting the full cost of a business asset in one year, you can claim a portion of its value each year as it depreciates."
+    },
+    "assessableProfit": {
+      "term": "Assessable Profit",
+      "definition": "The profit from your business that is subject to tax, calculated as: Business Income minus Business Expenses minus Capital Allowances.",
+      "formula": "Assessable Profit = Business Income - Business Expenses - Capital Allowances"
+    },
+    "tin": {
+      "term": "TIN (Tax Identification Number)",
+      "definition": "A unique 10-12 digit number issued by FIRS when you register for tax. It's required for all tax filings.",
+      "howToGet": "Register with FIRS (Federal Inland Revenue Service) to obtain your TIN."
+    },
+    "nin": {
+      "term": "NIN (National Identification Number)",
+      "definition": "An 11-digit number issued by NIMC (National Identity Management Commission). It's required for tax filing and other official transactions.",
+      "howToGet": "Register with NIMC to obtain your NIN. You can find it on your National ID card or NIN slip."
+    },
+    "cac": {
+      "term": "CAC (Corporate Affairs Commission)",
+      "definition": "The government agency responsible for registering companies and businesses in Nigeria.",
+      "explanation": "If you operate a company or registered business, you must register with CAC and obtain a registration number."
+    },
+    "firs": {
+      "term": "FIRS (Federal Inland Revenue Service)",
+      "definition": "The government agency responsible for collecting taxes in Nigeria.",
+      "responsibilities": [
+        "Issuing TINs",
+        "Collecting taxes",
+        "Processing tax returns",
+        "Enforcing tax laws"
+      ]
+    },
+    "nhf": {
+      "term": "NHF (National Housing Fund)",
+      "definition": "A mandatory contribution scheme for employees earning above ₦30,000 per month. Contribution is 2.5% of basic salary and is tax-deductible.",
+      "purpose": "To provide affordable housing finance for contributors."
+    },
+    "nhis": {
+      "term": "NHIS (National Health Insurance Scheme)",
+      "definition": "A health insurance scheme. Contributions to NHIS are tax-deductible as medical expenses.",
+      "purpose": "To provide affordable healthcare coverage."
+    },
+    "rsa": {
+      "term": "RSA (Retirement Savings Account)",
+      "definition": "A pension account where your retirement savings are held. Contributions to RSA are tax-deductible up to 25% of your income.",
+      "purpose": "To save for retirement with tax benefits."
+    },
+    "developmentLevy": {
+      "term": "Development Levy",
+      "definition": "An additional 1% tax on assessable profit/income, separate from income tax. It funds national development projects.",
+      "rate": "1% of assessable profit/income"
+    },
+    "jointFiling": {
+      "term": "Joint Filing",
+      "definition": "When two or more people file their taxes together, combining their income and deductions. Common for married couples or business partners.",
+      "benefits": [
+        "May result in lower combined tax",
+        "Simplified filing process",
+        "Combined deductions"
+      ]
+    },
+    "progressiveTax": {
+      "term": "Progressive Tax",
+      "definition": "A tax system where higher income is taxed at higher rates. In Nigeria, income is divided into brackets, and each bracket is taxed at its specific rate.",
+      "example": "First ₦300,000 at 7%, next ₦300,000 at 11%, and so on."
+    }
+  }
+}
+

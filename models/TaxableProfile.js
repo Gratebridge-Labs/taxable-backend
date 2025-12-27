@@ -30,9 +30,48 @@ const taxableProfileSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Profile type is required'],
     enum: {
-      values: ['Individual', 'Business'],
-      message: 'Profile type must be either Individual or Business'
+      values: ['Individual', 'Business', 'Joint_Spouse', 'Joint_Business'],
+      message: 'Profile type must be Individual, Business, Joint_Spouse, or Joint_Business'
     }
+  },
+  author: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: [true, 'Author is required'],
+    index: true
+  },
+  jointParties: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    role: {
+      type: String,
+      enum: ['spouse', 'business_partner', 'stakeholder']
+    },
+    sharePercentage: {
+      type: Number,
+      min: 0,
+      max: 100
+    },
+    nin: {
+      type: String,
+      match: [/^[0-9]{11}$/, 'NIN must be exactly 11 digits']
+    },
+    tin: {
+      type: String,
+      match: [/^[0-9]{10,12}$/, 'TIN must be 10-12 digits']
+    }
+  }],
+  primaryNIN: {
+    type: String,
+    match: [/^[0-9]{11}$/, 'NIN must be exactly 11 digits'],
+    required: false // Collected after base questions
+  },
+  primaryTIN: {
+    type: String,
+    match: [/^[0-9]{10,12}$/, 'TIN must be 10-12 digits'],
+    required: false // Collected after base questions, optional
   },
   status: {
     type: String,

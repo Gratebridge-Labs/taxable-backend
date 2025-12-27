@@ -1,0 +1,150 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2024-12-27",
+  "basedOn": "Nigeria Tax Act 2025",
+  "description": "Base questions that determine the flow of subsequent detailed questions for business tax profiles.",
+  "questions": [
+    {
+      "questionId": "BUS_BASE_001",
+      "order": 1,
+      "category": "business_structure",
+      "questionText": "What type of business entity is this?",
+      "questionType": "multiple_choice",
+      "required": true,
+      "options": [
+        "Sole Proprietorship",
+        "Partnership",
+        "Company (Limited by Shares)",
+        "Company (Limited by Guarantee)",
+        "Unincorporated Association"
+      ],
+      "explanation": "Different business entities have different tax obligations and rates. Companies are taxed at 30% (or 0% if small), while partnerships and sole proprietorships are taxed at individual rates.",
+      "helpText": "Select the legal structure of your business. This determines how your business income is taxed.",
+      "dependsOn": [],
+      "profileType": ["Business", "Joint_Business"],
+      "conditionalQuestions": {}
+    },
+    {
+      "questionId": "BUS_BASE_002",
+      "order": 2,
+      "category": "business_size",
+      "questionText": "What is your annual business turnover?",
+      "questionType": "multiple_choice",
+      "required": true,
+      "options": [
+        "₦50 million or less (Small Company)",
+        "Above ₦50 million"
+      ],
+      "explanation": "Small companies (turnover ≤ ₦50M and fixed assets ≤ ₦250M, excluding professional services) pay 0% tax. Other companies pay 30%. This classification affects your tax rate.",
+      "helpText": "Select based on your annual business revenue. Small companies have different tax rates.",
+      "dependsOn": ["BUS_BASE_001"],
+      "profileType": ["Business", "Joint_Business"],
+      "conditionalQuestions": {
+        "₦50 million or less (Small Company)": ["BUS_DET_SMALL_COMPANY"],
+        "Above ₦50 million": []
+      }
+    },
+    {
+      "questionId": "BUS_BASE_003",
+      "order": 3,
+      "category": "business_activities",
+      "questionText": "What are your main business activities?",
+      "questionType": "multiple_choice",
+      "required": true,
+      "options": [
+        "Sale of Goods",
+        "Provision of Services",
+        "Manufacturing",
+        "Trading",
+        "Export",
+        "Agricultural Business",
+        "Professional Services",
+        "Other"
+      ],
+      "allowMultiple": true,
+      "explanation": "Different business activities may have different tax treatments. Agricultural businesses get 5-year exemption, exports may have special incentives, and professional services cannot be classified as small companies.",
+      "helpText": "Select all activities your business engages in. This helps determine applicable tax rules and incentives.",
+      "dependsOn": ["BUS_BASE_001"],
+      "profileType": ["Business", "Joint_Business"],
+      "conditionalQuestions": {
+        "Agricultural Business": ["BUS_DET_AGRICULTURAL"],
+        "Export": ["BUS_DET_EXPORT"],
+        "Professional Services": [],
+        "Other": []
+      }
+    },
+    {
+      "questionId": "BUS_BASE_004",
+      "order": 4,
+      "category": "business_expenses",
+      "questionText": "What types of expenses does your business have?",
+      "questionType": "multiple_choice",
+      "required": true,
+      "options": [
+        "Rent and utilities",
+        "Salaries and wages",
+        "Capital assets (equipment, vehicles, buildings)",
+        "Research and development",
+        "Marketing and advertising",
+        "Other operating expenses"
+      ],
+      "allowMultiple": true,
+      "explanation": "Business expenses are deductible and reduce your taxable profit. Capital assets qualify for capital allowances (depreciation deductions). R&D expenses can be deducted up to 5% of turnover.",
+      "helpText": "Select all expense categories your business incurs. This helps identify all deductible expenses.",
+      "dependsOn": ["BUS_BASE_001"],
+      "profileType": ["Business", "Joint_Business"],
+      "conditionalQuestions": {
+        "Capital assets (equipment, vehicles, buildings)": ["BUS_DET_CAPITAL_ASSETS"],
+        "Research and development": ["BUS_DET_RND"],
+        "Other operating expenses": []
+      }
+    },
+    {
+      "questionId": "BUS_BASE_005",
+      "order": 5,
+      "category": "employees",
+      "questionText": "Do you have employees?",
+      "questionType": "yes_no",
+      "required": true,
+      "explanation": "If you have employees, you have employer obligations including PAYE (deducting tax from salaries), pension contributions, and NHF contributions. These are separate from business income tax.",
+      "helpText": "Answer 'Yes' if you employ staff, even if it's just one person.",
+      "dependsOn": ["BUS_BASE_001"],
+      "profileType": ["Business", "Joint_Business"],
+      "conditionalQuestions": {
+        "yes": ["BUS_DET_EMPLOYEES"],
+        "no": []
+      }
+    },
+    {
+      "questionId": "BUS_BASE_006",
+      "order": 6,
+      "category": "incentives",
+      "questionText": "Do any of these apply to your business?",
+      "questionType": "multiple_choice",
+      "required": false,
+      "options": [
+        "Export processing or free trade zone entity",
+        "Insurance business",
+        "Lottery or gaming business",
+        "Collective investment scheme",
+        "Mining operations",
+        "Priority sector (economic development incentive)",
+        "None of the above"
+      ],
+      "allowMultiple": true,
+      "explanation": "Specialized businesses and priority sectors may have different tax rates, exemptions, or incentives. These require specific forms and calculations.",
+      "helpText": "Select all that apply. Specialized businesses have specific tax treatments.",
+      "dependsOn": ["BUS_BASE_001"],
+      "profileType": ["Business", "Joint_Business"],
+      "conditionalQuestions": {
+        "Export processing or free trade zone entity": ["BUS_DET_EXPORT_ZONE"],
+        "Insurance business": ["BUS_DET_INSURANCE"],
+        "Lottery or gaming business": ["BUS_DET_LOTTERY"],
+        "Mining operations": ["BUS_DET_MINING"],
+        "Priority sector (economic development incentive)": ["BUS_DET_PRIORITY_SECTOR"],
+        "None of the above": []
+      }
+    }
+  ],
+  "note": "After these base questions, detailed questions will be asked based on answers. Business TIN collection happens after base questions, before detailed income/expense collection."
+}

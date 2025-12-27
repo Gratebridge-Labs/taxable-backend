@@ -1,0 +1,131 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2024-12-27",
+  "basedOn": "Nigeria Tax Act 2025",
+  "effectiveYear": 2025,
+  "currency": "NGN",
+  "individualTaxRates": {
+    "description": "Personal Income Tax rates for individuals (Section 58, Fourth Schedule)",
+    "section": "Section 58, Fourth Schedule",
+    "brackets": [
+      {
+        "min": 0,
+        "max": 800000,
+        "rate": 0.00,
+        "ratePercentage": "0%",
+        "description": "First ₦800,000 of chargeable income"
+      },
+      {
+        "min": 800001,
+        "max": 3000000,
+        "rate": 0.15,
+        "ratePercentage": "15%",
+        "description": "Next ₦2,200,000"
+      },
+      {
+        "min": 3000001,
+        "max": 12000000,
+        "rate": 0.18,
+        "ratePercentage": "18%",
+        "description": "Next ₦9,000,000"
+      },
+      {
+        "min": 12000001,
+        "max": 25000000,
+        "rate": 0.21,
+        "ratePercentage": "21%",
+        "description": "Next ₦13,000,000"
+      },
+      {
+        "min": 25000001,
+        "max": 50000000,
+        "rate": 0.23,
+        "ratePercentage": "23%",
+        "description": "Next ₦25,000,000"
+      },
+      {
+        "min": 50000001,
+        "max": null,
+        "rate": 0.25,
+        "ratePercentage": "25%",
+        "description": "Above ₦50,000,000"
+      }
+    ],
+    "calculationMethod": "progressive",
+    "note": "Tax is calculated progressively - each bracket is taxed at its rate, not the entire income at the highest rate. Applies after relief allowance and exemptions under Section 30(1).",
+    "exemption": "Individuals earning Minimum Wage are exempt (per Minimum Wage Act)"
+  },
+  "companyTaxRates": {
+    "description": "Company Income Tax rates (Section 56)",
+    "section": "Section 56",
+    "rates": [
+      {
+        "category": "Small Companies",
+        "turnoverMax": 50000000,
+        "fixedAssetsMax": 250000000,
+        "rate": 0.00,
+        "ratePercentage": "0%",
+        "description": "Small companies with gross turnover of ₦50 million or less per annum and total fixed assets not exceeding ₦250 million",
+        "definition": "A company that earns gross turnover of ₦50,000,000 or less per annum with total fixed assets not exceeding ₦250,000,000. Professional services businesses are NOT classified as small companies.",
+        "exclusions": ["Professional services businesses"],
+        "alsoExemptFrom": ["Capital Gains Tax", "Development Levy"]
+      },
+      {
+        "category": "Other Companies",
+        "rate": 0.30,
+        "ratePercentage": "30%",
+        "description": "All companies that do not qualify as small companies",
+        "note": "Applies from commencement of this Act"
+      }
+    ],
+    "effectiveTaxRate": {
+      "description": "Minimum Effective Tax Rate (Section 57)",
+      "minimumRate": 0.15,
+      "minimumRatePercentage": "15%",
+      "appliesTo": [
+        "Companies that are constituent entities of an MNE group",
+        "Companies with aggregate turnover of ₦20,000,000,000 and above"
+      ],
+      "note": "If effective tax rate is less than 15%, company must recompute and pay additional tax to reach 15%"
+    },
+    "calculationMethod": "flat_rate",
+    "note": "Company tax is calculated as a flat rate on total profits"
+  },
+  "developmentLevy": {
+    "description": "Development Levy (Section 59)",
+    "section": "Section 59",
+    "rate": 0.04,
+    "ratePercentage": "4%",
+    "appliesTo": "All companies chargeable to tax under Chapters Two and Three",
+    "exemptions": [
+      "Small companies",
+      "Non-resident companies"
+    ],
+    "note": "4% of assessable profits. 10% of this levy goes to Defence and Security Infrastructure Fund (Fourteenth Schedule)"
+  },
+  "vat": {
+    "description": "Value Added Tax (VAT)",
+    "section": "Section 148",
+    "rate": 0.075,
+    "ratePercentage": "7.5%",
+    "appliesTo": "All taxable supplies",
+    "note": "VAT is charged on taxable supplies. Input VAT on services and capital expenditures is fully claimable."
+  },
+  "capitalGainsTax": {
+    "description": "Capital Gains Tax",
+    "section": "Part VIII, Chapter Two",
+    "individualRate": "Same as income tax rate (progressive 0-25%)",
+    "companyRate": 0.30,
+    "companyRatePercentage": "30%",
+    "exemptions": [
+      "Principal private residence (once in lifetime)",
+      "Personal chattels under ₦5M or 3x minimum wage",
+      "Up to 2 motor vehicles for private use",
+      "Gifts",
+      "Shares disposal proceeds < ₦150M and gain < ₦10M in 12 months",
+      "Minimum wage earners"
+    ],
+    "note": "Individuals pay capital gains tax at their applicable income tax rate. Companies pay 30%."
+  }
+}
+
