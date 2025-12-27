@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const { register, verifyOTP, setup2FA, enable2FA, login } = require('../controllers/authController');
+const { register, verifyOTP, setup2FA, enable2FA, login, forgotPassword, verifyResetOTP, resetPassword, changePassword } = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 
 // Validation rules for registration
@@ -77,14 +77,71 @@ const enable2FAValidation = [
     .isNumeric().withMessage('Verification code must contain only numbers')
 ];
 
+// Validation rules for forgot password
+const forgotPasswordValidation = [
+  body('email')
+    .trim()
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Please provide a valid email address')
+    .normalizeEmail()
+];
+
+// Validation rules for verify reset OTP
+const verifyResetOTPValidation = [
+  body('email')
+    .trim()
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Please provide a valid email address')
+    .normalizeEmail(),
+  
+  body('code')
+    .trim()
+    .notEmpty().withMessage('Reset code is required')
+    .isLength({ min: 6, max: 6 }).withMessage('Reset code must be 6 digits')
+    .isNumeric().withMessage('Reset code must contain only numbers')
+];
+
+// Validation rules for reset password
+const resetPasswordValidation = [
+  body('email')
+    .trim()
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Please provide a valid email address')
+    .normalizeEmail(),
+  
+  body('resetToken')
+    .trim()
+    .notEmpty().withMessage('Reset token is required'),
+  
+  body('newPassword')
+    .notEmpty().withMessage('New password is required')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters long')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
+];
+
+// Validation rules for change password
+const changePasswordValidation = [
+  body('oldPassword')
+    .notEmpty().withMessage('Current password is required'),
+  
+  body('newPassword')
+    .notEmpty().withMessage('New password is required')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters long')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
+];
+
 // Public routes
 router.post('/register', registerValidation, register);
 router.post('/verify-otp', verifyOTPValidation, verifyOTP);
 router.post('/login', loginValidation, login);
+router.post('/forgot-password', forgotPasswordValidation, forgotPassword);
+router.post('/verify-reset-otp', verifyResetOTPValidation, verifyResetOTP);
+router.post('/reset-password', resetPasswordValidation, resetPassword);
 
 // Protected routes (require authentication)
 router.get('/setup-2fa', authenticate, setup2FA);
 router.post('/enable-2fa', authenticate, enable2FAValidation, enable2FA);
+router.post('/change-password', authenticate, changePasswordValidation, changePassword);
 
 module.exports = router;
 

@@ -27,6 +27,13 @@ const otpSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  resetToken: {
+    type: String,
+    select: false // Don't return token by default
+  },
+  resetTokenExpiresAt: {
+    type: Date
+  },
   createdAt: {
     type: Date,
     default: Date.now,

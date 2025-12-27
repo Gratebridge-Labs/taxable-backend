@@ -1,7 +1,7 @@
 const User = require('../models/User');
 const OTP = require('../models/OTP');
-const { sendOTPEmail, sendWelcomeEmail } = require('../utils/emailService');
-const { generateToken } = require('../utils/jwt');
+const { sendOTPEmail, sendWelcomeEmail, sendPasswordResetEmail } = require('../utils/emailService');
+const { generateToken, generateResetToken } = require('../utils/jwt');
 const { validationResult } = require('express-validator');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
@@ -471,11 +471,331 @@ const login = async (req, res) => {
   }
 };
 
+/**
+ * Forgot Password - Send OTP to email for password reset
+ */
+const forgotPassword = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { email } = req.body;
+
+    // Find user
+    const user = await User.findOne({ email: email.toLowerCase() });
+    
+    // Tell user if account doesn't exist
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this email address'
+      });
+    }
+
+    // Check if email is verified
+    if (!user.emailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Please verify your email address first'
+      });
+    }
+
+    // Check if there's an existing unverified password reset OTP
+    const existingOTP = await OTP.findOne({
+      email: email.toLowerCase(),
+      purpose: 'password_reset',
+      verified: false,
+      expiresAt: { $gt: new Date() }
+    });
+
+    // Generate new OTP
+    const otpCode = generateOTP();
+
+    // If there's an existing unverified OTP, update it; otherwise create new one
+    if (existingOTP) {
+      existingOTP.code = otpCode;
+      existingOTP.expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      existingOTP.verified = false;
+      await existingOTP.save();
+    } else {
+      await OTP.create({
+        email: email.toLowerCase(),
+        code: otpCode,
+        purpose: 'password_reset',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      });
+    }
+
+    // Send password reset email
+    try {
+      await sendPasswordResetEmail(email.toLowerCase(), user.firstName, otpCode);
+    } catch (emailError) {
+      console.error('Failed to send password reset email:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send password reset email. Please try again.'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset code has been sent to your email address.'
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while processing your request',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Verify Reset OTP - Verify OTP code and return reset token
+ */
+const verifyResetOTP = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { email, code } = req.body;
+
+    // Find the OTP record
+    const otpRecord = await OTP.findOne({
+      email: email.toLowerCase(),
+      code: code,
+      purpose: 'password_reset'
+    }).select('+resetToken');
+
+    // Check if OTP exists
+    if (!otpRecord) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset code'
+      });
+    }
+
+    // Check if OTP has already been verified
+    if (otpRecord.verified) {
+      return res.status(400).json({
+        success: false,
+        message: 'This reset code has already been used'
+      });
+    }
+
+    // Check if OTP has expired
+    if (otpRecord.expiresAt < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset code has expired. Please request a new one'
+      });
+    }
+
+    // Find the user
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Generate reset token
+    const resetToken = generateResetToken();
+
+    // Mark OTP as verified and store reset token
+    otpRecord.verified = true;
+    otpRecord.resetToken = resetToken;
+    otpRecord.resetTokenExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    await otpRecord.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'OTP verified successfully. You can now reset your password.',
+      data: {
+        resetToken: resetToken
+      }
+    });
+  } catch (error) {
+    console.error('Verify reset OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while verifying the reset code',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Reset Password - Use reset token to set new password
+ */
+const resetPassword = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { email, resetToken, newPassword } = req.body;
+
+    // Find the OTP record with reset token
+    const otpRecord = await OTP.findOne({
+      email: email.toLowerCase(),
+      purpose: 'password_reset',
+      resetToken: resetToken
+    }).select('+resetToken');
+
+    // Check if OTP record with reset token exists
+    if (!otpRecord) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset token'
+      });
+    }
+
+    // Check if OTP was verified
+    if (!otpRecord.verified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please verify the OTP code first'
+      });
+    }
+
+    // Check if reset token has expired
+    if (!otpRecord.resetTokenExpiresAt || otpRecord.resetTokenExpiresAt < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset token has expired. Please request a new password reset'
+      });
+    }
+
+    // Find the user
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update password (will be hashed by pre-save hook)
+    user.password = newPassword;
+    await user.save();
+
+    // Clear the reset token (optional, for security)
+    otpRecord.resetToken = undefined;
+    otpRecord.resetTokenExpiresAt = undefined;
+    await otpRecord.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Password has been reset successfully. You can now login with your new password.'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while resetting your password',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Change Password - Change password from old to new (requires authentication)
+ */
+const changePassword = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const userId = req.user?.userId;
+    const { oldPassword, newPassword } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    // Find user with password field
+    const user = await User.findById(userId).select('+password');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Verify old password
+    const isOldPasswordValid = await user.comparePassword(oldPassword);
+    if (!isOldPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Check if new password is different from old password
+    const isSamePassword = await user.comparePassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be different from your current password'
+      });
+    }
+
+    // Update password (will be hashed by pre-save hook)
+    user.password = newPassword;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Password has been changed successfully'
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while changing your password',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   register,
   verifyOTP,
   setup2FA,
   enable2FA,
-  login
+  login,
+  forgotPassword,
+  verifyResetOTP,
+  resetPassword,
+  changePassword
 };
 
