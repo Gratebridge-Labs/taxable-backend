@@ -32,7 +32,7 @@ const documentSchema = new mongoose.Schema({
   fileSize: {
     type: Number,
     required: true,
-    min: 0
+    default: 0
   },
   mimeType: {
     type: String,

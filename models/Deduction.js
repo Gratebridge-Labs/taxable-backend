@@ -17,7 +17,7 @@ const deductionSchema = new mongoose.Schema({
   nhf: {
     contribution: {
       type: Number,
-      min: 0
+      default: 0
     },
     basicSalary: Number, // For auto-calculation
     autoCalculated: {
@@ -29,14 +29,14 @@ const deductionSchema = new mongoose.Schema({
   nhis: {
     contribution: {
       type: Number,
-      min: 0
+      default: 0
     }
   },
   // Pension Contribution
   pension: {
     contribution: {
       type: Number,
-      min: 0
+      default: 0
     },
     pensionFundAdministrator: String,
     totalIncome: Number, // For limit validation (25% of income)
@@ -49,7 +49,7 @@ const deductionSchema = new mongoose.Schema({
   lifeInsurance: {
     premium: {
       type: Number,
-      min: 0
+      default: 0
     },
     insuranceCompany: String,
     coverageType: {
@@ -61,7 +61,7 @@ const deductionSchema = new mongoose.Schema({
   mortgageInterest: {
     interestPaid: {
       type: Number,
-      min: 0
+      default: 0
     },
     lenderName: String,
     propertyAddress: {
@@ -74,12 +74,14 @@ const deductionSchema = new mongoose.Schema({
   rentRelief: {
     annualRent: {
       type: Number,
-      min: 0
+      default: 0
     },
     reliefAmount: {
       type: Number,
-      min: 0,
-      max: 500000 // Capped at ₦500,000
+      validate: {
+        validator: function(v) { return v >= 0 && v <= 500000; },
+        message: 'Rent relief must be between 0 and 500,000'
+      }
     },
     propertyAddress: {
       streetAddress: String,
@@ -96,8 +98,10 @@ const deductionSchema = new mongoose.Schema({
   transportAllowance: {
     amount: {
       type: Number,
-      min: 0,
-      max: 200000 // Capped at ₦200,000
+      validate: {
+        validator: function(v) { return v >= 0 && v <= 200000; },
+        message: 'Transport allowance must be between 0 and 200,000'
+      }
     }
   },
   // Other deductions
@@ -105,7 +109,7 @@ const deductionSchema = new mongoose.Schema({
     description: String,
     amount: {
       type: Number,
-      min: 0
+      default: 0
     },
     justification: String
   },
@@ -113,7 +117,7 @@ const deductionSchema = new mongoose.Schema({
   amount: {
     type: Number,
     required: true,
-    min: 0
+    default: 0
   },
   period: {
     startDate: Date,

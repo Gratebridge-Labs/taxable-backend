@@ -181,7 +181,7 @@ const answerQuestion = async (req, res) => {
     );
 
     // Determine next questions based on conditional logic
-    const nextQuestions = getNextQuestions(questionDef, response, questions);
+    const nextQuestions = getNextQuestionsFromAnswer(questionDef, response, questions);
 
     res.status(200).json({
       success: true,
@@ -208,7 +208,7 @@ const answerQuestion = async (req, res) => {
 /**
  * Get next questions based on current answers
  */
-const getNextQuestions = async (req, res) => {
+const getNextQuestionsEndpoint = async (req, res) => {
   try {
     const { profileId } = req.params;
 
@@ -424,6 +424,38 @@ const getQuestionProgress = async (req, res) => {
 };
 
 // Helper functions
+function getNextQuestionsFromAnswer(questionDef, response, questions) {
+  if (!questionDef.conditionalQuestions) {
+    return [];
+  }
+
+  let nextQuestionIds = [];
+  
+  if (questionDef.questionType === 'yes_no') {
+    nextQuestionIds = questionDef.conditionalQuestions[response ? 'yes' : 'no'] || [];
+  } else if (questionDef.questionType === 'multiple_choice') {
+    if (Array.isArray(response)) {
+      // Multiple selection
+      response.forEach(option => {
+        if (questionDef.conditionalQuestions[option]) {
+          nextQuestionIds.push(...questionDef.conditionalQuestions[option]);
+        }
+      });
+    } else {
+      // Single selection
+      nextQuestionIds = questionDef.conditionalQuestions[response] || [];
+    }
+  }
+
+  // Get question definitions
+  const allQuestions = [
+    ...questions.baseQuestions.questions,
+    ...Object.values(questions.detailedQuestions.questionSets).flatMap(set => set.questions || [])
+  ];
+
+  return allQuestions.filter(q => nextQuestionIds.includes(q.questionId));
+}
+
 function validateResponse(response, questionDef) {
   if (questionDef.required && (response === null || response === undefined || response === '')) {
     return `${questionDef.questionText} is required`;
@@ -459,38 +491,6 @@ function validateResponse(response, questionDef) {
   return null;
 }
 
-function getNextQuestions(questionDef, response, questions) {
-  if (!questionDef.conditionalQuestions) {
-    return [];
-  }
-
-  let nextQuestionIds = [];
-  
-  if (questionDef.questionType === 'yes_no') {
-    nextQuestionIds = questionDef.conditionalQuestions[response ? 'yes' : 'no'] || [];
-  } else if (questionDef.questionType === 'multiple_choice') {
-    if (Array.isArray(response)) {
-      // Multiple selection
-      response.forEach(option => {
-        if (questionDef.conditionalQuestions[option]) {
-          nextQuestionIds.push(...questionDef.conditionalQuestions[option]);
-        }
-      });
-    } else {
-      // Single selection
-      nextQuestionIds = questionDef.conditionalQuestions[response] || [];
-    }
-  }
-
-  // Get question definitions
-  const allQuestions = [
-    ...questions.baseQuestions.questions,
-    ...Object.values(questions.detailedQuestions.questionSets).flatMap(set => set.questions || [])
-  ];
-
-  return allQuestions.filter(q => nextQuestionIds.includes(q.questionId));
-}
-
 function getConditionalQuestionIds(questionDef, response) {
   if (!questionDef.conditionalQuestions) {
     return [];
@@ -518,7 +518,7 @@ function getConditionalQuestionIds(questionDef, response) {
 module.exports = {
   getBaseQuestions,
   answerQuestion,
-  getNextQuestions,
+  getNextQuestions: getNextQuestionsEndpoint,
   getResponses,
   getQuestionProgress
 };

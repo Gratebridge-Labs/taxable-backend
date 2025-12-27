@@ -27,7 +27,10 @@ const taxCalculationSchema = new mongoose.Schema({
     totalIncome: {
       type: Number,
       required: true,
-      min: 0
+      validate: {
+        validator: function(v) { return v >= 0; },
+        message: 'Total income must be >= 0'
+      }
     },
     employmentIncome: {
       type: Number,
@@ -55,7 +58,10 @@ const taxCalculationSchema = new mongoose.Schema({
     totalDeductions: {
       type: Number,
       required: true,
-      min: 0
+      validate: {
+        validator: function(v) { return v >= 0; },
+        message: 'Total deductions must be >= 0'
+      }
     },
     nhf: {
       type: Number,
@@ -118,44 +124,65 @@ const taxCalculationSchema = new mongoose.Schema({
     chargeableIncome: {
       type: Number,
       required: true,
-      min: 0
+      validate: {
+        validator: function(v) { return v >= 0; },
+        message: 'Chargeable income must be >= 0'
+      }
     },
     // For individuals - progressive brackets
     individualTax: {
       bracket1: {
-        range: { min: 0, max: 800000 },
+        range: {
+          min: { type: Number, default: 0 },
+          max: { type: Number, default: 800000 }
+        },
         incomeInBracket: Number,
-        rate: 0.00,
+        rate: { type: Number, default: 0.00 },
         tax: Number
       },
       bracket2: {
-        range: { min: 800001, max: 3000000 },
+        range: {
+          min: { type: Number, default: 800001 },
+          max: { type: Number, default: 3000000 }
+        },
         incomeInBracket: Number,
-        rate: 0.15,
+        rate: { type: Number, default: 0.15 },
         tax: Number
       },
       bracket3: {
-        range: { min: 3000001, max: 12000000 },
+        range: {
+          min: { type: Number, default: 3000001 },
+          max: { type: Number, default: 12000000 }
+        },
         incomeInBracket: Number,
-        rate: 0.18,
+        rate: { type: Number, default: 0.18 },
         tax: Number
       },
       bracket4: {
-        range: { min: 12000001, max: 25000000 },
+        range: {
+          min: { type: Number, default: 12000001 },
+          max: { type: Number, default: 25000000 }
+        },
         incomeInBracket: Number,
-        rate: 0.21,
+        rate: { type: Number, default: 0.21 },
         tax: Number
       },
       bracket5: {
-        range: { min: 25000001, max: 50000000 },
+        range: {
+          min: { type: Number, default: 25000001 },
+          max: { type: Number, default: 50000000 }
+        },
         incomeInBracket: Number,
-        rate: 0.23,
+        rate: { type: Number, default: 0.23 },
         tax: Number
       },
       bracket6: {
-        range: { min: 50000001, max: null },
+        range: {
+          min: { type: Number, default: 50000001 },
+          max: { type: Number, default: null }
+        },
         incomeInBracket: Number,
-        rate: 0.25,
+        rate: { type: Number, default: 0.25 },
         tax: Number
       },
       totalTax: {

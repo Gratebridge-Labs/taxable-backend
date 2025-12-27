@@ -49,11 +49,13 @@ const taxableProfileSchema = new mongoose.Schema({
       type: String,
       enum: ['spouse', 'business_partner', 'stakeholder']
     },
-    sharePercentage: {
-      type: Number,
-      min: 0,
-      max: 100
-    },
+        sharePercentage: {
+          type: Number,
+          validate: {
+            validator: function(v) { return v >= 0 && v <= 100; },
+            message: 'Share percentage must be between 0 and 100'
+          }
+        },
     nin: {
       type: String,
       match: [/^[0-9]{11}$/, 'NIN must be exactly 11 digits']

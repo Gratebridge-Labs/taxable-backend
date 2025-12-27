@@ -27,24 +27,26 @@ const incomeSourceSchema = new mongoose.Schema({
     employmentEndDate: Date,
     annualGrossSalary: {
       type: Number,
-      min: 0
+      default: 0
     },
     basicSalary: {
       type: Number,
-      min: 0
+      default: 0
     },
     housingAllowance: {
       type: Number,
-      min: 0
+      default: 0
     },
     transportAllowance: {
       type: Number,
-      min: 0,
-      max: 200000
+      validate: {
+        validator: function(v) { return v >= 0 && v <= 200000; },
+        message: 'Transport allowance must be between 0 and 200,000'
+      }
     },
     payeDeducted: {
       type: Number,
-      min: 0
+      default: 0
     },
     benefitsInKind: [{
       benefitType: String,
@@ -64,7 +66,7 @@ const incomeSourceSchema = new mongoose.Schema({
     businessType: String,
     annualRevenue: {
       type: Number,
-      min: 0
+      default: 0
     },
     revenueBySource: [{
       source: String,
@@ -82,27 +84,27 @@ const incomeSourceSchema = new mongoose.Schema({
       },
       annualRentalIncome: {
         type: Number,
-        min: 0
+        default: 0
       },
       repairs: {
         type: Number,
-        min: 0
+        default: 0
       },
       managementFees: {
         type: Number,
-        min: 0
+        default: 0
       },
       insurance: {
         type: Number,
-        min: 0
+        default: 0
       },
       interestOnLoan: {
         type: Number,
-        min: 0
+        default: 0
       },
       otherExpenses: {
         type: Number,
-        min: 0
+        default: 0
       }
     }]
   },
@@ -115,11 +117,11 @@ const incomeSourceSchema = new mongoose.Schema({
       },
       amount: {
         type: Number,
-        min: 0
+        default: 0
       },
       taxWithheld: {
         type: Number,
-        min: 0
+        default: 0
       },
       source: String
     }]
@@ -129,7 +131,7 @@ const incomeSourceSchema = new mongoose.Schema({
     description: String,
     amount: {
       type: Number,
-      min: 0
+      default: 0
     },
     source: String
   },
@@ -146,12 +148,12 @@ const incomeSourceSchema = new mongoose.Schema({
   totalAmount: {
     type: Number,
     required: true,
-    min: 0
+    default: 0
   },
   // Auto-calculated fields
   netAmount: {
     type: Number,
-    min: 0
+    default: 0
   },
   createdAt: {
     type: Date,
