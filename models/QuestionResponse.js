@@ -25,6 +25,23 @@ const questionResponseSchema = new mongoose.Schema({
   tableData: [{
     type: mongoose.Schema.Types.Mixed
   }],
+  // For income questions with monthly/annual periods
+  period: {
+    type: String,
+    enum: ['monthly', 'annually'],
+    default: 'annually'
+  },
+  // For monthly income: store month and year
+  month: {
+    type: Number,
+    min: 1,
+    max: 12
+  },
+  year: {
+    type: Number,
+    min: 2020,
+    max: 2100
+  },
   // Metadata
   answeredAt: {
     type: Date,
@@ -39,7 +56,10 @@ const questionResponseSchema = new mongoose.Schema({
 });
 
 // Compound index for quick lookups
-questionResponseSchema.index({ profileId: 1, questionId: 1 }, { unique: true });
+// For monthly income: profileId + questionId + period + month + year must be unique
+// For annual: profileId + questionId + period must be unique
+// We'll handle uniqueness in application logic to support both cases
+questionResponseSchema.index({ profileId: 1, questionId: 1, period: 1, month: 1, year: 1 });
 questionResponseSchema.index({ profileId: 1, answeredAt: -1 });
 
 module.exports = mongoose.model('QuestionResponse', questionResponseSchema);

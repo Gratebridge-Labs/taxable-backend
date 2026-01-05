@@ -344,20 +344,47 @@ const answerQuestion = async (req, res) => {
       });
     }
 
+    // Extract period, month, year from request body for income questions
+    const { period, month, year } = req.body;
+    
+    // Build query - for monthly income, include period, month, year in query
+    const query = { 
+      profileId: profile._id,
+      questionId: questionId
+    };
+    
+    // For monthly income, add period, month, year to query for uniqueness
+    if (period === 'monthly' && month && year) {
+      query.period = 'monthly';
+      query.month = month;
+      query.year = year;
+    } else if (period === 'annually') {
+      query.period = 'annually';
+    }
+    
+    // Build update object
+    const updateData = {
+      profileId: profile._id,
+      questionId: questionId,
+      questionType: questionDef.questionType,
+      response: response,
+      tableData: questionDef.questionType === 'table' ? response : undefined,
+      updatedAt: Date.now()
+    };
+    
+    // Add period info for income questions
+    if (period) {
+      updateData.period = period;
+      if (period === 'monthly' && month && year) {
+        updateData.month = month;
+        updateData.year = year;
+      }
+    }
+    
     // Save or update response
     const questionResponse = await QuestionResponse.findOneAndUpdate(
-      { 
-        profileId: profile._id,
-        questionId: questionId
-      },
-      {
-        profileId: profile._id,
-        questionId: questionId,
-        questionType: questionDef.questionType,
-        response: response,
-        tableData: questionDef.questionType === 'table' ? response : undefined,
-        updatedAt: Date.now()
-      },
+      query,
+      updateData,
       { 
         upsert: true, 
         new: true 
@@ -766,12 +793,23 @@ const getAllDetailedQuestions = async (req, res) => {
     }
 
     // Get all existing responses
+    // For income questions, we need to check both monthly and annual responses
     const existingResponses = await QuestionResponse.find({ 
       profileId: profile._id 
     });
     const responseMap = new Map();
+    const monthlyResponseMap = new Map(); // For monthly income data
+    
     existingResponses.forEach(r => {
-      responseMap.set(r.questionId, r);
+      // For monthly responses, store with month/year key
+      if (r.period === 'monthly' && r.month && r.year) {
+        const key = `${r.questionId}_${r.month}_${r.year}`;
+        monthlyResponseMap.set(key, r);
+      }
+      // For annual or default, use questionId
+      if (r.period === 'annually' || !r.period) {
+        responseMap.set(r.questionId, r);
+      }
     });
 
     // Flatten all detailed questions from all questionSets
@@ -808,8 +846,23 @@ const getAllDetailedQuestions = async (req, res) => {
       }
 
       // Check if question is answered
-      const existingResponse = responseMap.get(question.questionId);
-      const isAnswered = !!existingResponse;
+      // For income questions with monthly period, check monthly responses
+      let existingResponse = null;
+      let isAnswered = false;
+      
+      if (categoryKey === 'incomeanddeductions' && period === 'monthly') {
+        // For monthly, check if any month has been answered
+        const monthlyResponses = existingResponses.filter(r => 
+          r.questionId === question.questionId && 
+          r.period === 'monthly' && 
+          r.year === profile.year
+        );
+        isAnswered = monthlyResponses.length > 0;
+        existingResponse = monthlyResponses.length > 0 ? monthlyResponses[0] : null;
+      } else {
+        existingResponse = responseMap.get(question.questionId);
+        isAnswered = !!existingResponse;
+      }
 
       // For income questions, handle monthly/annual period
       let questionData = { ...question };
@@ -899,6 +952,290 @@ function getCategoryName(categoryKey) {
   return categoryNames[categoryKey] || categoryKey;
 }
 
+/**
+ * Save income data with monthly/annual period support and auto-save
+ * This endpoint is specifically for income questions that support monthly/annual periods
+ */
+const saveIncomeData = async (req, res) => {
+  try {
+    const { profileId } = req.params;
+    const { questionId, response, period, month, year, autoSave } = req.body;
+
+    if (!questionId || response === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'Question ID and response are required'
+      });
+    }
+
+    // Validate period
+    if (period && !['monthly', 'annually'].includes(period)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Period must be either "monthly" or "annually"'
+      });
+    }
+
+    // For monthly, month and year are required
+    if (period === 'monthly') {
+      if (!month || !year) {
+        return res.status(400).json({
+          success: false,
+          message: 'Month and year are required for monthly period'
+        });
+      }
+      if (month < 1 || month > 12) {
+        return res.status(400).json({
+          success: false,
+          message: 'Month must be between 1 and 12'
+        });
+      }
+    }
+
+    const profile = await TaxableProfile.findOne({ 
+      profileId,
+      user: req.user.userId 
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    // Load questions to validate
+    const questions = loadQuestions(profile.profileType);
+    if (!questions) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error loading questions'
+      });
+    }
+
+    // Flatten all questions to find the question definition
+    const allDetailedQuestions = [];
+    Object.values(questions.detailedQuestions.questionSets).forEach(set => {
+      if (set.questions && Array.isArray(set.questions)) {
+        allDetailedQuestions.push(...set.questions);
+      } else {
+        Object.values(set).forEach(nestedSet => {
+          if (nestedSet && nestedSet.questions && Array.isArray(nestedSet.questions)) {
+            allDetailedQuestions.push(...nestedSet.questions);
+          }
+        });
+      }
+    });
+
+    const questionDef = allDetailedQuestions.find(q => q.questionId === questionId);
+
+    if (!questionDef) {
+      return res.status(404).json({
+        success: false,
+        message: 'Question not found'
+      });
+    }
+
+    // Check if question is in incomeanddeductions category
+    if (questionDef.categoryKey !== 'incomeanddeductions') {
+      return res.status(400).json({
+        success: false,
+        message: 'This endpoint is only for income questions. Use /answer endpoint for other questions.'
+      });
+    }
+
+    // Validate response
+    const validationError = validateResponse(response, questionDef);
+    if (validationError) {
+      return res.status(400).json({
+        success: false,
+        message: validationError
+      });
+    }
+
+    // Build query for finding existing response
+    const query = { 
+      profileId: profile._id,
+      questionId: questionId
+    };
+
+    if (period === 'monthly' && month && year) {
+      query.period = 'monthly';
+      query.month = month;
+      query.year = year;
+    } else {
+      // For annually or default, use annually
+      query.period = period || 'annually';
+    }
+
+    // Build update data
+    const updateData = {
+      profileId: profile._id,
+      questionId: questionId,
+      questionType: questionDef.questionType,
+      response: response,
+      tableData: questionDef.questionType === 'table' ? response : undefined,
+      period: period || 'annually',
+      updatedAt: Date.now()
+    };
+
+    if (period === 'monthly' && month && year) {
+      updateData.month = month;
+      updateData.year = year;
+    } else if (period === 'annually' || !period) {
+      updateData.year = profile.year; // Use profile year for annual
+    }
+
+    // Save or update response
+    const questionResponse = await QuestionResponse.findOneAndUpdate(
+      query,
+      updateData,
+      { 
+        upsert: true, 
+        new: true 
+      }
+    );
+
+    // If monthly, calculate annual total if all months are filled
+    let annualTotal = null;
+    if (period === 'monthly' && questionDef.questionType === 'number') {
+      const monthlyResponses = await QuestionResponse.find({
+        profileId: profile._id,
+        questionId: questionId,
+        period: 'monthly',
+        year: year
+      });
+      
+      if (monthlyResponses.length === 12) {
+        annualTotal = monthlyResponses.reduce((sum, r) => {
+          const value = typeof r.response === 'number' ? r.response : parseFloat(r.response) || 0;
+          return sum + value;
+        }, 0);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: autoSave ? 'Income data auto-saved successfully' : 'Income data saved successfully',
+      data: {
+        responseId: questionResponse._id,
+        questionId: questionId,
+        response: response,
+        period: period || 'annually',
+        month: month || null,
+        year: year || profile.year,
+        annualTotal: annualTotal,
+        savedAt: questionResponse.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Save income data error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error saving income data',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get income data for a specific question (supports monthly/annual)
+ */
+const getIncomeData = async (req, res) => {
+  try {
+    const { profileId, questionId } = req.params;
+    const { period, year } = req.query;
+
+    const profile = await TaxableProfile.findOne({ 
+      profileId,
+      user: req.user.userId 
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    const query = {
+      profileId: profile._id,
+      questionId: questionId
+    };
+
+    if (period === 'monthly' && year) {
+      query.period = 'monthly';
+      query.year = parseInt(year);
+    } else {
+      query.period = 'annually';
+    }
+
+    const responses = await QuestionResponse.find(query).sort({ month: 1, year: 1 });
+
+    // If monthly, group by month
+    if (period === 'monthly') {
+      const monthlyData = {};
+      responses.forEach(r => {
+        if (r.month) {
+          monthlyData[r.month] = {
+            month: r.month,
+            year: r.year,
+            response: r.response,
+            updatedAt: r.updatedAt
+          };
+        }
+      });
+
+      // Calculate annual total if all 12 months exist
+      const allMonths = Object.keys(monthlyData).length === 12;
+      let annualTotal = null;
+      if (allMonths) {
+        annualTotal = Object.values(monthlyData).reduce((sum, data) => {
+          const value = typeof data.response === 'number' ? data.response : parseFloat(data.response) || 0;
+          return sum + value;
+        }, 0);
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Monthly income data retrieved successfully',
+        data: {
+          questionId: questionId,
+          period: 'monthly',
+          year: parseInt(year),
+          monthlyData: monthlyData,
+          annualTotal: annualTotal,
+          allMonthsComplete: allMonths
+        }
+      });
+    }
+
+    // Annual response
+    const annualResponse = responses.find(r => r.period === 'annually');
+
+    res.status(200).json({
+      success: true,
+      message: 'Annual income data retrieved successfully',
+      data: {
+        questionId: questionId,
+        period: 'annually',
+        year: profile.year,
+        response: annualResponse ? annualResponse.response : null,
+        updatedAt: annualResponse ? annualResponse.updatedAt : null
+      }
+    });
+
+  } catch (error) {
+    console.error('Get income data error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving income data',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getBaseQuestions,
   answerBaseQuestions,
@@ -906,6 +1243,8 @@ module.exports = {
   getNextQuestions: getNextQuestionsEndpoint,
   getResponses,
   getQuestionProgress,
-  getAllDetailedQuestions
+  getAllDetailedQuestions,
+  saveIncomeData,
+  getIncomeData
 };
 

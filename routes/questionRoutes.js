@@ -7,7 +7,9 @@ const {
   getNextQuestions, 
   getResponses,
   getQuestionProgress,
-  getAllDetailedQuestions
+  getAllDetailedQuestions,
+  saveIncomeData,
+  getIncomeData
 } = require('../controllers/questionController');
 const { authenticate } = require('../middleware/auth');
 const { checkEmailVerified } = require('../middleware/profileAuth');
@@ -17,6 +19,8 @@ router.get('/:profileId/base-questions', authenticate, checkEmailVerified, getBa
 router.post('/:profileId/answer-base-questions', authenticate, checkEmailVerified, answerBaseQuestions);
 router.get('/:profileId/detailed-questions', authenticate, checkEmailVerified, getAllDetailedQuestions); // Get all detailed questions grouped by category
 router.post('/:profileId/answer', authenticate, checkEmailVerified, answerQuestion); // For detailed questions
+router.post('/:profileId/income', authenticate, checkEmailVerified, saveIncomeData); // Save income data with monthly/annual support and auto-save
+router.get('/:profileId/income/:questionId', authenticate, checkEmailVerified, getIncomeData); // Get income data
 router.get('/:profileId/next-questions', authenticate, checkEmailVerified, getNextQuestions);
 router.get('/:profileId/responses', authenticate, checkEmailVerified, getResponses);
 router.get('/:profileId/progress', authenticate, checkEmailVerified, getQuestionProgress);

@@ -10,6 +10,7 @@
         {
           "questionId": "BUS_DET_INFO_001",
           "category": "business_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your business name?",
           "questionType": "text",
           "required": true,
@@ -71,6 +72,7 @@
         {
           "questionId": "BUS_DET_INCOME_001",
           "category": "income",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your total business revenue (turnover) for the tax year?",
           "questionType": "number",
           "required": true,
@@ -83,6 +85,7 @@
         {
           "questionId": "BUS_DET_INCOME_002",
           "category": "income",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What are your revenue sources?",
           "questionType": "table",
           "required": true,
