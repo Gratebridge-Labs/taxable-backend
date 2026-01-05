@@ -36,38 +36,23 @@ const createAdmin = async (req, res) => {
       });
     }
 
-    // Generate or validate admin code
-    let finalAdminCode;
-    if (adminCode) {
-      // Validate provided code
-      if (!/^[0-9]{6}$/.test(adminCode)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Admin code must be exactly 6 digits'
-        });
-      }
-      
-      // Check if code is already taken
-      const codeExists = await Admin.findOne({ adminCode });
-      if (codeExists) {
-        return res.status(400).json({
-          success: false,
-          message: 'Admin code already in use'
-        });
-      }
-      
-      finalAdminCode = adminCode;
-    } else {
-      // Auto-generate unique admin code
-      finalAdminCode = await generateUniqueAdminCode(adminRole);
+    // Validate admin code - must match fixed code: 274950
+    if (!adminCode || adminCode !== '274950') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid admin code'
+      });
     }
+
+    // Generate unique admin code for the admin account
+    const uniqueAdminCode = await generateUniqueAdminCode(adminRole);
 
     // Create admin
     const admin = await Admin.create({
       fullName,
       email: email.toLowerCase(),
       password,
-      adminCode: finalAdminCode,
+      adminCode: uniqueAdminCode,
       role: adminRole
     });
 

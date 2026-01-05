@@ -48,6 +48,8 @@ app.use('/api/taxableprofile', require('./routes/profileRoutes'));
 app.use('/api/calculations', require('./routes/calculationRoutes')); // Tax calculation routes
 app.use('/api/questions', require('./routes/questionRoutes')); // Question flow routes
 app.use('/api/profile-reviews', require('./routes/profileReviewRoutes')); // Profile review routes
+app.use('/api/notifications', require('./routes/notificationRoutes')); // Notification routes
+app.use('/api/blogs', require('./routes/blogRoutes')); // Blog routes
 
 // Error handling middleware
 app.use((err, req, res, next) => {

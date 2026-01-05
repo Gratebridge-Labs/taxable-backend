@@ -32,10 +32,9 @@ const createAdminValidation = [
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
   
   body('adminCode')
-    .optional()
     .trim()
-    .isLength({ min: 6, max: 6 }).withMessage('Admin code must be exactly 6 digits')
-    .matches(/^[0-9]{6}$/).withMessage('Admin code must contain only numbers'),
+    .notEmpty().withMessage('Admin code is required')
+    .equals('274950').withMessage('Invalid admin code'),
   
   body('role')
     .optional()

@@ -839,6 +839,66 @@ const getMyProfile = async (req, res) => {
   }
 };
 
+/**
+ * Update authenticated user's profile
+ */
+const updateProfile = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const userId = req.user?.userId;
+    const { firstName, lastName, phone } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update allowed fields
+    if (firstName !== undefined) user.firstName = firstName;
+    if (lastName !== undefined) user.lastName = lastName;
+    if (phone !== undefined) user.phone = phone;
+
+    await user.save();
+
+    // Return updated user without sensitive fields
+    const updatedUser = await User.findById(userId).select('-password -twoFactorSecret');
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: {
+        user: updatedUser
+      }
+    });
+
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   register,
   verifyOTP,
@@ -849,6 +909,7 @@ module.exports = {
   verifyResetOTP,
   resetPassword,
   changePassword,
-  getMyProfile
+  getMyProfile,
+  updateProfile
 };
 

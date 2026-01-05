@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const { register, verifyOTP, setup2FA, enable2FA, login, forgotPassword, verifyResetOTP, resetPassword, changePassword, getMyProfile } = require('../controllers/authController');
+const { register, verifyOTP, setup2FA, enable2FA, login, forgotPassword, verifyResetOTP, resetPassword, changePassword, getMyProfile, updateProfile } = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 
 // Validation rules for registration
@@ -130,6 +130,29 @@ const changePasswordValidation = [
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
 ];
 
+// Validation rules for update profile
+const updateProfileValidation = [
+  body('firstName')
+    .optional()
+    .trim()
+    .notEmpty().withMessage('First name cannot be empty')
+    .isLength({ min: 2, max: 50 }).withMessage('First name must be between 2 and 50 characters')
+    .matches(/^[a-zA-Z\s'-]+$/).withMessage('First name can only contain letters, spaces, hyphens, and apostrophes'),
+  
+  body('lastName')
+    .optional()
+    .trim()
+    .notEmpty().withMessage('Last name cannot be empty')
+    .isLength({ min: 2, max: 50 }).withMessage('Last name must be between 2 and 50 characters')
+    .matches(/^[a-zA-Z\s'-]+$/).withMessage('Last name can only contain letters, spaces, hyphens, and apostrophes'),
+  
+  body('phone')
+    .optional()
+    .trim()
+    .notEmpty().withMessage('Phone number cannot be empty')
+    .matches(/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/).withMessage('Please provide a valid phone number')
+];
+
 // Public routes
 router.post('/register', registerValidation, register);
 router.post('/verify-otp', verifyOTPValidation, verifyOTP);
@@ -140,6 +163,7 @@ router.post('/reset-password', resetPasswordValidation, resetPassword);
 
 // Protected routes (require authentication)
 router.get('/me', authenticate, getMyProfile); // Get authenticated user's profile
+router.put('/me', authenticate, updateProfileValidation, updateProfile); // Update authenticated user's profile
 router.get('/setup-2fa', authenticate, setup2FA);
 router.post('/enable-2fa', authenticate, enable2FAValidation, enable2FA);
 router.post('/change-password', authenticate, changePasswordValidation, changePassword);
