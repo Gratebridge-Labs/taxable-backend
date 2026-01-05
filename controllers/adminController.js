@@ -4,6 +4,7 @@ const TaxableProfile = require('../models/TaxableProfile');
 const ProfileReview = require('../models/ProfileReview');
 const { generateToken } = require('../utils/jwt');
 const { validationResult } = require('express-validator');
+const { generateUniqueAdminCode } = require('../utils/adminCodeGenerator');
 
 /**
  * Create a new admin account
@@ -21,20 +22,44 @@ const createAdmin = async (req, res) => {
     }
 
     const { fullName, email, password, adminCode, role } = req.body;
+    const adminRole = role || 'General';
 
-    // Check if admin already exists
+    // Check if admin already exists by email
     const existingAdmin = await Admin.findOne({ 
-      $or: [
-        { email: email.toLowerCase() },
-        { adminCode: adminCode }
-      ]
+      email: email.toLowerCase()
     });
 
     if (existingAdmin) {
       return res.status(400).json({
         success: false,
-        message: 'Admin with this email or code already exists'
+        message: 'Admin with this email already exists'
       });
+    }
+
+    // Generate or validate admin code
+    let finalAdminCode;
+    if (adminCode) {
+      // Validate provided code
+      if (!/^[0-9]{6}$/.test(adminCode)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Admin code must be exactly 6 digits'
+        });
+      }
+      
+      // Check if code is already taken
+      const codeExists = await Admin.findOne({ adminCode });
+      if (codeExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Admin code already in use'
+        });
+      }
+      
+      finalAdminCode = adminCode;
+    } else {
+      // Auto-generate unique admin code
+      finalAdminCode = await generateUniqueAdminCode(adminRole);
     }
 
     // Create admin
@@ -42,8 +67,8 @@ const createAdmin = async (req, res) => {
       fullName,
       email: email.toLowerCase(),
       password,
-      adminCode,
-      role: role || 'General'
+      adminCode: finalAdminCode,
+      role: adminRole
     });
 
     res.status(201).json({
@@ -93,18 +118,17 @@ const adminLogin = async (req, res) => {
       });
     }
 
-    const { email, password, adminCode } = req.body;
+    const { email, password } = req.body;
 
-    // Find admin by email and adminCode
+    // Find admin by email only (adminCode not required for login)
     const admin = await Admin.findOne({ 
-      email: email.toLowerCase(),
-      adminCode: adminCode
+      email: email.toLowerCase()
     }).select('+password');
 
     if (!admin) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email, admin code, or password'
+        message: 'Invalid email or password'
       });
     }
 
@@ -121,7 +145,7 @@ const adminLogin = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email, admin code, or password'
+        message: 'Invalid email or password'
       });
     }
 
@@ -365,12 +389,137 @@ const getAllProfileReviews = async (req, res) => {
   }
 };
 
+/**
+ * Get all submitted/filled profiles (admin only)
+ */
+const getFilledProfiles = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, status, profileType, year, submitted, filed } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const query = {};
+    if (status) query.status = status;
+    if (profileType) query.profileType = profileType;
+    if (year) query.year = parseInt(year);
+    if (submitted !== undefined) query.submitted = submitted === 'true';
+    if (filed !== undefined) query.filed = filed === 'true';
+
+    const [profiles, total] = await Promise.all([
+      TaxableProfile.find(query)
+        .populate('user', 'firstName lastName email')
+        .populate('author', 'firstName lastName email')
+        .populate('lastReviewedBy', 'fullName email role')
+        .sort({ submittedAt: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      TaxableProfile.countDocuments(query)
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: 'Filled profiles retrieved successfully',
+      data: {
+        profiles,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / parseInt(limit))
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get filled profiles error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving filled profiles',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Add admin notes/metadata to a profile (admin only)
+ */
+const addProfileNotes = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const adminId = req.admin?.adminId;
+    const { profileId } = req.params;
+    const { adminNotes, adminMetadata } = req.body;
+
+    if (!adminId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized - Admin access required'
+      });
+    }
+
+    // Find profile
+    const profile = await TaxableProfile.findOne({
+      $or: [
+        { profileId: profileId },
+        { _id: profileId }
+      ]
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    // Update notes and metadata
+    if (adminNotes !== undefined) {
+      profile.adminNotes = adminNotes;
+    }
+    if (adminMetadata !== undefined) {
+      profile.adminMetadata = { ...profile.adminMetadata, ...adminMetadata };
+    }
+    profile.lastReviewedBy = adminId;
+    profile.lastReviewedAt = Date.now();
+    await profile.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile notes updated successfully',
+      data: {
+        profileId: profile.profileId,
+        adminNotes: profile.adminNotes,
+        adminMetadata: profile.adminMetadata,
+        lastReviewedBy: profile.lastReviewedBy,
+        lastReviewedAt: profile.lastReviewedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Add profile notes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating profile notes',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createAdmin,
   adminLogin,
   changeAdminPassword,
   getAllUsers,
   getAllTaxableProfiles,
-  getAllProfileReviews
+  getAllProfileReviews,
+  getFilledProfiles,
+  addProfileNotes
 };
 

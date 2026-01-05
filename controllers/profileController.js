@@ -167,9 +167,157 @@ const getProfileById = async (req, res) => {
   }
 };
 
+/**
+ * Submit tax information for review (user submits completed profile)
+ */
+const submitTaxInformation = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { profileId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    // Find profile
+    const profile = await TaxableProfile.findOne({
+      $or: [
+        { profileId: profileId, user: userId },
+        { _id: profileId, user: userId }
+      ]
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    // Check if base questions are answered
+    if (!profile.baseQuestionsAnswered) {
+      return res.status(400).json({
+        success: false,
+        message: 'Base questions must be answered before submitting'
+      });
+    }
+
+    // Check if already submitted
+    if (profile.submitted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Profile has already been submitted for review'
+      });
+    }
+
+    // Mark as submitted
+    profile.submitted = true;
+    profile.submittedAt = Date.now();
+    profile.status = 'active';
+    await profile.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Tax information submitted successfully for review',
+      data: {
+        profileId: profile.profileId,
+        submitted: true,
+        submittedAt: profile.submittedAt,
+        status: profile.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Submit tax information error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error submitting tax information',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * File tax (after approval/review)
+ */
+const fileTax = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { profileId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    // Find profile
+    const profile = await TaxableProfile.findOne({
+      $or: [
+        { profileId: profileId, user: userId },
+        { _id: profileId, user: userId }
+      ]
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    // Check if submitted
+    if (!profile.submitted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Profile must be submitted before filing'
+      });
+    }
+
+    // Check if already filed
+    if (profile.filed) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tax has already been filed for this profile'
+      });
+    }
+
+    // Mark as filed
+    profile.filed = true;
+    profile.filedAt = Date.now();
+    profile.status = 'completed';
+    await profile.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Tax filed successfully',
+      data: {
+        profileId: profile.profileId,
+        filed: true,
+        filedAt: profile.filedAt,
+        status: profile.status
+      }
+    });
+
+  } catch (error) {
+    console.error('File tax error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error filing tax',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createProfile,
   getUserProfiles,
-  getProfileById
+  getProfileById,
+  submitTaxInformation,
+  fileTax
 };
 

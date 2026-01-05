@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const { createProfile, getUserProfiles, getProfileById } = require('../controllers/profileController');
+const { createProfile, getUserProfiles, getProfileById, submitTaxInformation, fileTax } = require('../controllers/profileController');
 const { authenticate } = require('../middleware/auth');
 const { checkEmailVerified } = require('../middleware/profileAuth');
 
@@ -22,6 +22,8 @@ const createProfileValidation = [
 router.post('/create', authenticate, checkEmailVerified, createProfileValidation, createProfile);
 router.get('/list', authenticate, checkEmailVerified, getUserProfiles);
 router.get('/:profileId', authenticate, checkEmailVerified, getProfileById);
+router.post('/:profileId/submit', authenticate, checkEmailVerified, submitTaxInformation); // Submit tax information for review
+router.post('/:profileId/file', authenticate, checkEmailVerified, fileTax); // File tax (after approval)
 
 module.exports = router;
 

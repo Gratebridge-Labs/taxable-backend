@@ -7,7 +7,9 @@ const {
   changeAdminPassword,
   getAllUsers,
   getAllTaxableProfiles,
-  getAllProfileReviews
+  getAllProfileReviews,
+  getFilledProfiles,
+  addProfileNotes
 } = require('../controllers/adminController');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 
@@ -30,8 +32,8 @@ const createAdminValidation = [
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
   
   body('adminCode')
+    .optional()
     .trim()
-    .notEmpty().withMessage('Admin code is required')
     .isLength({ min: 6, max: 6 }).withMessage('Admin code must be exactly 6 digits')
     .matches(/^[0-9]{6}$/).withMessage('Admin code must contain only numbers'),
   
@@ -49,13 +51,7 @@ const adminLoginValidation = [
     .normalizeEmail(),
   
   body('password')
-    .notEmpty().withMessage('Password is required'),
-  
-  body('adminCode')
-    .trim()
-    .notEmpty().withMessage('Admin code is required')
-    .isLength({ min: 6, max: 6 }).withMessage('Admin code must be exactly 6 digits')
-    .matches(/^[0-9]{6}$/).withMessage('Admin code must contain only numbers')
+    .notEmpty().withMessage('Password is required')
 ];
 
 // Validation rules for change password
@@ -73,11 +69,25 @@ const changePasswordValidation = [
 router.post('/create', createAdminValidation, createAdmin);
 router.post('/login', adminLoginValidation, adminLogin);
 
+// Validation rules for adding profile notes
+const addProfileNotesValidation = [
+  body('adminNotes')
+    .optional()
+    .trim()
+    .isLength({ max: 5000 }).withMessage('Admin notes cannot exceed 5000 characters'),
+  
+  body('adminMetadata')
+    .optional()
+    .isObject().withMessage('Admin metadata must be an object')
+];
+
 // Protected routes (require admin authentication)
 router.post('/change-password', authenticateAdmin, changePasswordValidation, changeAdminPassword);
 router.get('/users', authenticateAdmin, getAllUsers);
 router.get('/taxable-profiles', authenticateAdmin, getAllTaxableProfiles);
+router.get('/filled-profiles', authenticateAdmin, getFilledProfiles); // Get all submitted/filled profiles
 router.get('/profile-reviews', authenticateAdmin, getAllProfileReviews);
+router.put('/taxable-profiles/:profileId/notes', authenticateAdmin, addProfileNotesValidation, addProfileNotes); // Add notes/metadata to profile
 
 module.exports = router;
 

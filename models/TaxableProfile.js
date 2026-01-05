@@ -84,6 +84,36 @@ const taxableProfileSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  submitted: {
+    type: Boolean,
+    default: false
+  },
+  submittedAt: {
+    type: Date
+  },
+  filed: {
+    type: Boolean,
+    default: false
+  },
+  filedAt: {
+    type: Date
+  },
+  adminNotes: {
+    type: String,
+    trim: true,
+    maxlength: [5000, 'Admin notes cannot exceed 5000 characters']
+  },
+  adminMetadata: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
+  lastReviewedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin'
+  },
+  lastReviewedAt: {
+    type: Date
+  },
   createdAt: {
     type: Date,
     default: Date.now
