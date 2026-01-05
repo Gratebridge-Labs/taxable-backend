@@ -727,12 +727,185 @@ function getConditionalQuestionIds(questionDef, response) {
   return [];
 }
 
+/**
+ * Get all detailed questions grouped by category
+ * Returns questions organized by categoryKey with answered status
+ */
+const getAllDetailedQuestions = async (req, res) => {
+  try {
+    const { profileId } = req.params;
+    const { period } = req.query; // 'monthly' or 'annually' for income questions
+
+    const profile = await TaxableProfile.findOne({ 
+      profileId,
+      user: req.user.userId 
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    // Check if base questions are answered
+    if (!profile.baseQuestionsAnswered) {
+      return res.status(400).json({
+        success: false,
+        message: 'Base questions must be answered first before accessing detailed questions'
+      });
+    }
+
+    // Load questions
+    const questions = loadQuestions(profile.profileType);
+    if (!questions) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error loading questions'
+      });
+    }
+
+    // Get all existing responses
+    const existingResponses = await QuestionResponse.find({ 
+      profileId: profile._id 
+    });
+    const responseMap = new Map();
+    existingResponses.forEach(r => {
+      responseMap.set(r.questionId, r);
+    });
+
+    // Flatten all detailed questions from all questionSets
+    // Handle both flat questionSets and nested questionSets (like deductions)
+    const allDetailedQuestions = [];
+    
+    Object.values(questions.detailedQuestions.questionSets).forEach(set => {
+      // If set has questions directly, add them
+      if (set.questions && Array.isArray(set.questions)) {
+        allDetailedQuestions.push(...set.questions);
+      } else {
+        // If set is nested (like deductions with nhf, nhis, etc.), iterate through nested sets
+        Object.values(set).forEach(nestedSet => {
+          if (nestedSet && nestedSet.questions && Array.isArray(nestedSet.questions)) {
+            allDetailedQuestions.push(...nestedSet.questions);
+          }
+        });
+      }
+    });
+
+    // Group questions by categoryKey
+    const questionsByCategory = {};
+    
+    allDetailedQuestions.forEach(question => {
+      // Get categoryKey from question (default to 'other' if not specified)
+      const categoryKey = question.categoryKey || 'other';
+      
+      if (!questionsByCategory[categoryKey]) {
+        questionsByCategory[categoryKey] = {
+          categoryKey: categoryKey,
+          categoryName: getCategoryName(categoryKey),
+          questions: []
+        };
+      }
+
+      // Check if question is answered
+      const existingResponse = responseMap.get(question.questionId);
+      const isAnswered = !!existingResponse;
+
+      // For income questions, handle monthly/annual period
+      let questionData = { ...question };
+      
+      // If it's an income question and period is monthly, add period context
+      if (categoryKey === 'incomeanddeductions' && period === 'monthly') {
+        questionData.period = 'monthly';
+        questionData.supportsMonthly = true;
+        questionData.supportsAnnually = true;
+      } else if (categoryKey === 'incomeanddeductions') {
+        questionData.period = 'annually';
+        questionData.supportsMonthly = true;
+        questionData.supportsAnnually = true;
+      }
+
+      questionsByCategory[categoryKey].questions.push({
+        ...questionData,
+        answered: isAnswered,
+        existingResponse: existingResponse ? existingResponse.response : null,
+        answeredAt: existingResponse ? existingResponse.updatedAt : null
+      });
+    });
+
+    // Convert to array and sort by category order
+    const categoryOrder = [
+      'personalinformation',
+      'employerinformation',
+      'healthcare',
+      'otherdeductions',
+      'incomeanddeductions'
+    ];
+
+    const categories = categoryOrder
+      .filter(key => questionsByCategory[key])
+      .map(key => questionsByCategory[key])
+      .concat(
+        Object.keys(questionsByCategory)
+          .filter(key => !categoryOrder.includes(key))
+          .map(key => questionsByCategory[key])
+      );
+
+    // Calculate statistics
+    const totalQuestions = allDetailedQuestions.length;
+    const answeredQuestions = existingResponses.filter(r => 
+      allDetailedQuestions.some(q => q.questionId === r.questionId)
+    ).length;
+
+    res.status(200).json({
+      success: true,
+      message: 'Detailed questions retrieved successfully',
+      data: {
+        profileId: profile.profileId,
+        profileType: profile.profileType,
+        year: profile.year,
+        period: period || 'annually', // Default to annually
+        categories: categories,
+        statistics: {
+          totalQuestions: totalQuestions,
+          answeredQuestions: answeredQuestions,
+          unansweredQuestions: totalQuestions - answeredQuestions,
+          completionPercentage: totalQuestions > 0 
+            ? Math.round((answeredQuestions / totalQuestions) * 100) 
+            : 0
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get all detailed questions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving detailed questions',
+      error: error.message
+    });
+  }
+};
+
+// Helper function to get category display name
+function getCategoryName(categoryKey) {
+  const categoryNames = {
+    'personalinformation': 'Personal Information',
+    'employerinformation': 'Employer Information',
+    'healthcare': 'Healthcare',
+    'otherdeductions': 'Other Deductions',
+    'incomeanddeductions': 'Income and Deductions'
+  };
+  return categoryNames[categoryKey] || categoryKey;
+}
+
 module.exports = {
   getBaseQuestions,
   answerBaseQuestions,
   answerQuestion,
   getNextQuestions: getNextQuestionsEndpoint,
   getResponses,
-  getQuestionProgress
+  getQuestionProgress,
+  getAllDetailedQuestions
 };
 

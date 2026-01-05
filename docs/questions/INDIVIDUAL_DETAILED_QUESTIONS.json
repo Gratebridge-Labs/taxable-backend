@@ -10,6 +10,7 @@
         {
           "questionId": "IND_DET_PERSONAL_001",
           "category": "personal_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your full name?",
           "questionType": "text",
           "required": true,
@@ -35,6 +36,7 @@
         {
           "questionId": "IND_DET_PERSONAL_002",
           "category": "personal_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your date of birth?",
           "questionType": "date",
           "required": true,
@@ -47,6 +49,7 @@
         {
           "questionId": "IND_DET_PERSONAL_003",
           "category": "personal_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your residential address?",
           "questionType": "address",
           "required": true,
@@ -79,6 +82,7 @@
         {
           "questionId": "IND_DET_PERSONAL_004",
           "category": "personal_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your phone number?",
           "questionType": "text",
           "required": true,
@@ -91,6 +95,7 @@
         {
           "questionId": "IND_DET_PERSONAL_005",
           "category": "personal_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your email address?",
           "questionType": "email",
           "required": true,
@@ -99,6 +104,7 @@
         {
           "questionId": "IND_DET_PERSONAL_006",
           "category": "personal_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your occupation?",
           "questionType": "text",
           "required": true,
@@ -107,6 +113,7 @@
         {
           "questionId": "IND_DET_PERSONAL_007",
           "category": "personal_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your marital status?",
           "questionType": "multiple_choice",
           "required": true,
@@ -126,6 +133,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_001",
           "category": "employment",
+          "categoryKey": "employerinformation",
           "questionText": "What is your employer's name?",
           "questionType": "text",
           "required": true,
@@ -134,6 +142,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_002",
           "category": "employment",
+          "categoryKey": "employerinformation",
           "questionText": "What is your employer's address?",
           "questionType": "address",
           "required": true,
@@ -142,6 +151,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_003",
           "category": "employment",
+          "categoryKey": "employerinformation",
           "questionText": "What is your employer's TIN (Tax Identification Number)?",
           "questionType": "text",
           "required": true,
@@ -154,6 +164,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_004",
           "category": "employment",
+          "categoryKey": "employerinformation",
           "questionText": "What is your employment start date?",
           "questionType": "date",
           "required": true,
@@ -162,6 +173,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_005",
           "category": "employment",
+          "categoryKey": "employerinformation",
           "questionText": "Are you still employed with this employer?",
           "questionType": "yes_no",
           "required": true,
@@ -172,6 +184,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_006",
           "category": "employment",
+          "categoryKey": "employerinformation",
           "questionText": "What was your employment end date?",
           "questionType": "date",
           "required": true,
@@ -180,6 +193,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_007",
           "category": "employment",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your annual gross salary?",
           "questionType": "number",
           "required": true,
@@ -192,6 +206,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_008",
           "category": "employment",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your basic salary?",
           "questionType": "number",
           "required": true,
@@ -204,6 +219,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_009",
           "category": "employment",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your housing allowance?",
           "questionType": "number",
           "required": false,
@@ -216,6 +232,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_010",
           "category": "employment",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your transport allowance?",
           "questionType": "number",
           "required": false,
@@ -229,6 +246,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_011",
           "category": "employment",
+          "categoryKey": "incomeanddeductions",
           "questionText": "How much PAYE (tax) was deducted from your salary?",
           "questionType": "number",
           "required": true,
@@ -241,6 +259,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_012",
           "category": "employment",
+          "categoryKey": "incomeanddeductions",
           "questionText": "Do you receive any benefits-in-kind?",
           "questionType": "yes_no",
           "required": true,
@@ -252,6 +271,7 @@
         {
           "questionId": "IND_DET_EMPLOYMENT_013",
           "category": "employment",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What benefits-in-kind do you receive and their value?",
           "questionType": "table",
           "required": true,
@@ -554,6 +574,7 @@
           {
             "questionId": "IND_DET_NHF_001",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is your total NHF contribution for the tax year?",
             "questionType": "number",
             "required": true,
@@ -578,6 +599,7 @@
           {
             "questionId": "IND_DET_NHIS_001",
             "category": "deduction",
+            "categoryKey": "healthcare",
             "questionText": "What is your total NHIS contribution for the tax year?",
             "questionType": "number",
             "required": true,
@@ -595,6 +617,7 @@
           {
             "questionId": "IND_DET_PENSION_001",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is your total pension contribution for the tax year?",
             "questionType": "number",
             "required": true,
@@ -628,6 +651,7 @@
           {
             "questionId": "IND_DET_LIFE_INSURANCE_001",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is your total life insurance premium paid?",
             "questionType": "number",
             "required": true,
