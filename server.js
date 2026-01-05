@@ -43,9 +43,11 @@ app.get('/api/welcome', (req, res) => {
 
 // API Routes
 app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes')); // Admin routes
 app.use('/api/taxableprofile', require('./routes/profileRoutes'));
 app.use('/api/calculations', require('./routes/calculationRoutes')); // Tax calculation routes
 app.use('/api/questions', require('./routes/questionRoutes')); // Question flow routes
+app.use('/api/profile-reviews', require('./routes/profileReviewRoutes')); // Profile review routes
 
 // Error handling middleware
 app.use((err, req, res, next) => {
