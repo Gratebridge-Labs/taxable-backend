@@ -122,6 +122,7 @@
         {
           "questionId": "BUS_DET_INCOME_003",
           "category": "income",
+          "categoryKey": "incomeanddeductions",
           "questionText": "Do you have any other income (dividends, interest, etc.)?",
           "questionType": "yes_no",
           "required": true,
@@ -132,6 +133,7 @@
         {
           "questionId": "BUS_DET_INCOME_004",
           "category": "income",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What other income do you have?",
           "questionType": "table",
           "required": true,

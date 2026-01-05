@@ -339,6 +339,7 @@
         {
           "questionId": "IND_DET_BUSINESS_004",
           "category": "business",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your annual business income (revenue)?",
           "questionType": "number",
           "required": true,
@@ -460,6 +461,7 @@
         {
           "questionId": "IND_DET_RENTAL_001",
           "category": "rental",
+          "categoryKey": "incomeanddeductions",
           "questionText": "How many properties do you rent out?",
           "questionType": "number",
           "required": true,
@@ -470,6 +472,7 @@
         {
           "questionId": "IND_DET_RENTAL_002",
           "category": "rental",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your rental income and expenses?",
           "questionType": "table",
           "required": true,
@@ -526,6 +529,7 @@
         {
           "questionId": "IND_DET_INVESTMENT_001",
           "category": "investment",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What types of investment income do you have?",
           "questionType": "table",
           "required": true,
