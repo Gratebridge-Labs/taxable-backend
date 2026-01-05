@@ -19,6 +19,7 @@
         {
           "questionId": "BUS_DET_INFO_002",
           "category": "business_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your business registered name (if different)?",
           "questionType": "text",
           "required": false,
@@ -27,6 +28,7 @@
         {
           "questionId": "BUS_DET_INFO_003",
           "category": "business_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your business address?",
           "questionType": "address",
           "required": true,
@@ -35,6 +37,7 @@
         {
           "questionId": "BUS_DET_INFO_004",
           "category": "business_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your business phone number?",
           "questionType": "text",
           "required": true,
@@ -45,6 +48,7 @@
         {
           "questionId": "BUS_DET_INFO_005",
           "category": "business_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your business email address?",
           "questionType": "email",
           "required": true
@@ -52,6 +56,7 @@
         {
           "questionId": "BUS_DET_INFO_006",
           "category": "business_info",
+          "categoryKey": "personalinformation",
           "questionText": "What is your business website (if any)?",
           "questionType": "url",
           "required": false
@@ -59,6 +64,7 @@
         {
           "questionId": "BUS_DET_INFO_007",
           "category": "business_info",
+          "categoryKey": "personalinformation",
           "questionText": "When did your business commence operations?",
           "questionType": "date",
           "required": true,
@@ -172,6 +178,7 @@
         {
           "questionId": "BUS_DET_EXPENSES_001",
           "category": "expenses",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What are your business expenses?",
           "questionType": "table",
           "required": true,
@@ -220,6 +227,7 @@
         {
           "questionId": "BUS_DET_EXPENSES_002",
           "category": "expenses",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your total research and development expenditure?",
           "questionType": "number",
           "required": false,
@@ -244,6 +252,7 @@
         {
           "questionId": "BUS_DET_EXPENSES_003",
           "category": "expenses",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What donations did you make to qualifying institutions?",
           "questionType": "table",
           "required": false,
@@ -290,6 +299,7 @@
         {
           "questionId": "BUS_DET_CAPITAL_001",
           "category": "capital_assets",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What capital assets does your business own?",
           "questionType": "table",
           "required": true,
@@ -348,6 +358,7 @@
         {
           "questionId": "BUS_DET_EMPLOYEES_001",
           "category": "employees",
+          "categoryKey": "employerinformation",
           "questionText": "How many employees do you have?",
           "questionType": "number",
           "required": true,
@@ -358,6 +369,7 @@
         {
           "questionId": "BUS_DET_EMPLOYEES_002",
           "category": "employees",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your total payroll (salaries and wages)?",
           "questionType": "number",
           "required": true,
@@ -370,6 +382,7 @@
         {
           "questionId": "BUS_DET_EMPLOYEES_003",
           "category": "employees",
+          "categoryKey": "incomeanddeductions",
           "questionText": "How much PAYE did you deduct and remit?",
           "questionType": "number",
           "required": true,
@@ -382,6 +395,7 @@
         {
           "questionId": "BUS_DET_EMPLOYEES_004",
           "category": "employees",
+          "categoryKey": "incomeanddeductions",
           "questionText": "How much pension contributions did you make for employees?",
           "questionType": "number",
           "required": true,
@@ -394,6 +408,7 @@
         {
           "questionId": "BUS_DET_EMPLOYEES_005",
           "category": "employees",
+          "categoryKey": "incomeanddeductions",
           "questionText": "How much NHF contributions did you make for employees?",
           "questionType": "number",
           "required": true,
@@ -411,6 +426,7 @@
         {
           "questionId": "BUS_DET_SMALL_001",
           "category": "small_company",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your total fixed assets value?",
           "questionType": "number",
           "required": true,
@@ -440,6 +456,7 @@
         {
           "questionId": "BUS_DET_SMALL_002",
           "category": "small_company",
+          "categoryKey": "personalinformation",
           "questionText": "Are you engaged in professional services?",
           "questionType": "yes_no",
           "required": true,
@@ -456,6 +473,7 @@
         {
           "questionId": "BUS_DET_AGRIC_001",
           "category": "agricultural",
+          "categoryKey": "personalinformation",
           "questionText": "What agricultural activities do you engage in?",
           "questionType": "multiple_choice",
           "required": true,
@@ -473,6 +491,7 @@
         {
           "questionId": "BUS_DET_AGRIC_002",
           "category": "agricultural",
+          "categoryKey": "personalinformation",
           "questionText": "When did your agricultural business commence?",
           "questionType": "date",
           "required": true,
@@ -481,6 +500,7 @@
         {
           "questionId": "BUS_DET_AGRIC_003",
           "category": "agricultural",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your agricultural income?",
           "questionType": "number",
           "required": true,
@@ -497,6 +517,7 @@
         {
           "questionId": "BUS_DET_EXPORT_001",
           "category": "export",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What is your export revenue?",
           "questionType": "number",
           "required": true,
@@ -509,6 +530,7 @@
         {
           "questionId": "BUS_DET_EXPORT_002",
           "category": "export",
+          "categoryKey": "personalinformation",
           "questionText": "Were export proceeds repatriated through official channels?",
           "questionType": "yes_no",
           "required": true,
@@ -517,6 +539,7 @@
         {
           "questionId": "BUS_DET_EXPORT_003",
           "category": "export",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What products/services did you export?",
           "questionType": "table",
           "required": true,

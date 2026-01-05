@@ -310,6 +310,7 @@
         {
           "questionId": "IND_DET_BUSINESS_001",
           "category": "business",
+          "categoryKey": "personalinformation",
           "questionText": "What is your business name?",
           "questionType": "text",
           "required": true,
@@ -318,6 +319,7 @@
         {
           "questionId": "IND_DET_BUSINESS_002",
           "category": "business",
+          "categoryKey": "personalinformation",
           "questionText": "What is your business address?",
           "questionType": "address",
           "required": true,
@@ -326,6 +328,7 @@
         {
           "questionId": "IND_DET_BUSINESS_003",
           "category": "business",
+          "categoryKey": "personalinformation",
           "questionText": "What is your business type?",
           "questionType": "multiple_choice",
           "required": true,
@@ -352,6 +355,7 @@
         {
           "questionId": "IND_DET_BUSINESS_005",
           "category": "business",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What are your business expenses?",
           "questionType": "table",
           "required": true,
@@ -399,6 +403,7 @@
         {
           "questionId": "IND_DET_BUSINESS_006",
           "category": "business",
+          "categoryKey": "incomeanddeductions",
           "questionText": "Do you have capital assets (equipment, vehicles, buildings)?",
           "questionType": "yes_no",
           "required": true,
@@ -410,6 +415,7 @@
         {
           "questionId": "IND_DET_BUSINESS_007",
           "category": "business",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What capital assets do you own?",
           "questionType": "table",
           "required": true,
@@ -642,6 +648,7 @@
           {
             "questionId": "IND_DET_PENSION_002",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is your pension fund administrator?",
             "questionType": "text",
             "required": true,
@@ -668,6 +675,7 @@
           {
             "questionId": "IND_DET_LIFE_INSURANCE_002",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is your insurance company?",
             "questionType": "text",
             "required": true
@@ -680,6 +688,7 @@
           {
             "questionId": "IND_DET_RENT_001",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is your total annual rent paid?",
             "questionType": "number",
             "required": true,
@@ -692,6 +701,7 @@
           {
             "questionId": "IND_DET_RENT_RELIEF",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "Rent Relief (Auto-calculated)",
             "questionType": "number",
             "required": false,
@@ -707,6 +717,7 @@
           {
             "questionId": "IND_DET_RENT_002",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is the address of the rented property?",
             "questionType": "address",
             "required": true
@@ -714,6 +725,7 @@
           {
             "questionId": "IND_DET_RENT_003",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "Do you have rent receipts?",
             "questionType": "yes_no",
               "required": true,
@@ -727,6 +739,7 @@
           {
             "questionId": "IND_DET_MORTGAGE_001",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is the total interest paid on your mortgage during the tax year?",
             "questionType": "number",
             "required": true,
@@ -739,6 +752,7 @@
           {
             "questionId": "IND_DET_MORTGAGE_002",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is your lender's name?",
             "questionType": "text",
             "required": true
@@ -746,6 +760,7 @@
           {
             "questionId": "IND_DET_MORTGAGE_003",
             "category": "deduction",
+            "categoryKey": "otherdeductions",
             "questionText": "What is the property address?",
             "questionType": "address",
             "required": true
@@ -759,6 +774,7 @@
         {
           "questionId": "IND_DET_CAPITAL_GAINS_001",
           "category": "capital_gains",
+          "categoryKey": "incomeanddeductions",
           "questionText": "What assets did you dispose of?",
           "questionType": "table",
           "required": true,
@@ -820,6 +836,7 @@
         {
           "questionId": "IND_DET_DEPENDENTS_001",
           "category": "dependents",
+          "categoryKey": "personalinformation",
           "questionText": "What are your dependents' details?",
           "questionType": "table",
           "required": false,
