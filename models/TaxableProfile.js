@@ -80,6 +80,10 @@ const taxableProfileSchema = new mongoose.Schema({
     enum: ['draft', 'active', 'completed', 'archived'],
     default: 'draft'
   },
+  baseQuestionsAnswered: {
+    type: Boolean,
+    default: false
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -92,8 +96,9 @@ const taxableProfileSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Compound index to ensure one profile per user per year
-taxableProfileSchema.index({ user: 1, year: 1 }, { unique: true });
+// Compound index to ensure one profile per user per year per profileType
+// This allows users to have both Individual and Business profiles for the same year
+taxableProfileSchema.index({ user: 1, year: 1, profileType: 1 }, { unique: true });
 
 // Index for year queries
 taxableProfileSchema.index({ year: 1 });

@@ -241,6 +241,26 @@ const answerBaseQuestions = async (req, res) => {
       index === self.findIndex(t => t.questionId === q.questionId)
     );
 
+    // Check if all required base questions have been answered
+    // Get all question IDs from the answers array (including those that failed validation)
+    const answeredQuestionIds = answers.map(a => a.questionId);
+    const requiredBaseQuestionIds = baseQuestions
+      .filter(q => q.required)
+      .map(q => q.questionId);
+    
+    const allRequiredBaseQuestionsAnswered = requiredBaseQuestionIds.every(
+      qId => answeredQuestionIds.includes(qId)
+    );
+
+    // If all base questions were answered successfully (no errors) and all required questions are answered, mark baseQuestionsAnswered as true
+    if (errors.length === 0 && allRequiredBaseQuestionsAnswered) {
+      await TaxableProfile.findByIdAndUpdate(
+        profile._id,
+        { baseQuestionsAnswered: true },
+        { new: true }
+      );
+    }
+
     res.status(200).json({
       success: errors.length === 0,
       message: errors.length === 0 
