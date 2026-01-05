@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const { register, verifyOTP, setup2FA, enable2FA, login, forgotPassword, verifyResetOTP, resetPassword, changePassword } = require('../controllers/authController');
+const { register, verifyOTP, setup2FA, enable2FA, login, forgotPassword, verifyResetOTP, resetPassword, changePassword, getMyProfile } = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 
 // Validation rules for registration
@@ -139,6 +139,7 @@ router.post('/verify-reset-otp', verifyResetOTPValidation, verifyResetOTP);
 router.post('/reset-password', resetPasswordValidation, resetPassword);
 
 // Protected routes (require authentication)
+router.get('/me', authenticate, getMyProfile); // Get authenticated user's profile
 router.get('/setup-2fa', authenticate, setup2FA);
 router.post('/enable-2fa', authenticate, enable2FAValidation, enable2FA);
 router.post('/change-password', authenticate, changePasswordValidation, changePassword);

@@ -787,6 +787,58 @@ const changePassword = async (req, res) => {
   }
 };
 
+/**
+ * Get authenticated user's full profile information
+ */
+const getMyProfile = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    // Get user with all fields (password and 2FA secret are excluded by default)
+    const user = await User.findById(userId).select('-password -twoFactorSecret');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'User profile retrieved successfully',
+      data: {
+        user: {
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phone: user.phone,
+          emailVerified: user.emailVerified,
+          twoFactorEnabled: user.twoFactorEnabled,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get my profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving user profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   register,
   verifyOTP,
@@ -796,6 +848,7 @@ module.exports = {
   forgotPassword,
   verifyResetOTP,
   resetPassword,
-  changePassword
+  changePassword,
+  getMyProfile
 };
 
