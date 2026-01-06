@@ -203,7 +203,7 @@ const createUserNotification = async (req, res) => {
 };
 
 /**
- * Get user's notifications
+ * Get user's notifications (user-specific only)
  */
 const getUserNotifications = async (req, res) => {
   try {
@@ -250,6 +250,85 @@ const getUserNotifications = async (req, res) => {
 
   } catch (error) {
     console.error('Get user notifications error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error retrieving notifications',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get all notifications for authenticated user (general + user-specific combined)
+ */
+const getAllNotifications = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { page = 1, limit = 20, read } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    // Get general notifications
+    const generalNotifications = await Notification.find({ isGeneral: true })
+      .populate('createdBy', 'fullName email role')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Get user-specific notifications
+    const userQuery = { userId: userId };
+    if (read !== undefined) {
+      userQuery.read = read === 'true';
+    }
+
+    const userNotifications = await Notification.find(userQuery)
+      .populate('createdBy', 'fullName email role')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Combine and sort by date (newest first)
+    const allNotifications = [...generalNotifications, ...userNotifications]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map(notif => ({
+        ...notif,
+        isGeneral: notif.isGeneral || false,
+        type: notif.isGeneral ? 'general' : 'user_specific'
+      }));
+
+    // Apply pagination
+    const total = allNotifications.length;
+    const paginatedNotifications = allNotifications.slice(skip, skip + parseInt(limit));
+
+    // Count unread user-specific notifications
+    const unreadUserNotifications = await Notification.countDocuments({
+      userId: userId,
+      read: false
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'All notifications retrieved successfully',
+      data: {
+        notifications: paginatedNotifications,
+        unreadCount: unreadUserNotifications,
+        generalCount: generalNotifications.length,
+        userSpecificCount: userNotifications.length,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / parseInt(limit))
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get all notifications error:', error);
     res.status(500).json({
       success: false,
       message: 'Error retrieving notifications',
@@ -357,6 +436,7 @@ module.exports = {
   deleteGeneralNotification,
   createUserNotification,
   getUserNotifications,
+  getAllNotifications,
   markNotificationRead,
   deleteUserNotification
 };

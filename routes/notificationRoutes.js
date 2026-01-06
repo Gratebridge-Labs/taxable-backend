@@ -7,11 +7,15 @@ const {
   deleteGeneralNotification,
   createUserNotification,
   getUserNotifications,
+  getAllNotifications,
   markNotificationRead,
   deleteUserNotification
 } = require('../controllers/notificationController');
 const { authenticate } = require('../middleware/auth');
 const { authenticateAdmin } = require('../middleware/adminAuth');
+
+// Get all notifications (general + user-specific combined) - Authenticated users only
+router.get('/', authenticate, getAllNotifications);
 
 // General Notifications (Admin only for create/delete, public for read)
 router.post(
