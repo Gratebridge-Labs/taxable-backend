@@ -2,18 +2,28 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 /**
- * Generate JWT token for user
- * @param {Object} user - User object
+ * Generate JWT token for user or admin
+ * @param {Object} userOrPayload - User Mongoose document or admin payload object
  * @returns {String} JWT token
  */
-const generateToken = (user) => {
-  const payload = {
-    userId: user._id,
-    email: user.email,
-    emailVerified: user.emailVerified
-  };
+const generateToken = (userOrPayload) => {
+  let tokenPayload;
 
-  return jwt.sign(payload, process.env.JWT_SECRET, {
+  // If it's a user document (has _id property from Mongoose)
+  if (userOrPayload._id && !userOrPayload.adminId) {
+    tokenPayload = {
+      userId: userOrPayload._id.toString(),
+      email: userOrPayload.email,
+      emailVerified: userOrPayload.emailVerified
+    };
+  } else {
+    // It's an admin payload (already structured)
+    tokenPayload = {
+      ...userOrPayload
+    };
+  }
+
+  return jwt.sign(tokenPayload, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d'
   });
 };
