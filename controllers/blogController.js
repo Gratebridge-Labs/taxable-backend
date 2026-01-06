@@ -16,7 +16,7 @@ const createBlog = async (req, res) => {
     }
 
     const adminId = req.admin?.adminId;
-    const { title, content, excerpt, featuredImage, tags, category, published } = req.body;
+    const { title, content, excerpt, featuredImage, tags, category, published, buttonType } = req.body;
 
     if (!adminId) {
       return res.status(401).json({
@@ -33,6 +33,7 @@ const createBlog = async (req, res) => {
       tags: tags || [],
       category,
       published: published || false,
+      buttonType: buttonType || null,
       author: adminId
     });
 
@@ -195,7 +196,7 @@ const updateBlog = async (req, res) => {
 
     const adminId = req.admin?.adminId;
     const { blogId } = req.params;
-    const { title, content, excerpt, featuredImage, tags, category, published } = req.body;
+    const { title, content, excerpt, featuredImage, tags, category, published, buttonType } = req.body;
 
     if (!adminId) {
       return res.status(401).json({
@@ -219,6 +220,7 @@ const updateBlog = async (req, res) => {
     if (featuredImage !== undefined) blog.featuredImage = featuredImage;
     if (tags !== undefined) blog.tags = tags;
     if (category !== undefined) blog.category = category;
+    if (buttonType !== undefined) blog.buttonType = buttonType || null;
     if (published !== undefined) {
       blog.published = published;
       if (published && !blog.publishedAt) {

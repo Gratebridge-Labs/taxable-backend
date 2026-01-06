@@ -51,6 +51,11 @@ const blogSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  buttonType: {
+    type: String,
+    enum: ['consultation', 'create_account'],
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now

@@ -38,7 +38,10 @@ router.post(
       .trim(),
     body('published')
       .optional()
-      .isBoolean().withMessage('Published must be a boolean')
+      .isBoolean().withMessage('Published must be a boolean'),
+    body('buttonType')
+      .optional()
+      .isIn(['consultation', 'create_account']).withMessage('Button type must be either "consultation" or "create_account"')
   ],
   createBlog
 );
@@ -79,7 +82,10 @@ router.put(
       .trim(),
     body('published')
       .optional()
-      .isBoolean().withMessage('Published must be a boolean')
+      .isBoolean().withMessage('Published must be a boolean'),
+    body('buttonType')
+      .optional()
+      .isIn(['consultation', 'create_account']).withMessage('Button type must be either "consultation" or "create_account"')
   ],
   updateBlog
 );
