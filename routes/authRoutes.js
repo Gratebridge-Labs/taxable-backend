@@ -27,7 +27,7 @@ const registerValidation = [
   body('phone')
     .trim()
     .notEmpty().withMessage('Phone number is required')
-    .matches(/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/).withMessage('Please provide a valid phone number'),
+    .matches(/^(\+?234[\s-]?)?[0-9]{3}[\s-]?[0-9]{3}[\s-]?[0-9]{4}$|^0?[0-9]{10}$/).withMessage('Please provide a valid phone number (e.g., +2348012345678, +234 801 234 5678, or 08012345678)'),
   
   body('password')
     .notEmpty().withMessage('Password is required')
@@ -150,7 +150,7 @@ const updateProfileValidation = [
     .optional()
     .trim()
     .notEmpty().withMessage('Phone number cannot be empty')
-    .matches(/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/).withMessage('Please provide a valid phone number')
+    .matches(/^(\+?234[\s-]?)?[0-9]{3}[\s-]?[0-9]{3}[\s-]?[0-9]{4}$|^0?[0-9]{10}$/).withMessage('Please provide a valid phone number (e.g., +2348012345678, +234 801 234 5678, or 08012345678)')
 ];
 
 // Public routes
