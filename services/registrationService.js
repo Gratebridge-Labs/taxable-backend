@@ -9,6 +9,34 @@ const { sendOTPEmail } = require('../utils/emailService');
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 /**
+ * Resend OTP to an existing user (e.g. they didn't receive it). Updates or creates OTP, sends email.
+ * @param {string} email
+ * @param {string} firstName
+ * @returns {Promise<{ sent: boolean }>}
+ */
+async function resendOTP(email, firstName) {
+  const emailLower = email.toLowerCase().trim();
+  const otpCode = generateOTP();
+  let otpRecord = await OTP.findOne({ email: emailLower, purpose: 'email_verification' });
+  if (otpRecord) {
+    otpRecord.code = otpCode;
+    otpRecord.verified = false;
+    otpRecord.expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    await otpRecord.save();
+  } else {
+    await OTP.create({
+      email: emailLower,
+      code: otpCode,
+      purpose: 'email_verification',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000)
+    });
+  }
+  console.log('[Registration] Resending OTP to', emailLower);
+  await sendOTPEmail(emailLower, firstName, otpCode);
+  return { sent: true };
+}
+
+/**
  * @param {Object} data - { firstName, lastName, email, phone, password }
  * @returns {Promise<{ user, otpCode }>}
  * @throws if email exists or email send fails
@@ -56,6 +84,7 @@ async function registerUser(data) {
   try {
     await sendOTPEmail(emailLower, firstName.trim(), otpCode);
   } catch (emailError) {
+    console.error('[Registration] registerUser: OTP email failed', emailLower, emailError.message);
     await User.findByIdAndDelete(user._id);
     await OTP.findOneAndDelete({ email: emailLower, code: otpCode });
     const err = new Error('Failed to send verification email. Please try again.');
@@ -66,4 +95,4 @@ async function registerUser(data) {
   return { user, otpCode };
 }
 
-module.exports = { registerUser };
+module.exports = { registerUser, resendOTP };

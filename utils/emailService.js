@@ -221,12 +221,11 @@ const generateWelcomeEmailTemplate = (firstName) => {
 
 // Send OTP email
 const sendOTPEmail = async (email, firstName, otpCode) => {
+  const fromName = process.env.EMAIL_FROM_NAME || 'Taxable';
+  const fromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER;
+  console.log('[Email] Sending OTP to', email, 'from', fromEmail || '(EMAIL_FROM not set)');
   try {
     const transporter = createTransporter();
-    
-    const fromName = process.env.EMAIL_FROM_NAME || 'Taxable';
-    const fromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER;
-    
     const mailOptions = {
       from: `"${fromName}" <${fromEmail}>`,
       to: email,
@@ -234,12 +233,12 @@ const sendOTPEmail = async (email, firstName, otpCode) => {
       html: generateOTPEmailTemplate(firstName, otpCode),
       text: `Hi ${firstName},\n\nThank you for signing up with Taxable! To complete your registration, please verify your email address by entering this code: ${otpCode}\n\nThis code will expire in 10 minutes.\n\nIf you didn't request this code, please ignore this email.\n\nBest regards,\nThe Taxable Team`
     };
-    
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent:', info.messageId);
+    console.log('[Email] OTP sent successfully to', email, 'messageId:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Error sending email:', error);
+    console.error('[Email] OTP send failed to', email, 'error:', error.message, 'code:', error.code, 'response:', error.response);
+    if (error.response) console.error('[Email] SMTP response:', error.response);
     throw new Error('Failed to send verification email');
   }
 };

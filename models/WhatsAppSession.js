@@ -12,11 +12,11 @@ const whatsAppSessionSchema = new mongoose.Schema({
     index: true,
     trim: true
   },
-  /** Registration flow: welcome | first_name | last_name | email | phone | password | otp | done */
+  /** Registration flow: welcome | first_name | last_name | email | phone_confirm | phone_input | password | otp | done */
   step: {
     type: String,
     default: 'welcome',
-    enum: ['welcome', 'first_name', 'last_name', 'email', 'phone', 'password', 'otp', 'done']
+    enum: ['welcome', 'first_name', 'last_name', 'email', 'phone', 'phone_confirm', 'phone_input', 'password', 'otp', 'done']
   },
   /** Partial registration data collected so far */
   registrationData: {
