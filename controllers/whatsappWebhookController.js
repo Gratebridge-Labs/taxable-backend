@@ -136,6 +136,34 @@ function isBeginnerIntent(text) {
   );
 }
 
+/** User wants to learn how tax works (menu choice) */
+function isLearnHowTaxWorksIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /learn\s*how\s*tax\s*works/i.test(t) ||
+    /how\s*(does|do)\s*tax\s*work/i.test(t) ||
+    /simple\s*version/i.test(t) ||
+    /how\s*tax\s*works/i.test(t) ||
+    t === 'learn how tax works' ||
+    t === 'learn how tax works first'
+  );
+}
+
+/** User wants to login to existing account */
+function isLoginIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /^login$/i.test(t) ||
+    /login\s*to\s*(my\s*)?account/i.test(t) ||
+    /log\s*in/i.test(t) ||
+    /sign\s*in/i.test(t) ||
+    /i\s*have\s*an\s*account/i.test(t) ||
+    /already\s*have\s*an\s*account/i.test(t)
+  );
+}
+
 /** Time-based greeting: Good morning / afternoon / evening */
 function getTimeBasedGreeting() {
   const hour = new Date().getHours();
@@ -212,6 +240,7 @@ function getMessageNoAccount() {
     'Mar 31 (Individuals)\n\n' +
     'Ready to begin?\n\n' +
     '• Create my account\n' +
+    '• Login to your account\n' +
     '• Learn how tax works first\n\n' +
     'Just reply with what you\'d like to do.'
   );
@@ -337,11 +366,69 @@ const handleWebhook = async (req, res) => {
         await reply("Welcome to *Taxable*! 🎉 We're here to make tax simple and stress-free. Let's get started by creating your account. *What's your first name?*");
       } else if (isMenuOrHiIntent(text)) {
         await reply(getMessageNoAccount());
+      } else if (isLearnHowTaxWorksIntent(text)) {
+        await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nReply *Create my account* or *Login to your account* to get started.");
+      } else if (isLoginIntent(text)) {
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'login_email', registrationData: {}, updatedAt: new Date() } },
+          { upsert: true, new: true }
+        );
+        await reply("What's the *email address* for your Taxable account?");
       } else if (isBeginnerIntent(text)) {
         await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nSay *Hi Taxable* to create an account and we'll guide you step by step.");
       }
       sendOk();
       return;
+    }
+
+    // Login flow: collect email then password, verify, link user to this WhatsApp and set session to done
+    if (session && (session.step === 'login_email' || session.step === 'login_password')) {
+      if (session.step === 'login_email') {
+        if (!isValidEmail(text)) {
+          await reply("That doesn't look like a valid email. Please send your Taxable account email (e.g. name@example.com).");
+          sendOk();
+          return;
+        }
+        const loginEmail = text.trim().toLowerCase();
+        session.registrationData = session.registrationData || {};
+        session.registrationData.loginEmail = loginEmail;
+        session.step = 'login_password';
+        await session.save();
+        await reply("Now enter your *password*.");
+        sendOk();
+        return;
+      }
+      if (session.step === 'login_password') {
+        const loginEmail = (session.registrationData && session.registrationData.loginEmail) || '';
+        const userDoc = await User.findOne({ email: loginEmail }).select('+password firstName lastName _id');
+        if (!userDoc) {
+          await reply("That email isn't registered. Try again with the correct email, or reply *Create my account* to sign up.");
+          sendOk();
+          return;
+        }
+        const match = await userDoc.comparePassword(text.trim());
+        if (!match) {
+          await reply("That password isn't right. Try again, or reply *Create my account* to sign up.");
+          sendOk();
+          return;
+        }
+        const phone = waIdToPhone(from);
+        await User.findByIdAndUpdate(userDoc._id, { $set: { phone, updatedAt: new Date() } });
+        session.step = 'done';
+        session.registrationData = {
+          firstName: userDoc.firstName,
+          lastName: userDoc.lastName,
+          email: userDoc.email,
+          phone
+        };
+        session.pendingUserId = undefined;
+        await session.save();
+        const hasProfile = await TaxableProfile.findOne({ user: userDoc._id }).select('_id').lean();
+        await reply(hasProfile ? getMessageProfileCompleted(userDoc.firstName) : getMessageNoProfile(userDoc.firstName));
+        sendOk();
+        return;
+      }
     }
 
     // Allow "Hi Taxable" / get started to restart the flow mid-registration
@@ -355,9 +442,14 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // Registered user says "menu" or "hi" (or hello/options) → show menu with status
+    // Registered user: handle "learn how tax works" and "menu/hi" so we don't just resend menu
     const phoneForLookup = waIdToPhone(from);
     const regUser = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
+    if (regUser && isLearnHowTaxWorksIntent(text)) {
+      await reply(getBeginnerExplanation(regUser.firstName));
+      sendOk();
+      return;
+    }
     if (regUser && isBeginnerIntent(text)) {
       await reply(getBeginnerExplanation(regUser.firstName));
       sendOk();
@@ -371,9 +463,14 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // Unregistered user (mid-flow) says "menu", "hi", or "beginner" → don't use as name; prompt to sign up or continue
+    // Unregistered user (mid-flow) says "menu", "hi", "learn how tax works", or "beginner" → don't use as name
     if (isMenuOrHiIntent(text)) {
       await reply("Finish signing up to see the menu! Say *Hi Taxable* to start over, or reply with your answer to the question above. We can't wait to have you! 😊");
+      sendOk();
+      return;
+    }
+    if (isLearnHowTaxWorksIntent(text)) {
+      await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nFinish signing up (reply above) or say *Hi Taxable* to start over — then reply *tax profile* for the next step.");
       sendOk();
       return;
     }
