@@ -70,6 +70,38 @@ function isResendOTPIntent(text) {
   );
 }
 
+/** User is asking for menu or saying hi (for registered users) */
+function isMenuOrHiIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /^menu$/i.test(t) ||
+    /^hi$/i.test(t) ||
+    /^hey$/i.test(t) ||
+    /^hello$/i.test(t) ||
+    /^options?$/i.test(t) ||
+    /main\s*menu/i.test(t) ||
+    /what\s*can\s*(you|i)\s*do/i.test(t)
+  );
+}
+
+/** Menu body text (options list). No greeting. */
+function getMenuBody() {
+  return (
+    '1️⃣ *Log in* – Open the Taxable app or website\n' +
+    '2️⃣ *Calculate PAYE* – Estimate your tax\n' +
+    '3️⃣ *File returns* – File your tax returns\n' +
+    '4️⃣ *Contact support* – Get help\n\n' +
+    'Reply with a number or keyword anytime.'
+  );
+}
+
+/** Full menu message with greeting (e.g. when user says "menu" or "hi"). */
+function getMenuMessage(firstName) {
+  const greeting = firstName ? `Hi ${firstName}! 👋 ` : 'Hi! ';
+  return `${greeting}Here's what you can do:\n\n${getMenuBody()}`;
+}
+
 /**
  * GET - Webhook verification (Meta sends hub.mode, hub.verify_token, hub.challenge)
  */
@@ -147,7 +179,7 @@ const handleWebhook = async (req, res) => {
         const phone = waIdToPhone(from);
         const user = await User.findOne({ $or: [{ phone }, { phone: phone.replace(/^0/, '234') }] }).select('email firstName');
         if (user) {
-          await reply(`You're already in! 🎉 Log in at the Taxable app or website with ${user.email} — we can't wait to have you back.`);
+          await reply(`You're already in! 🎉 Log in at the Taxable app or website with ${user.email}. Here's what you can do:\n\n${getMenuBody()}`);
           sendOk();
           return;
         }
@@ -174,6 +206,8 @@ const handleWebhook = async (req, res) => {
           { upsert: true, new: true }
         );
         await reply("Welcome to *Taxable*! 🎉 We're here to make tax simple and stress-free. Let's get started by creating your account. *What's your first name?*");
+      } else if (isMenuOrHiIntent(text)) {
+        await reply("You're not signed up yet. Say *Hi Taxable* or *Get started* to create your account — then you'll get the full menu! 🎉");
       }
       sendOk();
       return;
@@ -186,6 +220,22 @@ const handleWebhook = async (req, res) => {
       session.pendingUserId = undefined;
       await session.save();
       await reply("No worries! Let's start fresh. *What's your first name?*");
+      sendOk();
+      return;
+    }
+
+    // Registered user says "menu" or "hi" (or hello/options) → show menu
+    const phoneForLookup = waIdToPhone(from);
+    const regUser = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName').lean();
+    if (regUser && isMenuOrHiIntent(text)) {
+      await reply(getMenuMessage(regUser.firstName));
+      sendOk();
+      return;
+    }
+
+    // Unregistered user (mid-flow) says "menu" or "hi" → don't use as name; prompt to sign up or continue
+    if (isMenuOrHiIntent(text)) {
+      await reply("Finish signing up to see the menu! Say *Hi Taxable* to start over, or reply with your answer to the question above. We can't wait to have you! 😊");
       sendOk();
       return;
     }
@@ -358,6 +408,7 @@ const handleWebhook = async (req, res) => {
           await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — just log in on the Taxable app or website. Welcome back!`);
           session.step = 'done';
           await session.save();
+          await reply(getMenuMessage(data.firstName));
           sendOk();
           return;
         }
@@ -380,10 +431,11 @@ const handleWebhook = async (req, res) => {
         session.pendingUserId = undefined;
         await session.save();
         await reply(`✅ You're in, ${data.firstName}! Your email is verified. Log in at the Taxable app or website with ${email} and your password. Welcome to Taxable — let's make tax simple! 🎉`);
+        await reply(getMenuMessage(data.firstName));
         break;
       }
       case 'done':
-        await reply(`You're already registered, ${data.firstName || 'there'}! Log in on the Taxable app or website. Need to do something else? Say *Hi Taxable* and we'll help. 😊`);
+        await reply(`You're already registered, ${data.firstName || 'there'}! Here's what you can do:\n\n${getMenuBody()}`);
         break;
       default:
         await reply("Say *Hi Taxable* or *Get started* to create your account — we can't wait to meet you! 🎉");
