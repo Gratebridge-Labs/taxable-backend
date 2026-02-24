@@ -1,8 +1,45 @@
 const WhatsAppSession = require('../models/WhatsAppSession');
 const User = require('../models/User');
 const OTP = require('../models/OTP');
+const TaxableProfile = require('../models/TaxableProfile');
+const TaxUpdate = require('../models/TaxUpdate');
 const { sendTextMessage } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
+
+const DASHBOARD_URL = 'dashboard.gettaxable.com';
+const TAX_UPDATES_MENU_LIMIT = 2;
+
+/** Fetch latest active Nigerian tax updates for the menu (sync-safe: returns [] on error). */
+async function getLatestTaxUpdatesForMenu() {
+  try {
+    const now = new Date();
+    const list = await TaxUpdate.find({
+      active: true,
+      $and: [
+        { $or: [{ effectiveUntil: { $exists: false } }, { effectiveUntil: null }, { effectiveUntil: { $gt: now } }] },
+        { $or: [{ effectiveFrom: { $exists: false } }, { effectiveFrom: null }, { effectiveFrom: { $lte: now } }] }
+      ]
+    })
+      .sort({ createdAt: -1 })
+      .limit(TAX_UPDATES_MENU_LIMIT)
+      .select('title summary link')
+      .lean();
+    return list || [];
+  } catch (e) {
+    console.error('[WhatsApp] getLatestTaxUpdatesForMenu error:', e.message);
+    return [];
+  }
+}
+
+/** Format latest updates as a short block for WhatsApp (one line per update). */
+function formatTaxUpdatesBlock(updates) {
+  if (!updates || !updates.length) return '';
+  const lines = updates.map((u) => {
+    const text = u.summary ? `${u.title}: ${u.summary}` : u.title;
+    return u.link ? `• ${text}\n  ${u.link}` : `• ${text}`;
+  });
+  return '📌 *Latest — Nigerian tax:*\n' + lines.join('\n') + '\n\n';
+}
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'taxable_webhook_verify';
 
@@ -85,21 +122,35 @@ function isMenuOrHiIntent(text) {
   );
 }
 
-/** Menu body text (options list). No greeting. */
+/** Menu body (options only). Punchy, with dashboard link. */
 function getMenuBody() {
   return (
-    '1️⃣ *Log in* – Open the Taxable app or website\n' +
-    '2️⃣ *Calculate PAYE* – Estimate your tax\n' +
-    '3️⃣ *File returns* – File your tax returns\n' +
-    '4️⃣ *Contact support* – Get help\n\n' +
-    'Reply with a number or keyword anytime.'
+    '📱 *Dashboard* → ' + DASHBOARD_URL + '\n' +
+    '• *Create tax profile* — we\'ll walk you through it\n' +
+    '• *Learn how Nigerian tax works* — no jargon, promise\n' +
+    '• *Estimate PAYE* — see what you might owe\n' +
+    '• *Book a consultation* — talk to a human when you need to\n\n' +
+    'Reply with a number or keyword — we\'ve got you.'
   );
 }
 
-/** Full menu message with greeting (e.g. when user says "menu" or "hi"). */
-function getMenuMessage(firstName) {
-  const greeting = firstName ? `Hi ${firstName}! 👋 ` : 'Hi! ';
-  return `${greeting}Here's what you can do:\n\n${getMenuBody()}`;
+/**
+ * Full menu message: optional latest tax block + "where you're at" + menu.
+ * status: { hasProfile: boolean, profileYear?: number } optional.
+ * latestUpdates: array of { title, summary?, link? } from TaxUpdate (optional).
+ */
+function getMenuMessage(firstName, status = {}, latestUpdates = []) {
+  const name = firstName || 'there';
+  let line;
+  if (status.hasProfile && status.profileYear) {
+    line = `You've got a tax profile for ${status.profileYear} — nice. 🎯`;
+  } else if (status.hasProfile) {
+    line = 'You\'re set up — pick your next move below. 🎯';
+  } else {
+    line = 'No tax profile yet — create one and we\'ll guide you. 👇';
+  }
+  const updatesBlock = formatTaxUpdatesBlock(latestUpdates);
+  return `${name}, you're in.\n\n${updatesBlock}${line}\n\n${getMenuBody()}`;
 }
 
 /**
@@ -179,7 +230,8 @@ const handleWebhook = async (req, res) => {
         const phone = waIdToPhone(from);
         const user = await User.findOne({ $or: [{ phone }, { phone: phone.replace(/^0/, '234') }] }).select('email firstName');
         if (user) {
-          await reply(`You're already in! 🎉 Log in at the Taxable app or website with ${user.email}. Here's what you can do:\n\n${getMenuBody()}`);
+          const latestUpdates = await getLatestTaxUpdatesForMenu();
+          await reply(`You're already in! 🎉 Your dashboard: ${DASHBOARD_URL} — signed up with ${user.email}. Pick your move:\n\n${formatTaxUpdatesBlock(latestUpdates)}${getMenuBody()}`);
           sendOk();
           return;
         }
@@ -224,11 +276,16 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // Registered user says "menu" or "hi" (or hello/options) → show menu
+    // Registered user says "menu" or "hi" (or hello/options) → show menu with status
     const phoneForLookup = waIdToPhone(from);
-    const regUser = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName').lean();
+    const regUser = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
     if (regUser && isMenuOrHiIntent(text)) {
-      await reply(getMenuMessage(regUser.firstName));
+      const [latestProfile, latestUpdates] = await Promise.all([
+        TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean(),
+        getLatestTaxUpdatesForMenu()
+      ]);
+      const status = latestProfile ? { hasProfile: true, profileYear: latestProfile.year } : { hasProfile: false };
+      await reply(getMenuMessage(regUser.firstName, status, latestUpdates));
       sendOk();
       return;
     }
@@ -405,10 +462,11 @@ const handleWebhook = async (req, res) => {
           return;
         }
         if (otpRecord.verified) {
-          await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — just log in on the Taxable app or website. Welcome back!`);
+          await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — open the Taxable app or website and sign in when you're ready. Welcome back!`);
           session.step = 'done';
           await session.save();
-          await reply(getMenuMessage(data.firstName));
+          const latestUpdates = await getLatestTaxUpdatesForMenu();
+          await reply(getMenuMessage(data.firstName, {}, latestUpdates));
           sendOk();
           return;
         }
@@ -430,13 +488,16 @@ const handleWebhook = async (req, res) => {
         session.step = 'done';
         session.pendingUserId = undefined;
         await session.save();
-        await reply(`✅ You're in, ${data.firstName}! Your email is verified. Log in at the Taxable app or website with ${email} and your password. Welcome to Taxable — let's make tax simple! 🎉`);
-        await reply(getMenuMessage(data.firstName));
+        await reply(`✅ You're in, ${data.firstName}! Your email is verified. Open the Taxable app or website and sign in with the password you just set — your account is ready. Welcome to Taxable! 🎉`);
+        const latestUpdates = await getLatestTaxUpdatesForMenu();
+        await reply(getMenuMessage(data.firstName, {}, latestUpdates));
         break;
       }
-      case 'done':
-        await reply(`You're already registered, ${data.firstName || 'there'}! Here's what you can do:\n\n${getMenuBody()}`);
+      case 'done': {
+        const latestUpdates = await getLatestTaxUpdatesForMenu();
+        await reply(getMenuMessage(data.firstName || undefined, {}, latestUpdates));
         break;
+      }
       default:
         await reply("Say *Hi Taxable* or *Get started* to create your account — we can't wait to meet you! 🎉");
     }

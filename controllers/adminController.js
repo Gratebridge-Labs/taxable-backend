@@ -2,6 +2,7 @@ const Admin = require('../models/Admin');
 const User = require('../models/User');
 const TaxableProfile = require('../models/TaxableProfile');
 const ProfileReview = require('../models/ProfileReview');
+const TaxUpdate = require('../models/TaxUpdate');
 const { generateToken } = require('../utils/jwt');
 const { validationResult } = require('express-validator');
 const { generateUniqueAdminCode } = require('../utils/adminCodeGenerator');
