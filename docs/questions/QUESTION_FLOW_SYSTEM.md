@@ -8,11 +8,14 @@ The tax engine uses a **base questions → detailed questions → NIN/TIN collec
 ### Phase 1: Base Questions (Qualifying Questions)
 **Purpose**: Determine which detailed questions and forms are needed.
 
-**Individual Base Questions** (`IND_BASE_001` to `IND_BASE_006`):
-- Primary income source
-- Housing situation
-- Contributions (NHF, NHIS, Pension, Life Insurance)
-- Additional income sources
+**Individual Base Questions** (see `INDIVIDUAL_BASE_QUESTIONS.json` v3.0):
+- Primary income source (multiple: Salary/Employment, Business, Freelance, Investment, Rental, Digital Assets/Crypto)
+- Residency (183+ days in Nigeria)
+- Do you pay rent? (for rent relief)
+- Do you pay for health insurance?
+- Do you contribute to a pension plan?
+- Do you pay a mortgage?
+- Other contributions (NHF, Life Insurance)
 - Capital gains (asset disposals)
 - Exemptions
 

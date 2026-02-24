@@ -68,8 +68,40 @@ const taxableProfileSchema = new mongoose.Schema({
   primaryNIN: {
     type: String,
     match: [/^[0-9]{11}$/, 'NIN must be exactly 11 digits'],
-    required: false // Collected after base questions
+    required: false
   },
+  /** What the user wants to do with this profile: file annual returns or calculate monthly PAYE */
+  intent: {
+    type: String,
+    enum: {
+      values: ['file_returns', 'calculate_paye'],
+      message: 'Intent must be file_returns or calculate_paye'
+    },
+    required: false
+  },
+  /** Primary income sources (multiple). Values: Salary / Employment, Business/Self-employment, Freelance/Consulting, Investment income, Rental income, Digital Assets/Crypto */
+  primaryIncomeSources: {
+    type: [String],
+    default: undefined,
+    validate: {
+      validator: function(v) {
+        if (!Array.isArray(v) || v.length === 0) return true;
+        const allowed = ['Salary / Employment', 'Business/Self-employment', 'Freelance/Consulting', 'Investment income', 'Rental income', 'Digital Assets/Crypto'];
+        return v.every(item => allowed.includes(item));
+      },
+      message: 'Each primary income source must be one of: Salary / Employment, Business/Self-employment, Freelance/Consulting, Investment income, Rental income, Digital Assets/Crypto'
+    }
+  },
+  /** Lived in Nigeria 183+ days this tax year (determines worldwide vs Nigerian-sourced income) */
+  residency183Days: { type: Boolean, required: false },
+  /** Pays rent (eligible for 20% rent relief, max N500k) */
+  paysRent: { type: Boolean, required: false },
+  /** Pays for health insurance */
+  hasHealthInsurance: { type: Boolean, required: false },
+  /** Contributes to a pension plan */
+  hasPension: { type: Boolean, required: false },
+  /** Pays a mortgage */
+  paysMortgage: { type: Boolean, required: false },
   primaryTIN: {
     type: String,
     match: [/^[0-9]{10,12}$/, 'TIN must be 10-12 digits'],

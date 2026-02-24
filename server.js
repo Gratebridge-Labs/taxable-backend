@@ -50,6 +50,7 @@ app.use('/api/questions', require('./routes/questionRoutes')); // Question flow 
 app.use('/api/profile-reviews', require('./routes/profileReviewRoutes')); // Profile review routes
 app.use('/api/notifications', require('./routes/notificationRoutes')); // Notification routes
 app.use('/api/blogs', require('./routes/blogRoutes')); // Blog routes
+app.use('/api/whatsapp', require('./routes/whatsappWebhookRoutes')); // WhatsApp webhook
 
 // Error handling middleware
 app.use((err, req, res, next) => {

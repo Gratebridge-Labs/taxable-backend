@@ -1,108 +1,166 @@
 {
-  "version": "2.0",
-  "lastUpdated": "2024-12-27",
+  "version": "3.0",
+  "lastUpdated": "2026-02-24",
   "basedOn": "Nigeria Tax Act 2025",
-  "description": "Base questions that determine the flow of subsequent detailed questions. These are qualifying questions that lead to specific income/deduction collection paths.",
+  "description": "Base questions that determine the flow of subsequent detailed questions. These are qualifying questions that lead to specific income/deduction collection paths. Aligned with app flow: primary income source, residency, rent, health insurance, pension, mortgage, then capital gains and exemptions.",
   "questions": [
     {
       "questionId": "IND_BASE_001",
       "order": 1,
       "category": "income_source",
-      "questionText": "What are your sources of income?",
+      "questionText": "What's your primary income source?",
       "questionType": "multiple_choice",
       "required": true,
       "allowMultiple": true,
       "options": [
-        "Employment (Salary/Wages)",
-        "Business/Self-Employment",
-        "Rental Income",
-        "Investment Income (dividends, interest, capital gains)",
-        "Other Income"
+        "Salary / Employment",
+        "Business/Self-employment",
+        "Freelance/Consulting",
+        "Investment income",
+        "Rental income",
+        "Digital Assets/Crypto"
       ],
-      "explanation": "You can have multiple sources of income. Each source is taxed differently: Employment uses PAYE, business requires profit/loss tracking, rental income has specific deductions, and investment income may have withholding taxes. Select all that apply.",
-      "helpText": "Select ALL sources of income you have. You can select multiple options. For example, you can have employment income AND rental income at the same time.",
+      "optionDescriptions": {
+        "Salary / Employment": "Income from an employer",
+        "Business/Self-employment": "Income from your own business",
+        "Freelance/Consulting": "Project-based or contract work",
+        "Investment income": "Dividends, interest, capital gains",
+        "Rental income": "Income from property rentals",
+        "Digital Assets/Crypto": "Income from crypto, digital assets, royalties, gifts, or other sources"
+      },
+      "explanation": "You can have multiple sources of income. Each source is taxed differently: Employment uses PAYE, business and freelance require profit/tracking, rental and investment income have specific rules, and digital assets may have separate treatment. Select all that apply.",
+      "helpText": "You can select more than one option.",
       "dependsOn": [],
       "profileType": ["Individual", "Joint_Spouse"],
       "conditionalQuestions": {
-        "Employment (Salary/Wages)": ["IND_DET_EMPLOYMENT"],
-        "Business/Self-Employment": ["IND_DET_BUSINESS"],
-        "Rental Income": ["IND_DET_RENTAL"],
-        "Investment Income (dividends, interest, capital gains)": ["IND_DET_INVESTMENT"],
-        "Other Income": ["IND_DET_OTHER"]
+        "Salary / Employment": ["IND_DET_EMPLOYMENT"],
+        "Business/Self-employment": ["IND_DET_BUSINESS"],
+        "Freelance/Consulting": ["IND_DET_BUSINESS"],
+        "Investment income": ["IND_DET_INVESTMENT"],
+        "Rental income": ["IND_DET_RENTAL"],
+        "Digital Assets/Crypto": ["IND_DET_OTHER"]
       }
     },
     {
-      "questionId": "IND_BASE_002",
+      "questionId": "IND_BASE_RESIDENCY",
       "order": 2,
+      "category": "residency",
+      "questionText": "Did/Will you live in Nigeria for 183+ days this tax year?",
+      "questionType": "yes_no",
+      "required": true,
+      "explanation": "Residency determines whether you declare worldwide income or only Nigerian-sourced income for the tax year.",
+      "helpText": "This determines whether you declare worldwide income or only Nigerian-sourced income.",
+      "dependsOn": [],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": { "yes": [], "no": [] }
+    },
+    {
+      "questionId": "IND_BASE_002",
+      "order": 3,
       "category": "housing",
-      "questionText": "What is your housing situation?",
+      "questionText": "Do you pay rent?",
       "questionType": "multiple_choice",
       "required": true,
       "options": [
-        "I rent accommodation",
-        "I own my home (with mortgage)",
-        "I own my home (no mortgage)",
-        "I live in employer-provided accommodation",
-        "I live with family (no rent)"
+        "Yes, I rent my home",
+        "No, I own my home or live rent-free"
       ],
-      "explanation": "Your housing situation determines if you can claim rent relief (20% of rent, max ₦500,000) or mortgage interest deductions. Rent relief is a deduction that reduces your taxable income.",
-      "helpText": "Select the option that best describes your current housing arrangement.",
-      "dependsOn": ["IND_BASE_001"],
+      "explanation": "If you rent, you may be eligible for rent relief deduction, which reduces your taxable income.",
+      "helpText": "If yes, you're eligible for a 20% rent relief deduction (new in 2026). Could save you up to N500k.",
+      "dependsOn": [],
       "profileType": ["Individual", "Joint_Spouse"],
       "conditionalQuestions": {
-        "I rent accommodation": ["IND_DET_RENT"],
-        "I own my home (with mortgage)": ["IND_DET_MORTGAGE"],
-        "I own my home (no mortgage)": [],
-        "I live in employer-provided accommodation": [],
-        "I live with family (no rent)": []
+        "Yes, I rent my home": ["IND_DET_RENT"],
+        "No, I own my home or live rent-free": []
+      }
+    },
+    {
+      "questionId": "IND_BASE_HEALTH",
+      "order": 4,
+      "category": "deductions",
+      "questionText": "Do you pay for health insurance?",
+      "questionType": "yes_no",
+      "required": true,
+      "explanation": "Health insurance contributions (e.g. NHIS) are tax-deductible and reduce your taxable income.",
+      "helpText": "If yes, you can claim your health insurance contributions as a deduction.",
+      "dependsOn": [],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": {
+        "yes": ["IND_DET_NHIS"],
+        "no": []
+      }
+    },
+    {
+      "questionId": "IND_BASE_PENSION",
+      "order": 5,
+      "category": "deductions",
+      "questionText": "Do you contribute to a pension plan?",
+      "questionType": "yes_no",
+      "required": true,
+      "explanation": "Pension contributions (RSA) are tax-deductible and reduce your taxable income.",
+      "helpText": "If yes, you can claim your pension contributions as a deduction (up to 25% of income).",
+      "dependsOn": [],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": {
+        "yes": ["IND_DET_PENSION"],
+        "no": []
+      }
+    },
+    {
+      "questionId": "IND_BASE_MORTGAGE",
+      "order": 6,
+      "category": "housing",
+      "questionText": "Do you pay a mortgage?",
+      "questionType": "yes_no",
+      "required": true,
+      "explanation": "Interest on loans for developing an owner-occupied residential house is tax-deductible.",
+      "helpText": "If yes, you can claim mortgage interest as a deduction.",
+      "dependsOn": [],
+      "profileType": ["Individual", "Joint_Spouse"],
+      "conditionalQuestions": {
+        "yes": ["IND_DET_MORTGAGE"],
+        "no": []
       }
     },
     {
       "questionId": "IND_BASE_003",
-      "order": 3,
+      "order": 7,
       "category": "deductions",
       "questionText": "Do you contribute to any of the following?",
       "questionType": "multiple_choice",
       "required": true,
       "options": [
         "National Housing Fund (NHF)",
-        "National Health Insurance Scheme (NHIS)",
-        "Pension Scheme (RSA)",
         "Life Insurance",
         "None of the above"
       ],
       "allowMultiple": true,
-      "explanation": "Contributions to NHF, NHIS, Pension, and Life Insurance are tax-deductible, meaning they reduce your taxable income. You can select multiple options if you contribute to more than one.",
+      "explanation": "Contributions to NHF and Life Insurance are tax-deductible. Health and pension are already captured above.",
       "helpText": "Select all that apply. These contributions can reduce the tax you pay.",
-      "dependsOn": ["IND_BASE_001"],
+      "dependsOn": [],
       "profileType": ["Individual", "Joint_Spouse"],
       "conditionalQuestions": {
         "National Housing Fund (NHF)": ["IND_DET_NHF"],
-        "National Health Insurance Scheme (NHIS)": ["IND_DET_NHIS"],
-        "Pension Scheme (RSA)": ["IND_DET_PENSION"],
         "Life Insurance": ["IND_DET_LIFE_INSURANCE"],
         "None of the above": []
       }
     },
     {
       "questionId": "IND_BASE_004",
-      "order": 4,
+      "order": 8,
       "category": "capital_gains",
       "questionText": "Did you sell or dispose of any assets during the tax year?",
       "questionType": "yes_no",
       "required": true,
       "explanation": "Capital gains tax applies when you sell assets like property, shares, or other investments. Some disposals are exempt (like principal residence once in lifetime, or personal chattels under ₦5M).",
       "helpText": "Answer 'Yes' if you sold any property, shares, vehicles, or other valuable assets during the tax year.",
-      "dependsOn": ["IND_BASE_001"],
+      "dependsOn": [],
       "profileType": ["Individual", "Joint_Spouse"],
-      "conditionalQuestions": {
-        "yes": ["IND_DET_CAPITAL_GAINS"],
-        "no": []
-      }
+      "conditionalQuestions": { "yes": ["IND_DET_CAPITAL_GAINS"], "no": [] }
     },
     {
       "questionId": "IND_BASE_005",
-      "order": 5,
+      "order": 9,
       "category": "exemptions",
       "questionText": "Do any of these exemptions apply to you?",
       "questionType": "multiple_choice",
@@ -117,7 +175,7 @@
       "allowMultiple": true,
       "explanation": "Certain individuals and income types are exempt from tax. Minimum wage earners, agricultural businesses (first 5 years), and military officers have specific exemptions.",
       "helpText": "Select all that apply. These exemptions may reduce or eliminate your tax liability.",
-      "dependsOn": ["IND_BASE_001"],
+      "dependsOn": [],
       "profileType": ["Individual", "Joint_Spouse"],
       "conditionalQuestions": {
         "I earn minimum wage or less": [],

@@ -18,7 +18,18 @@ const createProfile = async (req, res) => {
     }
 
     const userId = req.user?.userId;
-    const { year, profileType } = req.body;
+    const {
+      year,
+      profileType,
+      nin,
+      intent,
+      primaryIncomeSources,
+      residency183Days,
+      paysRent,
+      hasHealthInsurance,
+      hasPension,
+      paysMortgage
+    } = req.body;
 
     // Convert year to number (express-validator should handle this, but ensure it's a number)
     const yearNum = typeof year === 'string' ? parseInt(year, 10) : year;
@@ -56,15 +67,24 @@ const createProfile = async (req, res) => {
       });
     }
 
-    // Create new profile
-    // Author is the authenticated user who creates the profile
-    const profile = await TaxableProfile.create({
+    // Build profile payload (basic data collected at creation)
+    const profilePayload = {
       user: userId,
-      author: userId, // Author is the authenticated user
+      author: userId,
       year: yearNum,
       profileType: profileType,
       status: 'draft'
-    });
+    };
+    if (nin) profilePayload.primaryNIN = nin.trim();
+    if (intent) profilePayload.intent = intent;
+    if (Array.isArray(primaryIncomeSources) && primaryIncomeSources.length > 0) profilePayload.primaryIncomeSources = primaryIncomeSources;
+    if (typeof residency183Days === 'boolean') profilePayload.residency183Days = residency183Days;
+    if (typeof paysRent === 'boolean') profilePayload.paysRent = paysRent;
+    if (typeof hasHealthInsurance === 'boolean') profilePayload.hasHealthInsurance = hasHealthInsurance;
+    if (typeof hasPension === 'boolean') profilePayload.hasPension = hasPension;
+    if (typeof paysMortgage === 'boolean') profilePayload.paysMortgage = paysMortgage;
+
+    const profile = await TaxableProfile.create(profilePayload);
 
     res.status(201).json({
       success: true,
@@ -74,6 +94,14 @@ const createProfile = async (req, res) => {
         id: profile._id,
         year: profile.year,
         profileType: profile.profileType,
+        intent: profile.intent,
+        primaryNIN: profile.primaryNIN ? `${profile.primaryNIN.slice(0, 4)}*******` : undefined,
+        primaryIncomeSources: profile.primaryIncomeSources,
+        residency183Days: profile.residency183Days,
+        paysRent: profile.paysRent,
+        hasHealthInsurance: profile.hasHealthInsurance,
+        hasPension: profile.hasPension,
+        paysMortgage: profile.paysMortgage,
         status: profile.status,
         createdAt: profile.createdAt
       }
