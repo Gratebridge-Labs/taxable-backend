@@ -72,29 +72,34 @@ const verifyWebhook = (req, res) => {
 };
 
 /**
- * POST - Receive incoming WhatsApp messages and handle registration flow
+ * POST - Receive incoming WhatsApp messages and handle registration flow.
+ * We await sending the reply before responding 200 so serverless (Vercel) doesn't kill the function early.
  */
 const handleWebhook = async (req, res) => {
-  // Respond 200 immediately so Meta doesn't retry
-  res.status(200).send('OK');
-
   const body = req.body;
+  const sendOk = () => {
+    if (!res.headersSent) res.status(200).send('OK');
+  };
+
   console.log('[WhatsApp webhook] POST received', body?.object || 'no object');
 
   if (!body?.object || body.object !== 'whatsapp_business_account') {
     console.log('[WhatsApp webhook] Ignored: not whatsapp_business_account');
+    sendOk();
     return;
   }
   const entry = body.entry?.[0];
   const changes = entry?.changes?.[0];
   if (changes?.field !== 'messages') {
     console.log('[WhatsApp webhook] Ignored: field is', changes?.field);
+    sendOk();
     return;
   }
   const value = changes?.value;
   const messages = value?.messages;
   if (!messages?.length) {
     console.log('[WhatsApp webhook] Ignored: no messages in payload');
+    sendOk();
     return;
   }
 
@@ -105,13 +110,15 @@ const handleWebhook = async (req, res) => {
   if (type === 'text' && message.text) text = message.text.body || '';
   if (!text.trim()) {
     console.log('[WhatsApp webhook] Ignored: no text (type=', type, ')');
+    sendOk();
     return;
   }
 
   console.log('[WhatsApp webhook] Message from', from, ':', text.substring(0, 80));
 
+  /** Send reply and return promise so we can await it before ending the request (required on serverless) */
   const reply = (msg) => {
-    sendTextMessage(from, msg)
+    return sendTextMessage(from, msg)
       .then(() => console.log('[WhatsApp webhook] Reply sent to', from))
       .catch(err => console.error('[WhatsApp webhook] Send error:', err.message || err));
   };
@@ -126,7 +133,8 @@ const handleWebhook = async (req, res) => {
         const phone = waIdToPhone(from);
         const user = await User.findOne({ $or: [{ phone }, { phone: phone.replace(/^0/, '234') }] }).select('email firstName');
         if (user) {
-          reply(`You're already registered! Your email is ${user.email}. Log in at the Taxable app or website to continue.`);
+          await reply(`You're already registered! Your email is ${user.email}. Log in at the Taxable app or website to continue.`);
+          sendOk();
           return;
         }
       }
@@ -138,7 +146,8 @@ const handleWebhook = async (req, res) => {
         session.pendingUserId = undefined;
         await session.save();
       }
-      reply("Great! To get started, I'll need a few details. What's your *first name*?");
+      await reply("Great! To get started, I'll need a few details. What's your *first name*?");
+      sendOk();
       return;
     }
 
@@ -150,8 +159,9 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'first_name', registrationData: {}, updatedAt: new Date() } },
           { upsert: true, new: true }
         );
-        reply("Great! To get started, I'll need a few details. What's your *first name*?");
+        await reply("Great! To get started, I'll need a few details. What's your *first name*?");
       }
+      sendOk();
       return;
     }
 
@@ -161,7 +171,8 @@ const handleWebhook = async (req, res) => {
       session.registrationData = {};
       session.pendingUserId = undefined;
       await session.save();
-      reply("No problem! Let's start over. What's your *first name*?");
+      await reply("No problem! Let's start over. What's your *first name*?");
+      sendOk();
       return;
     }
 
@@ -171,31 +182,34 @@ const handleWebhook = async (req, res) => {
     switch (step) {
       case 'first_name': {
         if (!isValidName(text)) {
-          reply('Please send a valid first name (letters only, 2–50 characters).');
+          await reply('Please send a valid first name (letters only, 2–50 characters).');
+          sendOk();
           return;
         }
         data.firstName = text.trim();
         session.registrationData = data;
         session.step = 'last_name';
         await session.save();
-        reply(`Thanks! What's your *last name*?`);
+        await reply(`Thanks! What's your *last name*?`);
         break;
       }
       case 'last_name': {
         if (!isValidName(text)) {
-          reply('Please send a valid last name (letters only, 2–50 characters).');
+          await reply('Please send a valid last name (letters only, 2–50 characters).');
+          sendOk();
           return;
         }
         data.lastName = text.trim();
         session.registrationData = data;
         session.step = 'email';
         await session.save();
-        reply('What’s your *email address*?');
+        await reply('What’s your *email address*?');
         break;
       }
       case 'email': {
         if (!isValidEmail(text)) {
-          reply('Please send a valid email address (e.g. name@example.com).');
+          await reply('Please send a valid email address (e.g. name@example.com).');
+          sendOk();
           return;
         }
         data.email = text.trim().toLowerCase();
@@ -203,26 +217,28 @@ const handleWebhook = async (req, res) => {
         session.step = 'phone';
         await session.save();
         const suggestedPhone = waIdToPhone(from);
-        reply(`What’s your *phone number*? (We have ${suggestedPhone} from WhatsApp — reply with it or send a different number.)`);
+        await reply(`What’s your *phone number*? (We have ${suggestedPhone} from WhatsApp — reply with it or send a different number.)`);
         break;
       }
       case 'phone': {
         const phone = text.trim().replace(/\s/g, '');
         const normalized = phone.startsWith('0') ? phone : phone.startsWith('234') ? '0' + phone.slice(3) : '0' + phone;
         if (!isValidPhone(normalized)) {
-          reply('Please send a valid Nigerian phone number (e.g. 08012345678 or +2348012345678).');
+          await reply('Please send a valid Nigerian phone number (e.g. 08012345678 or +2348012345678).');
+          sendOk();
           return;
         }
         data.phone = normalized;
         session.registrationData = data;
         session.step = 'password';
         await session.save();
-        reply('Choose a *password* (at least 8 characters, with one uppercase letter, one lowercase letter, and one number).');
+        await reply('Choose a *password* (at least 8 characters, with one uppercase letter, one lowercase letter, and one number).');
         break;
       }
       case 'password': {
         if (!isValidPassword(text)) {
-          reply('Password must be at least 8 characters and include one uppercase letter, one lowercase letter, and one number. Try again.');
+          await reply('Password must be at least 8 characters and include one uppercase letter, one lowercase letter, and one number. Try again.');
+          sendOk();
           return;
         }
         data.password = text;
@@ -240,20 +256,20 @@ const handleWebhook = async (req, res) => {
           });
           session.pendingUserId = user._id;
           await session.save();
-          reply(`Account created! We’ve sent a 6-digit verification code to ${data.email}. Reply with that *code* to verify your account.`);
+          await reply(`Account created! We’ve sent a 6-digit verification code to ${data.email}. Reply with that *code* to verify your account.`);
         } catch (err) {
           if (err.code === 'EMAIL_EXISTS') {
-            reply('This email is already registered. Please use a different email or log in on the Taxable app.');
+            await reply('This email is already registered. Please use a different email or log in on the Taxable app.');
             session.step = 'email';
             session.registrationData = { ...data, email: undefined };
             await session.save();
           } else if (err.code === 'EMAIL_SEND_FAILED') {
-            reply('We couldn’t send the verification email. Please check your email address and try again later.');
+            await reply('We couldn’t send the verification email. Please check your email address and try again later.');
             session.step = 'email';
             await session.save();
           } else {
             console.error('WhatsApp registration error:', err);
-            reply('Something went wrong. Please try again or register on the Taxable app.');
+            await reply('Something went wrong. Please try again or register on the Taxable app.');
             session.step = 'password';
             await session.save();
           }
@@ -262,7 +278,8 @@ const handleWebhook = async (req, res) => {
       }
       case 'otp': {
         if (!isValidOTP(text)) {
-          reply('Please send the 6-digit code from your email.');
+          await reply('Please send the 6-digit code from your email.');
+          sendOk();
           return;
         }
         const email = data.email;
@@ -272,22 +289,26 @@ const handleWebhook = async (req, res) => {
           purpose: 'email_verification'
         });
         if (!otpRecord) {
-          reply('Invalid or expired code. Please check the code we sent to your email, or say "Hi Taxable I want to get started" to start over.');
+          await reply('Invalid or expired code. Please check the code we sent to your email, or say "Hi Taxable I want to get started" to start over.');
+          sendOk();
           return;
         }
         if (otpRecord.verified) {
-          reply('This code was already used. You’re all set — log in on the Taxable app!');
+          await reply('This code was already used. You’re all set — log in on the Taxable app!');
           session.step = 'done';
           await session.save();
+          sendOk();
           return;
         }
         if (otpRecord.expiresAt < new Date()) {
-          reply('This code has expired. Please say "Hi Taxable I want to get started" to register again and we’ll send a new code.');
+          await reply('This code has expired. Please say "Hi Taxable I want to get started" to register again and we’ll send a new code.');
+          sendOk();
           return;
         }
         const user = await User.findById(session.pendingUserId);
         if (!user) {
-          reply('Something went wrong. Please say "Hi Taxable I want to get started" to register again.');
+          await reply('Something went wrong. Please say "Hi Taxable I want to get started" to register again.');
+          sendOk();
           return;
         }
         otpRecord.verified = true;
@@ -297,18 +318,22 @@ const handleWebhook = async (req, res) => {
         session.step = 'done';
         session.pendingUserId = undefined;
         await session.save();
-        reply(`✅ You’re all set! Your email is verified. Log in at the Taxable app or website with ${email} and your password. Welcome to Taxable!`);
+        await reply(`✅ You’re all set! Your email is verified. Log in at the Taxable app or website with ${email} and your password. Welcome to Taxable!`);
         break;
       }
       case 'done':
-        reply('You’re already registered. Log in at the Taxable app or website. Need help? Reply with "Hi Taxable I want to get started" to run through registration again.');
+        await reply('You’re already registered. Log in at the Taxable app or website. Need help? Reply with "Hi Taxable I want to get started" to run through registration again.');
         break;
       default:
-        reply('Reply with *Hi Taxable I want to get started* to register.');
+        await reply('Reply with *Hi Taxable I want to get started* to register.');
     }
+    sendOk();
   } catch (err) {
     console.error('WhatsApp webhook error:', err);
-    sendTextMessage(from, 'Something went wrong. Please try again or register at the Taxable app.').catch(() => {});
+    try {
+      await sendTextMessage(from, 'Something went wrong. Please try again or register at the Taxable app.');
+    } catch (e) {}
+    sendOk();
   }
 };
 
