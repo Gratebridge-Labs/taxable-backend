@@ -7,7 +7,7 @@ const createTransporter = () => {
   }
 
   const host = process.env.EMAIL_HOST || 'smtp.gmail.com';
-  const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
+  const port = parseInt(process.env.EMAIL_PORT, 10) || 465;
   const secure = process.env.EMAIL_SECURE === 'true';
 
   const config = {
