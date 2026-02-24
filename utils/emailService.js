@@ -1,26 +1,37 @@
 const nodemailer = require('nodemailer');
 
-// Create transporter
+// Create transporter (supports port 587 STARTTLS and port 465 SSL)
 const createTransporter = () => {
-  // Check if credentials are provided
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
     throw new Error('Email credentials are not configured. Please set EMAIL_USER and EMAIL_PASS in your .env file.');
   }
 
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.EMAIL_PORT) || 587,
-    secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
+  const host = process.env.EMAIL_HOST || 'smtp.gmail.com';
+  const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
+  const secure = process.env.EMAIL_SECURE === 'true';
+
+  const config = {
+    host,
+    port,
+    secure,
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
     },
+    connectionTimeout: 15000,
+    greetingTimeout: 10000,
     tls: {
-      // Disable certificate validation for shared hosting scenarios
-      // where the certificate doesn't match the hostname
-      rejectUnauthorized: false
+      rejectUnauthorized: false, // allow self-signed / hostname mismatch (e.g. mail.gettaxable.com)
+      servername: host
     }
-  });
+  };
+
+  // Port 587: require STARTTLS by default (set EMAIL_REQUIRE_TLS=false to disable if your server doesn't support it)
+  if (port === 587 && !secure && process.env.EMAIL_REQUIRE_TLS !== 'false') {
+    config.requireTLS = true;
+  }
+
+  return nodemailer.createTransport(config);
 };
 
 // Generate OTP email template with the color palette
@@ -237,9 +248,9 @@ const sendOTPEmail = async (email, firstName, otpCode) => {
     console.log('[Email] OTP sent successfully to', email, 'messageId:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('[Email] OTP send failed to', email, 'error:', error.message, 'code:', error.code, 'response:', error.response);
-    if (error.response) console.error('[Email] SMTP response:', error.response);
-    throw new Error('Failed to send verification email');
+    const smtpMsg = error.response ? ` SMTP: ${String(error.response).slice(0, 200)}` : '';
+    console.error('[Email] OTP send failed to', email, '|', error.message, '| code:', error.code, '| command:', error.command, smtpMsg);
+    throw new Error(error.message || 'Failed to send verification email');
   }
 };
 
@@ -354,8 +365,8 @@ const sendWelcomeEmail = async (email, firstName) => {
     console.log('Welcome email sent:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Error sending welcome email:', error);
-    throw new Error('Failed to send welcome email');
+    console.error('[Email] Welcome send failed to', email, '|', error.message, '| code:', error.code, '|', error.response ? `SMTP: ${String(error.response).slice(0, 150)}` : '');
+    throw new Error(error.message || 'Failed to send welcome email');
   }
 };
 
@@ -379,15 +390,39 @@ const sendPasswordResetEmail = async (email, firstName, otpCode) => {
     console.log('Password reset email sent:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Error sending password reset email:', error);
-    throw new Error('Failed to send password reset email');
+    console.error('[Email] Password reset send failed to', email, '|', error.message, '| code:', error.code, '|', error.response ? `SMTP: ${String(error.response).slice(0, 150)}` : '');
+    throw new Error(error.message || 'Failed to send password reset email');
   }
+};
+
+// Send a test email (for health check / debugging). Requires `to` so you receive it at an inbox you check.
+const sendTestEmail = async (to) => {
+  const recipient = (to && to.trim()) || process.env.EMAIL_USER;
+  if (!recipient) {
+    throw new Error('Missing "to" address. Send a request body like: { "to": "your@email.com" } so the test email goes to an inbox you check.');
+  }
+  const fromName = process.env.EMAIL_FROM_NAME || 'Taxable';
+  const fromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER;
+  console.log('[Email] Test email sending to:', recipient);
+  const transporter = createTransporter();
+  await transporter.verify();
+  const mailOptions = {
+    from: `"${fromName}" <${fromEmail}>`,
+    to: recipient,
+    subject: 'Taxable – Email test',
+    text: `This is a test email from the Taxable backend at ${new Date().toISOString()}. If you received this, the mail system is working.`,
+    html: `<p>This is a test email from the Taxable backend at ${new Date().toISOString()}.</p><p>If you received this, the mail system is working.</p>`
+  };
+  const info = await transporter.sendMail(mailOptions);
+  console.log('[Email] Test email sent to', recipient, 'messageId:', info.messageId);
+  return { success: true, messageId: info.messageId, to: recipient };
 };
 
 module.exports = {
   sendOTPEmail,
   sendWelcomeEmail,
   sendPasswordResetEmail,
+  sendTestEmail,
   generateOTPEmailTemplate,
   generateWelcomeEmailTemplate,
   generatePasswordResetEmailTemplate

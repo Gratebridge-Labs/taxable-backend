@@ -41,6 +41,30 @@ app.get('/api/welcome', (req, res) => {
   });
 });
 
+// Email health check: verify SMTP and send a test email to the address you provide
+const { sendTestEmail } = require('./utils/emailService');
+app.post('/api/health/email-test', async (req, res) => {
+  try {
+    const to = req.body?.to || req.query?.to;
+    const result = await sendTestEmail(to);
+    res.json({
+      success: true,
+      message: 'Test email sent. Check your inbox (and spam/junk) at: ' + result.to,
+      messageId: result.messageId,
+      to: result.to,
+      tip: 'If you don\'t see it, check spam/junk and that your domain has SPF/DKIM set for ' + (process.env.EMAIL_HOST || 'your SMTP host')
+    });
+  } catch (err) {
+    console.error('[Health] email-test failed:', err.message, err.code, err.response);
+    res.status(err.message && err.message.includes('Missing "to"') ? 400 : 500).json({
+      success: false,
+      message: err.message || 'Email test failed',
+      code: err.code || undefined,
+      smtpResponse: err.response ? String(err.response).slice(0, 200) : undefined
+    });
+  }
+});
+
 // API Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes')); // Admin routes
