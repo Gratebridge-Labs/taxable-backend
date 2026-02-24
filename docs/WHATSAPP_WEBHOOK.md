@@ -50,6 +50,30 @@ the bot will:
 
 Session state is stored in `WhatsAppSession` (by WhatsApp ID). User can say "Hi Taxable I want to get started" again mid-flow to restart, or after completion to see the already-registered message.
 
+## Troubleshooting: "I sent a message but got no reply"
+
+1. **Check Vercel (or your host) logs**  
+   After sending a message, look for:
+   - `[WhatsApp webhook] POST received` → Meta is calling your URL.
+   - `[WhatsApp webhook] Message from 234... : ...` → Your code received the text.
+   - `[WhatsApp webhook] Reply sent to ...` → Reply was sent.
+   - `[WhatsApp webhook] Send error: ...` → Sending failed (token, phone number ID, or API error).
+
+2. **Meta App & Webhook**
+   - Meta for Developers → Your App → WhatsApp → **Configuration** → Webhook shows a green check and "Verified".
+   - Under "Webhook fields", **messages** is subscribed.
+   - In **App mode**: if the app is in **Development**, only **test phone numbers** (added in WhatsApp → API Setup) receive replies. Add your number there or switch to Live for all numbers.
+
+3. **Environment variables (on Vercel)**
+   - `WHATSAPP_ACCESS_TOKEN`: From WhatsApp → API Setup. Use a **System user** token with `whatsapp_business_messaging` and `whatsapp_business_management`. If you use a temporary token, it expires.
+   - `WHATSAPP_PHONE_NUMBER_ID`: From API Setup, the **Phone number ID** (numeric), not the actual phone number.
+
+4. **24-hour rule**  
+   You can send a free-form text reply only if the user has sent you a message in the last 24 hours. If they did send a message and you see "Reply sent" in logs but no message on WhatsApp, the problem is usually the token or Phone number ID.
+
+5. **Message content**  
+   To start registration, the user must send something like: "Hi Taxable", "Get started", or "Hi Taxable I want to get started". Exact wording is flexible; the app detects intent.
+
 ## Testing locally
 
 Use a tunnel (e.g. ngrok) so Meta can reach your server:

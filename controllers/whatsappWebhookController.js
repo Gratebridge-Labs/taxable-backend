@@ -79,23 +79,41 @@ const handleWebhook = async (req, res) => {
   res.status(200).send('OK');
 
   const body = req.body;
-  if (!body?.object || body.object !== 'whatsapp_business_account') return;
+  console.log('[WhatsApp webhook] POST received', body?.object || 'no object');
+
+  if (!body?.object || body.object !== 'whatsapp_business_account') {
+    console.log('[WhatsApp webhook] Ignored: not whatsapp_business_account');
+    return;
+  }
   const entry = body.entry?.[0];
   const changes = entry?.changes?.[0];
-  if (changes?.field !== 'messages') return;
+  if (changes?.field !== 'messages') {
+    console.log('[WhatsApp webhook] Ignored: field is', changes?.field);
+    return;
+  }
   const value = changes?.value;
   const messages = value?.messages;
-  if (!messages?.length) return;
+  if (!messages?.length) {
+    console.log('[WhatsApp webhook] Ignored: no messages in payload');
+    return;
+  }
 
   const message = messages[0];
   const from = message.from; // wa_id
   const type = message.type;
   let text = '';
   if (type === 'text' && message.text) text = message.text.body || '';
-  if (!text.trim()) return;
+  if (!text.trim()) {
+    console.log('[WhatsApp webhook] Ignored: no text (type=', type, ')');
+    return;
+  }
+
+  console.log('[WhatsApp webhook] Message from', from, ':', text.substring(0, 80));
 
   const reply = (msg) => {
-    sendTextMessage(from, msg).catch(err => console.error('WhatsApp send error:', err));
+    sendTextMessage(from, msg)
+      .then(() => console.log('[WhatsApp webhook] Reply sent to', from))
+      .catch(err => console.error('[WhatsApp webhook] Send error:', err.message || err));
   };
 
   try {
