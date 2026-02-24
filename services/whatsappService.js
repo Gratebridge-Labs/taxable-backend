@@ -57,8 +57,13 @@ function sendTextMessage(to, body) {
         } else {
           try {
             const errBody = JSON.parse(data || '{}');
-            reject(new Error(errBody.error?.message || `WhatsApp API ${res.statusCode}: ${data}`));
-          } catch {
+            const err = errBody.error || {};
+            const msg = err.message || `WhatsApp API ${res.statusCode}: ${data}`;
+            const code = err.code;
+            console.error('[WhatsApp API] Send failed:', { code, message: msg, type: err.type, errorSubcode: err.error_subcode, fbtraceId: err.fbtrace_id });
+            reject(new Error(msg));
+          } catch (e) {
+            console.error('[WhatsApp API] Send failed (parse error):', res.statusCode, data);
             reject(new Error(`WhatsApp API error: ${res.statusCode} ${data}`));
           }
         }

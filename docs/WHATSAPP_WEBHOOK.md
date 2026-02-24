@@ -74,6 +74,28 @@ Session state is stored in `WhatsAppSession` (by WhatsApp ID). User can say "Hi 
 5. **Message content**  
    To start registration, the user must send something like: "Hi Taxable", "Get started", or "Hi Taxable I want to get started". Exact wording is flexible; the app detects intent.
 
+## Error: "(#10) Application does not have permission for this action"
+
+This means your **access token** does not have permission to send WhatsApp messages. Fix it in Meta for Developers:
+
+1. **Use a System User token (not a User token)**  
+   - Go to [Meta for Developers](https://developers.facebook.com) → Your App → **WhatsApp** → **API Setup**.  
+   - Under "Temporary access token" you may see a short-lived token — that can work for testing but expires.  
+   - For production: **Business Settings** → **Users** → **System users** → create or select a system user → **Generate new token**. Select your App, then enable at least:
+     - **whatsapp_business_messaging** (required to send messages)
+     - **whatsapp_business_management**
+   - Copy the token and set it as `WHATSAPP_ACCESS_TOKEN` in Vercel (Environment Variables).
+
+2. **Confirm WhatsApp is added to the App**  
+   - In the App dashboard, **Add Products** → **WhatsApp** must be added.
+
+3. **Phone number and app mode**  
+   - In **WhatsApp** → **API Setup**, the **Phone number ID** must belong to a number connected to this app.  
+   - If the app is in **Development**, only **test numbers** (added in the same API Setup section) can receive messages. Add the number you’re testing with (e.g. 2348064031915) as a test number, or switch the app to **Live** and complete business verification if required.
+
+4. **Redeploy**  
+   After changing `WHATSAPP_ACCESS_TOKEN` (and optionally `WHATSAPP_PHONE_NUMBER_ID`) in Vercel, redeploy or wait for the next deployment so the new env vars are used.
+
 ## Testing locally
 
 Use a tunnel (e.g. ngrok) so Meta can reach your server:
