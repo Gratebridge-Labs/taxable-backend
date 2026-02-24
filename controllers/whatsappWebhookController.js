@@ -144,48 +144,90 @@ function getTimeBasedGreeting() {
   return 'Good evening';
 }
 
-/** Menu body: Dashboard under Estimate PAYE, add beginner option, clearer formatting, reply = tax profile */
-function getMenuBody() {
+/** Variation 1: User has account + no tax profile (assistant tone) */
+function getMessageNoProfile(firstName) {
+  const g = getTimeBasedGreeting();
+  const name = firstName || 'there';
   return (
-    '*Create tax profile* — we\'ll walk you through it\n\n' +
-    '*Learn how Nigerian tax works* — no jargon, promise\n\n' +
-    '*Estimate PAYE* — see what you might owe\n\n' +
-    '📱 *Dashboard* → ' + DASHBOARD_URL + '\n\n' +
-    '*I\'m a complete beginner — I\'ve never filed tax*\n\n' +
-    '*Book a consultation* — talk to a human when you need to\n\n' +
-    'Reply with *tax profile* for the next step.'
+    g + ' ' + name + ' 👋\n\n' +
+    'I\'m Taxable — your tax assistant. I\'m here to make this simple for you.\n\n' +
+    'I checked your account and you\'re all signed up 👍\n' +
+    'But it looks like you haven\'t set up your tax profile yet.\n\n' +
+    'That\'s the first thing we should do — once it\'s ready, I can calculate properly and guide you step by step.\n\n' +
+    '📌 *Quick tax update:*\n' +
+    '• Earn ₦800,000 or less? No PAYE.\n' +
+    '• Rent relief: 20% (up to ₦500k).\n' +
+    '• SMEs under ₦50m turnover? No Company Income Tax.\n\n' +
+    '🗓 *Filing deadlines:*\n' +
+    '• Employers — Jan 31\n' +
+    '• Individuals — Mar 31\n' +
+    'Late payment = 10% penalty + interest.\n\n' +
+    'What would you like to do next?\n\n' +
+    '• Set up my tax profile\n' +
+    '• Learn how tax works (simple version)\n' +
+    '• Estimate my PAYE\n' +
+    '• Speak to someone\n\n' +
+    'Just reply with your choice and I\'ll guide you.'
   );
 }
 
-/** One message for "beginner" intent: simple explanation */
-function getBeginnerExplanation(firstName) {
-  const name = firstName ? `${firstName}.` : '';
+/** Variation 2: User has account + profile completed */
+function getMessageProfileCompleted(firstName) {
+  const g = getTimeBasedGreeting();
+  const name = firstName || 'there';
   return (
-    getTimeBasedGreeting() + (name ? ' ' + name : '') + '\n\n' +
+    g + ' ' + name + ' 👋\n\n' +
+    'I\'m Taxable — your personal tax guide.\n\n' +
+    'Good news — your account is active and your tax profile is ready ✅\n\n' +
+    'Right now, your filing hasn\'t been completed yet, so we should sort that before the deadline.\n' +
+    'You\'re actually closer than you think.\n\n' +
+    '📌 *Quick reminder:*\n' +
+    '• ₦800k or less income? No PAYE.\n' +
+    '• Rent relief: 20% (max ₦500k).\n\n' +
+    '🗓 *Filing deadline:* Mar 31\n' +
+    'Late payment = 10% + interest.\n\n' +
+    'Would you like to:\n\n' +
+    '• Continue my filing\n' +
+    '• Check my PAYE estimate\n' +
+    '• Ask a question\n\n' +
+    'Tell me what you need and I\'ll handle it.'
+  );
+}
+
+/** Variation 3: User has no account (no first name) */
+function getMessageNoAccount() {
+  const g = getTimeBasedGreeting();
+  return (
+    g + ' 👋\n\n' +
+    'I\'m Taxable — your assistant for everything Nigerian tax.\n\n' +
+    'It looks like you don\'t have an account yet.\n' +
+    'No worries — we\'ll start from there.\n\n' +
+    'Once your account is created, I\'ll help you set up your tax profile and guide you through everything step by step.\n\n' +
+    '📌 *Quick update you should know:*\n' +
+    '• ₦800k or less income? No PAYE.\n' +
+    '• Rent relief: 20% (up to ₦500k).\n' +
+    '• SMEs under ₦50m turnover? No CIT.\n\n' +
+    '🗓 *Deadlines:*\n' +
+    'Jan 31 (Employers)\n' +
+    'Mar 31 (Individuals)\n\n' +
+    'Ready to begin?\n\n' +
+    '• Create my account\n' +
+    '• Learn how tax works first\n\n' +
+    'Just reply with what you\'d like to do.'
+  );
+}
+
+/** One message for "beginner" intent: simple explanation (assistant tone) */
+function getBeginnerExplanation(firstName) {
+  const g = getTimeBasedGreeting();
+  const name = firstName ? ` ${firstName}.` : '';
+  return (
+    g + name + '\n\n' +
+    'I\'m Taxable — your tax assistant.\n\n' +
     'Here\'s the simple version:\n\n' +
     'There is *income*, and there are *deductibles*. The government wants a piece of the income — that\'s tax.\n\n' +
-    'We\'ll guide you step by step. Reply with *tax profile* for the next step.'
+    'We\'ll guide you step by step. Reply with *Set up my tax profile* or *tax profile* for the next step.'
   );
-}
-
-/**
- * Full menu message: time-based greeting + optional latest tax block + "where you're at" + menu.
- * status: { hasProfile: boolean, profileYear?: number } optional.
- * latestUpdates: array of { title, summary?, link? } from TaxUpdate (optional).
- */
-function getMenuMessage(firstName, status = {}, latestUpdates = []) {
-  const name = firstName || 'there';
-  const greeting = getTimeBasedGreeting() + ' ' + name + '.\n\n';
-  let line;
-  if (status.hasProfile && status.profileYear) {
-    line = `You've got a tax profile for ${status.profileYear} — nice. 🎯`;
-  } else if (status.hasProfile) {
-    line = 'You\'re set up — pick your next move below. 🎯';
-  } else {
-    line = 'No tax profile yet — create one and we\'ll guide you. 👇';
-  }
-  const updatesBlock = formatTaxUpdatesBlock(latestUpdates);
-  return greeting + updatesBlock + line + '\n\n' + getMenuBody();
 }
 
 /**
@@ -263,11 +305,10 @@ const handleWebhook = async (req, res) => {
     if (isGetStarted && (!session || session.step === 'welcome' || session.step === 'done')) {
       if (session?.step === 'done') {
         const phone = waIdToPhone(from);
-        const user = await User.findOne({ $or: [{ phone }, { phone: phone.replace(/^0/, '234') }] }).select('email firstName');
+        const user = await User.findOne({ $or: [{ phone }, { phone: phone.replace(/^0/, '234') }] }).select('email firstName _id');
         if (user) {
-          const latestUpdates = await getLatestTaxUpdatesForMenu();
-          const greeting = getTimeBasedGreeting() + ' ' + user.firstName + '. ';
-          await reply(greeting + 'You\'re already in! 🎉 Your dashboard: ' + DASHBOARD_URL + ' — signed up with ' + user.email + '.\n\n' + formatTaxUpdatesBlock(latestUpdates) + getMenuBody());
+          const hasProfile = await TaxableProfile.findOne({ user: user._id }).select('_id').lean();
+          await reply(hasProfile ? getMessageProfileCompleted(user.firstName) : getMessageNoProfile(user.firstName));
           sendOk();
           return;
         }
@@ -295,7 +336,7 @@ const handleWebhook = async (req, res) => {
         );
         await reply("Welcome to *Taxable*! 🎉 We're here to make tax simple and stress-free. Let's get started by creating your account. *What's your first name?*");
       } else if (isMenuOrHiIntent(text)) {
-        await reply("You're not signed up yet. Say *Hi Taxable* or *Get started* to create your account — then you'll get the full menu! 🎉");
+        await reply(getMessageNoAccount());
       } else if (isBeginnerIntent(text)) {
         await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nSay *Hi Taxable* to create an account and we'll guide you step by step.");
       }
@@ -324,12 +365,8 @@ const handleWebhook = async (req, res) => {
     }
 
     if (regUser && isMenuOrHiIntent(text)) {
-      const [latestProfile, latestUpdates] = await Promise.all([
-        TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean(),
-        getLatestTaxUpdatesForMenu()
-      ]);
-      const status = latestProfile ? { hasProfile: true, profileYear: latestProfile.year } : { hasProfile: false };
-      await reply(getMenuMessage(regUser.firstName, status, latestUpdates));
+      const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).select('_id').lean();
+      await reply(hasProfile ? getMessageProfileCompleted(regUser.firstName) : getMessageNoProfile(regUser.firstName));
       sendOk();
       return;
     }
@@ -514,8 +551,7 @@ const handleWebhook = async (req, res) => {
           await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — open the Taxable app or website and sign in when you're ready. Welcome back!`);
           session.step = 'done';
           await session.save();
-          const latestUpdates = await getLatestTaxUpdatesForMenu();
-          await reply(getMenuMessage(data.firstName, {}, latestUpdates));
+          await reply(getMessageNoProfile(data.firstName));
           sendOk();
           return;
         }
@@ -538,13 +574,14 @@ const handleWebhook = async (req, res) => {
         session.pendingUserId = undefined;
         await session.save();
         await reply(`✅ You're in, ${data.firstName}! Your email is verified. Open the Taxable app or website and sign in with the password you just set — your account is ready. Welcome to Taxable! 🎉`);
-        const latestUpdates = await getLatestTaxUpdatesForMenu();
-        await reply(getMenuMessage(data.firstName, {}, latestUpdates));
+        await reply(getMessageNoProfile(data.firstName));
         break;
       }
       case 'done': {
-        const latestUpdates = await getLatestTaxUpdatesForMenu();
-        await reply(getMenuMessage(data.firstName || undefined, {}, latestUpdates));
+        const phoneForDone = waIdToPhone(from);
+        const userDone = await User.findOne({ $or: [{ phone: phoneForDone }, { phone: phoneForDone.replace(/^0/, '234') }] }).select('_id firstName').lean();
+        const hasProfileDone = userDone ? await TaxableProfile.findOne({ user: userDone._id }).select('_id').lean() : null;
+        await reply(hasProfileDone ? getMessageProfileCompleted(userDone.firstName) : getMessageNoProfile(data.firstName || userDone?.firstName));
         break;
       }
       default:
