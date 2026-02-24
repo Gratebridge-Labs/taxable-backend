@@ -31,6 +31,11 @@ const createTransporter = () => {
     config.requireTLS = true;
   }
 
+  // SMTP debug: set DEBUG_EMAIL=true in .env to log raw SMTP traffic (connection, commands, responses)
+  if (process.env.DEBUG_EMAIL === 'true' || process.env.DEBUG_EMAIL === '1') {
+    config.debug = true;
+  }
+
   return nodemailer.createTransport(config);
 };
 

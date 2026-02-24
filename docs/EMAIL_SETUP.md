@@ -13,6 +13,7 @@ EMAIL_PASS=your_password
 EMAIL_FROM=do_not_reply@gettaxable.com
 # Optional:
 # EMAIL_FROM_NAME=Taxable
+# DEBUG_EMAIL=true   # log raw SMTP traffic to console (for debugging only)
 ```
 
 - **EMAIL_HOST** – SMTP server hostname.
