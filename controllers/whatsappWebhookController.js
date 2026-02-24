@@ -246,6 +246,15 @@ function getMessageNoAccount() {
   );
 }
 
+/** Shared "simple version" of how tax works, including what deductibles are. */
+function getSimpleTaxExplanation() {
+  return (
+    'Here\'s the simple version:\n\n' +
+    'There is *income*, and there are *deductibles*. The government wants a piece of the income — that\'s tax.\n\n' +
+    '*Deductibles* are different life aspects that can help relieve or reduce the amount you pay as tax (e.g. rent, pension, certain allowances).'
+  );
+}
+
 /** One message for "beginner" intent: simple explanation (assistant tone) */
 function getBeginnerExplanation(firstName) {
   const g = getTimeBasedGreeting();
@@ -253,8 +262,7 @@ function getBeginnerExplanation(firstName) {
   return (
     g + name + '\n\n' +
     'I\'m Taxable — your tax assistant.\n\n' +
-    'Here\'s the simple version:\n\n' +
-    'There is *income*, and there are *deductibles*. The government wants a piece of the income — that\'s tax.\n\n' +
+    getSimpleTaxExplanation() + '\n\n' +
     'We\'ll guide you step by step. Reply with *Set up my tax profile* or *tax profile* for the next step.'
   );
 }
@@ -367,7 +375,7 @@ const handleWebhook = async (req, res) => {
       } else if (isMenuOrHiIntent(text)) {
         await reply(getMessageNoAccount());
       } else if (isLearnHowTaxWorksIntent(text)) {
-        await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nReply *Create my account* or *Login to your account* to get started.");
+        await reply(getSimpleTaxExplanation() + '\n\nReply *Create my account* or *Login to your account* to get started.');
       } else if (isLoginIntent(text)) {
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
@@ -376,7 +384,7 @@ const handleWebhook = async (req, res) => {
         );
         await reply("What's the *email address* for your Taxable account?");
       } else if (isBeginnerIntent(text)) {
-        await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nSay *Hi Taxable* to create an account and we'll guide you step by step.");
+        await reply(getSimpleTaxExplanation() + '\n\nSay *Hi Taxable* to create an account and we\'ll guide you step by step.');
       }
       sendOk();
       return;
@@ -470,12 +478,12 @@ const handleWebhook = async (req, res) => {
       return;
     }
     if (isLearnHowTaxWorksIntent(text)) {
-      await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nFinish signing up (reply above) or say *Hi Taxable* to start over — then reply *tax profile* for the next step.");
+      await reply(getSimpleTaxExplanation() + '\n\nFinish signing up (reply above) or say *Hi Taxable* to start over — then reply *tax profile* for the next step.');
       sendOk();
       return;
     }
     if (isBeginnerIntent(text)) {
-      await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nFinish signing up (reply above) or say *Hi Taxable* to start over — then reply *tax profile* for the next step.");
+      await reply(getSimpleTaxExplanation() + '\n\nFinish signing up (reply above) or say *Hi Taxable* to start over — then reply *tax profile* for the next step.');
       sendOk();
       return;
     }
