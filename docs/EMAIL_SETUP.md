@@ -95,3 +95,28 @@ A DMARC TXT record for `_dmarc.gettaxable.com` tells receivers what to do if SPF
 - Check **Spam** and **Promotions** in Gmail. If it still doesn’t appear, wait 24h and try again (reputation can lag).
 
 **Summary:** Mail to helpdesk@paxalpay.com proves the backend is fine. To reach Gmail (and similar), fix SPF and add DKIM for gettaxable.com in DNS.
+
+---
+
+## Gmail bounce: "550-5.7.26 sender is unauthenticated" (SPF/DKIM did not pass)
+
+If you get a bounce from Gmail saying **"Your email has been blocked because the sender is unauthenticated. Gmail requires all senders to authenticate with either SPF or DKIM"** and the diagnostics show:
+
+- **SPF [gettaxable.com] with ip: [198.54.116.191] = did not pass**
+- **DKIM = did not pass**
+- **Reporting-MTA: server122.web-hosting.com**
+
+then Gmail is rejecting because **gettaxable.com** is not authorizing the server that actually sends mail (IP `198.54.116.191` = server122.web-hosting.com).
+
+### Fix (cPanel / Namecheap-style hosting)
+
+1. **SPF**  
+   In DNS for **gettaxable.com**, set a **TXT** record for `@` (or `gettaxable.com`):
+   - **Value:** `v=spf1 ip4:198.54.116.191 ~all`  
+   (That authorizes the sending server. If you already have an SPF record, merge this: e.g. `v=spf1 ip4:198.54.116.191 include:... ~all` — only one SPF record per domain.)
+
+2. **DKIM**  
+   See the step-by-step guide below: **"DKIM on Namecheap shared hosting (cPanel)"**.
+
+3. **Re-test**  
+   After 15–30 minutes, send again to Gmail. Reference: [Google mail auth help](https://support.google.com/mail/answer/81126#authentication).

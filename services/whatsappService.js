@@ -60,7 +60,11 @@ function sendTextMessage(to, body) {
             const err = errBody.error || {};
             const msg = err.message || `WhatsApp API ${res.statusCode}: ${data}`;
             const code = err.code;
-            console.error('[WhatsApp API] Send failed:', { code, message: msg, type: err.type, errorSubcode: err.error_subcode, fbtraceId: err.fbtrace_id });
+            const subcode = err.error_subcode;
+            console.error('[WhatsApp API] Send failed:', { code, message: msg, type: err.type, errorSubcode: subcode, fbtraceId: err.fbtrace_id });
+            if (code === 190 || subcode === 463 || /expired|Session has expired/i.test(msg)) {
+              console.error('[WhatsApp API] Token expired or invalid. Generate a new token in Meta (Business Settings → System users → Generate token) and update WHATSAPP_ACCESS_TOKEN in Vercel, then redeploy.');
+            }
             reject(new Error(msg));
           } catch (e) {
             console.error('[WhatsApp API] Send failed (parse error):', res.statusCode, data);

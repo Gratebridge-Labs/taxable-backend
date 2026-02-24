@@ -96,6 +96,34 @@ This means your **access token** does not have permission to send WhatsApp messa
 4. **Redeploy**  
    After changing `WHATSAPP_ACCESS_TOKEN` (and optionally `WHATSAPP_PHONE_NUMBER_ID`) in Vercel, redeploy or wait for the next deployment so the new env vars are used.
 
+## Error 190: "Session has expired" / Token expired
+
+This happens when `WHATSAPP_ACCESS_TOKEN` has expired. Meta tokens can expire (e.g. temporary token, or System User token with an expiry). When it does, the webhook may return 200 but the reply never reaches the user, and logs show:
+
+- `[WhatsApp API] Send failed: code: 190, message: 'Error validating access token: Session has expired...'`
+- `errorSubcode: 463`
+
+### Fix right now
+
+1. **Generate a new token**  
+   - [Meta for Developers](https://developers.facebook.com) → Your App → **Business Settings** (or Meta Business Suite) → **Users** → **System users** → select the system user → **Generate new token**.  
+   - Choose your App, select **whatsapp_business_messaging** and **whatsapp_business_management**, set expiry to **Never** (or longest available).  
+   - Copy the token.
+
+2. **Update env**  
+   - **Vercel:** Project → Settings → Environment Variables → edit `WHATSAPP_ACCESS_TOKEN` → paste the new token → Save.  
+   - **Local:** Update `WHATSAPP_ACCESS_TOKEN` in `.env`.
+
+3. **Redeploy**  
+   - In Vercel, trigger a redeploy (Deployments → … → Redeploy) so the new token is used. No code change needed.
+
+After redeploy, send a new message (e.g. "Hi Taxable"); replies should work again.
+
+### Reduce how often it happens
+
+- **Use a System User token with "Never" expiry** (or the longest expiry Meta offers). Avoid the temporary token from the WhatsApp API Setup page for production.
+- **Optional:** Monitor logs for `[WhatsApp API] Send failed` with code `190` and set up an alert (e.g. email or Slack) so you know to refresh the token before users notice.
+
 ## Testing locally
 
 Use a tunnel (e.g. ngrok) so Meta can reach your server:
