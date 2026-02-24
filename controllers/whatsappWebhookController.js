@@ -31,14 +31,14 @@ async function getLatestTaxUpdatesForMenu() {
   }
 }
 
-/** Format latest updates as a short block for WhatsApp (one line per update). */
+/** Format latest updates as a short block for WhatsApp; clear spacing for readability. */
 function formatTaxUpdatesBlock(updates) {
   if (!updates || !updates.length) return '';
   const lines = updates.map((u) => {
     const text = u.summary ? `${u.title}: ${u.summary}` : u.title;
     return u.link ? `• ${text}\n  ${u.link}` : `• ${text}`;
   });
-  return '📌 *Latest — Nigerian tax:*\n' + lines.join('\n') + '\n\n';
+  return '📌 *Latest — Nigerian tax:*\n\n' + lines.join('\n\n') + '\n\n';
 }
 
 const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'taxable_webhook_verify';
@@ -122,25 +122,60 @@ function isMenuOrHiIntent(text) {
   );
 }
 
-/** Menu body (options only). Punchy, with dashboard link. */
+/** User says they're a complete beginner / never filed tax */
+function isBeginnerIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /complete\s*beginner/i.test(t) ||
+    /i'?m\s*a\s*beginner/i.test(t) ||
+    /i\s*never\s*(filed|filled)\s*tax/i.test(t) ||
+    /never\s*(filed|filled)\s*tax/i.test(t) ||
+    /ive\s*never\s*filled\s*tax/i.test(t) ||
+    /beginner.*tax|tax.*beginner/i.test(t)
+  );
+}
+
+/** Time-based greeting: Good morning / afternoon / evening */
+function getTimeBasedGreeting() {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+/** Menu body: Dashboard under Estimate PAYE, add beginner option, clearer formatting, reply = tax profile */
 function getMenuBody() {
   return (
-    '📱 *Dashboard* → ' + DASHBOARD_URL + '\n' +
-    '• *Create tax profile* — we\'ll walk you through it\n' +
-    '• *Learn how Nigerian tax works* — no jargon, promise\n' +
-    '• *Estimate PAYE* — see what you might owe\n' +
-    '• *Book a consultation* — talk to a human when you need to\n\n' +
-    'Reply with a number or keyword — we\'ve got you.'
+    '*Create tax profile* — we\'ll walk you through it\n\n' +
+    '*Learn how Nigerian tax works* — no jargon, promise\n\n' +
+    '*Estimate PAYE* — see what you might owe\n\n' +
+    '📱 *Dashboard* → ' + DASHBOARD_URL + '\n\n' +
+    '*I\'m a complete beginner — I\'ve never filed tax*\n\n' +
+    '*Book a consultation* — talk to a human when you need to\n\n' +
+    'Reply with *tax profile* for the next step.'
+  );
+}
+
+/** One message for "beginner" intent: simple explanation */
+function getBeginnerExplanation(firstName) {
+  const name = firstName ? `${firstName}.` : '';
+  return (
+    getTimeBasedGreeting() + (name ? ' ' + name : '') + '\n\n' +
+    'Here\'s the simple version:\n\n' +
+    'There is *income*, and there are *deductibles*. The government wants a piece of the income — that\'s tax.\n\n' +
+    'We\'ll guide you step by step. Reply with *tax profile* for the next step.'
   );
 }
 
 /**
- * Full menu message: optional latest tax block + "where you're at" + menu.
+ * Full menu message: time-based greeting + optional latest tax block + "where you're at" + menu.
  * status: { hasProfile: boolean, profileYear?: number } optional.
  * latestUpdates: array of { title, summary?, link? } from TaxUpdate (optional).
  */
 function getMenuMessage(firstName, status = {}, latestUpdates = []) {
   const name = firstName || 'there';
+  const greeting = getTimeBasedGreeting() + ' ' + name + '.\n\n';
   let line;
   if (status.hasProfile && status.profileYear) {
     line = `You've got a tax profile for ${status.profileYear} — nice. 🎯`;
@@ -150,7 +185,7 @@ function getMenuMessage(firstName, status = {}, latestUpdates = []) {
     line = 'No tax profile yet — create one and we\'ll guide you. 👇';
   }
   const updatesBlock = formatTaxUpdatesBlock(latestUpdates);
-  return `${name}, you're in.\n\n${updatesBlock}${line}\n\n${getMenuBody()}`;
+  return greeting + updatesBlock + line + '\n\n' + getMenuBody();
 }
 
 /**
@@ -231,7 +266,8 @@ const handleWebhook = async (req, res) => {
         const user = await User.findOne({ $or: [{ phone }, { phone: phone.replace(/^0/, '234') }] }).select('email firstName');
         if (user) {
           const latestUpdates = await getLatestTaxUpdatesForMenu();
-          await reply(`You're already in! 🎉 Your dashboard: ${DASHBOARD_URL} — signed up with ${user.email}. Pick your move:\n\n${formatTaxUpdatesBlock(latestUpdates)}${getMenuBody()}`);
+          const greeting = getTimeBasedGreeting() + ' ' + user.firstName + '. ';
+          await reply(greeting + 'You\'re already in! 🎉 Your dashboard: ' + DASHBOARD_URL + ' — signed up with ' + user.email + '.\n\n' + formatTaxUpdatesBlock(latestUpdates) + getMenuBody());
           sendOk();
           return;
         }
@@ -260,6 +296,8 @@ const handleWebhook = async (req, res) => {
         await reply("Welcome to *Taxable*! 🎉 We're here to make tax simple and stress-free. Let's get started by creating your account. *What's your first name?*");
       } else if (isMenuOrHiIntent(text)) {
         await reply("You're not signed up yet. Say *Hi Taxable* or *Get started* to create your account — then you'll get the full menu! 🎉");
+      } else if (isBeginnerIntent(text)) {
+        await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nSay *Hi Taxable* to create an account and we'll guide you step by step.");
       }
       sendOk();
       return;
@@ -279,6 +317,12 @@ const handleWebhook = async (req, res) => {
     // Registered user says "menu" or "hi" (or hello/options) → show menu with status
     const phoneForLookup = waIdToPhone(from);
     const regUser = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
+    if (regUser && isBeginnerIntent(text)) {
+      await reply(getBeginnerExplanation(regUser.firstName));
+      sendOk();
+      return;
+    }
+
     if (regUser && isMenuOrHiIntent(text)) {
       const [latestProfile, latestUpdates] = await Promise.all([
         TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean(),
@@ -290,9 +334,14 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // Unregistered user (mid-flow) says "menu" or "hi" → don't use as name; prompt to sign up or continue
+    // Unregistered user (mid-flow) says "menu", "hi", or "beginner" → don't use as name; prompt to sign up or continue
     if (isMenuOrHiIntent(text)) {
       await reply("Finish signing up to see the menu! Say *Hi Taxable* to start over, or reply with your answer to the question above. We can't wait to have you! 😊");
+      sendOk();
+      return;
+    }
+    if (isBeginnerIntent(text)) {
+      await reply("Here's the simple version:\n\nThere is *income*, and there are *deductibles*. The government wants a piece of the income — that's tax.\n\nFinish signing up (reply above) or say *Hi Taxable* to start over — then reply *tax profile* for the next step.");
       sendOk();
       return;
     }
