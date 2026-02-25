@@ -69,30 +69,45 @@ const handleWebhook = async (req, res) => {
     if (!payload || typeof payload !== 'object') {
       return res.status(400).json({ message: 'Invalid payload' });
     }
-    const event = payload.event || payload.type;
-    const accountId = payload.data?.id || payload.data?.accountId || payload.id;
+    // Log payload structure (safe: no full body in prod, just keys and sample) for debugging
+    const payloadKeys = Object.keys(payload);
+    const dataKeys = payload.data && typeof payload.data === 'object' ? Object.keys(payload.data) : [];
+    console.log('[Mono webhook] received', { event: payload.event || payload.type, payloadKeys, dataKeys, sample: JSON.stringify(payload).slice(0, 600) });
 
-    if (event === 'account_connected' || event === 'auth' || payload.event === 'success') {
-      const id = accountId || payload.data?.account_id;
-      const meta = payload.meta || payload.data?.meta || {};
-      const ref = meta.ref || payload.data?.ref || payload.ref;
-      if (!id) {
-        console.warn('[Mono webhook] No account id in payload:', JSON.stringify(payload).slice(0, 300));
-        return res.status(200).json({ received: true });
-      }
-      let userId = meta.userId;
-      let profileId = meta.profileId;
+    const event = (payload.event || payload.type || '').toLowerCase();
+    const isAccountConnected =
+      event === 'account_connected' ||
+      event === 'mono.events.account_connected' ||
+      event === 'auth' ||
+      event === 'success' ||
+      (payload.event && String(payload.event).toLowerCase().includes('account'));
+
+    const id =
+      payload.data?.id ||
+      payload.data?.accountId ||
+      payload.data?.account_id ||
+      (payload.data?.account && (payload.data.account.id || payload.data.account._id)) ||
+      payload.id ||
+      payload.account_id;
+
+    const meta = payload.meta || payload.data?.meta || payload.data || {};
+    const ref = meta.ref || payload.data?.ref || payload.ref;
+
+    if (isAccountConnected && id) {
+      let userId = meta.user_id || meta.userId;
+      let profileId = meta.profile_id || meta.profileId;
       if (!userId && ref && typeof ref === 'string' && ref.startsWith('u')) {
         const parts = ref.split('_');
         userId = parts[0].slice(1);
         if (ref.includes('_p')) profileId = ref.split('_p')[1];
       }
       if (!userId) {
-        console.warn('[Mono webhook] No userId in meta or ref:', ref, meta);
+        console.warn('[Mono webhook] No userId in meta or ref:', ref, { metaKeys: Object.keys(meta) });
         return res.status(200).json({ received: true });
       }
       const userObjectId = mongoose.Types.ObjectId.isValid(userId) ? new mongoose.Types.ObjectId(userId) : userId;
-      await MonoLink.findOneAndUpdate(
+
+      const updateByRef = ref ? await MonoLink.findOneAndUpdate(
         { ref },
         {
           user: userObjectId,
@@ -101,14 +116,51 @@ const handleWebhook = async (req, res) => {
           status: 'linked',
           updatedAt: new Date()
         },
-        { upsert: true, new: true, setDefaultsOnCreate: true }
-      );
-      console.log('[Mono webhook] Account linked:', id, 'user:', userId);
+        { new: true }
+      ) : null;
+
+      if (!updateByRef && ref) {
+        const upserted = await MonoLink.findOneAndUpdate(
+          { ref },
+          {
+            user: userObjectId,
+            profileId: profileId || undefined,
+            monoAccountId: id,
+            ref,
+            status: 'linked',
+            updatedAt: new Date()
+          },
+          { upsert: true, new: true, setDefaultsOnCreate: true }
+        );
+        console.log('[Mono webhook] Account linked (upsert by ref):', id, 'user:', userId, 'ref:', ref);
+      } else if (updateByRef) {
+        console.log('[Mono webhook] Account linked (update by ref):', id, 'user:', userId, 'ref:', ref);
+      } else {
+        const byAccountId = await MonoLink.findOneAndUpdate(
+          { monoAccountId: id },
+          { status: 'linked', user: userObjectId, profileId: profileId || undefined, updatedAt: new Date() },
+          { new: true }
+        );
+        if (byAccountId) {
+          console.log('[Mono webhook] Account linked (update by monoAccountId):', id, 'user:', userId);
+        } else {
+          const created = await MonoLink.create({
+            user: userObjectId,
+            profileId: profileId || undefined,
+            monoAccountId: id,
+            ref: ref || `webhook_${id}_${Date.now()}`,
+            status: 'linked'
+          });
+          console.log('[Mono webhook] Account linked (new doc, no ref):', id, 'user:', userId, 'newId:', created._id);
+        }
+      }
+    } else if (!id) {
+      console.warn('[Mono webhook] No account id in payload; event=', event, 'id=', id);
     }
 
     res.status(200).json({ received: true });
   } catch (err) {
-    console.error('[Mono webhook] Error:', err.message);
+    console.error('[Mono webhook] Error:', err.message, err.stack);
     res.status(200).json({ received: true });
   }
 };

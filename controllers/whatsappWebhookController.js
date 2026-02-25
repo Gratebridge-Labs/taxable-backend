@@ -917,6 +917,7 @@ const handleWebhook = async (req, res) => {
             user: userForTax._id,
             status: 'linked'
           }).sort({ updatedAt: -1 }).lean();
+          console.log('[Mono] user said done', { waId: from, userId: String(userForTax._id), foundLink: !!link, monoAccountId: link?.monoAccountId || null });
           if (link) {
             try {
               const income = await getAccountIncome(link.monoAccountId);
