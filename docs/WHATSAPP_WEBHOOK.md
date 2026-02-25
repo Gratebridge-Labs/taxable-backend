@@ -19,25 +19,38 @@ WHATSAPP_VERIFY_TOKEN=taxable_webhook_verify
 
 ## Webhook URL
 
-- **Verification (GET):** `https://your-domain.com/api/whatsapp/webhook`
+Base URL for the API: **https://api.gettaxable.com/api**
+
+- **Verification (GET):** `https://api.gettaxable.com/api/whatsapp/webhook`
 - **Incoming messages (POST):** same URL
 
 In Meta Developer Console → Your App → WhatsApp → Configuration → Webhook:
 
-1. Set Callback URL to `https://your-domain.com/api/whatsapp/webhook`.
+1. Set Callback URL to `https://api.gettaxable.com/api/whatsapp/webhook`.
 2. Set Verify token to the same value as `WHATSAPP_VERIFY_TOKEN`.
 3. Subscribe to **messages**.
 
-## Flow: "Hi Taxable I want to get started"
+## Flow: "Hi Taxable" → always menu
 
-When a user sends a message like:
+When a user sends:
 
-- "Hi Taxable I want to get started"
 - "Hi Taxable"
+- "Hi, Taxable"
 - "Get started"
 - "Hello Taxable"
 
-the bot will:
+the bot **always shows the menu** (no account / no profile / profile completed). It does **not** start registration. To create an account, the user replies **Create my account** from the no-account menu.
+
+Every menu includes a **pinned commands** block so users can refer back:
+
+- *Hi Taxable* or *Menu* — Show menu
+- *Tax profile* — Set up / manage tax profile
+- *Continue my filing* — Continue filing
+- *Complete my details* — Add DOB & address
+
+## Flow: "Create my account"
+
+When the user has no account and replies **Create my account** (or "Create account", "Sign up"), the bot will:
 
 1. Ask for **first name**
 2. Ask for **last name**
@@ -48,7 +61,7 @@ the bot will:
 7. Ask for the **6-digit OTP** from email
 8. Verify and confirm registration
 
-Session state is stored in `WhatsAppSession` (by WhatsApp ID). User can say "Hi Taxable I want to get started" again mid-flow to restart, or after completion to see the already-registered message.
+Session state is stored in `WhatsAppSession` (by WhatsApp ID). User can say **Hi Taxable** or **Menu** anytime to see the menu (and pinned commands).
 
 ## Troubleshooting: "I sent a message but got no reply"
 

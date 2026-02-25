@@ -3,10 +3,13 @@ const User = require('../models/User');
 const OTP = require('../models/OTP');
 const TaxableProfile = require('../models/TaxableProfile');
 const TaxUpdate = require('../models/TaxUpdate');
+const MonoLink = require('../models/MonoLink');
 const { sendTextMessage } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
+const { initiateAccountLinking, isConfigured: isMonoConfigured } = require('../services/monoService');
 
 const DASHBOARD_URL = 'dashboard.gettaxable.com';
+const APP_URL = process.env.APP_URL || 'https://dashboard.gettaxable.com';
 const TAX_UPDATES_MENU_LIMIT = 2;
 
 /** Fetch latest active Nigerian tax updates for the menu (sync-safe: returns [] on error). */
@@ -164,6 +167,19 @@ function isLoginIntent(text) {
   );
 }
 
+/** User wants to create a new account (from no-account menu) */
+function isCreateAccountIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /create\s*my\s*account/i.test(t) ||
+    /create\s*account/i.test(t) ||
+    /sign\s*up/i.test(t) ||
+    /i\s*want\s*to\s*(create|sign\s*up)/i.test(t) ||
+    t === 'create my account'
+  );
+}
+
 /** User wants to set up tax profile */
 function isSetUpTaxProfileIntent(text) {
   if (!text || typeof text !== 'string') return false;
@@ -250,6 +266,44 @@ function getTimeBasedGreeting() {
   return 'Good evening';
 }
 
+/** Get Mono connect link for this user/profile so we can offer bank linking for income. Returns { link } or null. */
+async function getMonoConnectLinkForUser(userId, profileId) {
+  if (!isMonoConfigured()) return null;
+  try {
+    const userDoc = await User.findById(userId).select('email firstName lastName').lean();
+    if (!userDoc || !userDoc.email) return null;
+    const ref = `u${userId}_${Date.now()}${profileId ? `_p${profileId}` : ''}`;
+    const { link } = await initiateAccountLinking({
+      customer: {
+        name: [userDoc.firstName, userDoc.lastName].filter(Boolean).join(' ') || userDoc.email?.split('@')[0] || 'Customer',
+        email: userDoc.email
+      },
+      redirectUrl: APP_URL,
+      meta: { ref, userId: userId.toString(), profileId: profileId || undefined }
+    });
+    await MonoLink.findOneAndUpdate(
+      { ref },
+      { user: userId, profileId: profileId || undefined, ref, status: 'pending', updatedAt: new Date() },
+      { upsert: true, new: true }
+    );
+    return { link };
+  } catch (e) {
+    console.error('[WhatsApp] Mono link error:', e.message);
+    return null;
+  }
+}
+
+/** Pinned command list — same in every menu so users can refer back */
+function getPinnedMenuCommands() {
+  return (
+    '\n\n📌 *Commands (reply anytime):*\n' +
+    '• *Hi Taxable* or *Menu* — Show this menu\n' +
+    '• *Tax profile* — Set up / manage tax profile\n' +
+    '• *Continue my filing* — Continue filing\n' +
+    '• *Complete my details* — Add DOB & address'
+  );
+}
+
 /** Variation 1: User has account + no tax profile (assistant tone) */
 function getMessageNoProfile(firstName) {
   const g = getTimeBasedGreeting();
@@ -273,7 +327,8 @@ function getMessageNoProfile(firstName) {
     '• Learn how tax works (simple version)\n' +
     '• Estimate my PAYE\n' +
     '• Speak to someone\n\n' +
-    'Just reply with your choice and I\'ll guide you.'
+    'Just reply with your choice and I\'ll guide you.' +
+    getPinnedMenuCommands()
   );
 }
 
@@ -296,7 +351,8 @@ function getMessageProfileCompleted(firstName) {
     '• Continue my filing\n' +
     '• Check my PAYE estimate\n' +
     '• Ask a question\n\n' +
-    'Tell me what you need and I\'ll handle it.'
+    'Tell me what you need and I\'ll handle it.' +
+    getPinnedMenuCommands()
   );
 }
 
@@ -320,7 +376,8 @@ function getMessageNoAccount() {
     '• Create my account\n' +
     '• Login to your account\n' +
     '• Learn how tax works first\n\n' +
-    'Just reply with what you\'d like to do.'
+    'Just reply with what you\'d like to do.' +
+    getPinnedMenuCommands()
   );
 }
 
@@ -425,43 +482,43 @@ const handleWebhook = async (req, res) => {
   try {
     let session = await WhatsAppSession.findOne({ waId: from });
     const isGetStarted = isGetStartedIntent(text);
+    const phoneForLookup = waIdToPhone(from);
 
-    // Start registration flow
-    if (isGetStarted && (!session || session.step === 'welcome' || session.step === 'done')) {
-      if (session?.step === 'done') {
-        const phone = waIdToPhone(from);
-        const user = await User.findOne({ $or: [{ phone }, { phone: phone.replace(/^0/, '234') }] }).select('email firstName _id');
-        if (user) {
-          const hasProfile = await TaxableProfile.findOne({ user: user._id }).select('_id').lean();
-          await reply(hasProfile ? getMessageProfileCompleted(user.firstName) : getMessageNoProfile(user.firstName));
-          sendOk();
-          return;
-        }
-      }
-      if (!session) {
-        session = await WhatsAppSession.create({ waId: from, step: 'first_name' });
+    // Hi Taxable / Get started → always show menu (redirect to menu)
+    if (isGetStarted) {
+      const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
+      if (userForMenu) {
+        const hasProfile = await TaxableProfile.findOne({ user: userForMenu._id }).select('_id').lean();
+        await reply(hasProfile ? getMessageProfileCompleted(userForMenu.firstName) : getMessageNoProfile(userForMenu.firstName));
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', updatedAt: new Date() } },
+          { upsert: true, new: true }
+        );
       } else {
-        session.step = 'first_name';
-        session.registrationData = {};
-        session.pendingUserId = undefined;
-        await session.save();
+        await reply(getMessageNoAccount());
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'welcome', updatedAt: new Date() } },
+          { upsert: true, new: true }
+        );
       }
-      await reply("Welcome to *Taxable*! 🎉 We're here to make tax simple and stress-free. You can create an account or log in — we've got you. Let's get started by creating your account. First, what should we call you? *What's your first name?*");
       sendOk();
       return;
     }
 
-    // If no session or not in flow, ignore or prompt
+    // No session or welcome: show menu options or start registration when they say "Create my account"
     if (!session || session.step === 'welcome') {
-      if (isGetStarted) {
+      if (isCreateAccountIntent(text)) {
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
           { $set: { step: 'first_name', registrationData: {}, updatedAt: new Date() } },
           { upsert: true, new: true }
         );
-        await reply("Welcome to *Taxable*! 🎉 We're here to make tax simple and stress-free. Let's get started by creating your account. *What's your first name?*");
+        await reply("Welcome to *Taxable*! 🎉 Let's create your account. *What's your first name?*");
       } else if (isMenuOrHiIntent(text)) {
         await reply(getMessageNoAccount());
+        if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
       } else if (isLearnHowTaxWorksIntent(text)) {
         await reply(getSimpleTaxExplanation() + '\n\nReply *Create my account* or *Login to your account* to get started.');
       } else if (isLoginIntent(text)) {
@@ -472,7 +529,7 @@ const handleWebhook = async (req, res) => {
         );
         await reply("What's the *email address* for your Taxable account?");
       } else if (isBeginnerIntent(text)) {
-        await reply(getSimpleTaxExplanation() + '\n\nSay *Hi Taxable* to create an account and we\'ll guide you step by step.');
+        await reply(getSimpleTaxExplanation() + '\n\nReply *Hi Taxable* for the menu, then *Create my account* or *Login to your account*.');
       }
       sendOk();
       return;
@@ -817,6 +874,10 @@ const handleWebhook = async (req, res) => {
         session.step = 'tax_profile_income_info';
         await session.save();
         await reply("Thanks. Next: share your *income* info (e.g. employment salary, business income, or a short description). Reply in one message.");
+        const monoLinkState = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
+        if (monoLinkState?.link) {
+          await reply("Or connect your bank for *automatic income data* (secure, one-time):\n" + monoLinkState.link);
+        }
         sendOk();
         return;
       }
@@ -846,27 +907,6 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
-    }
-
-    // Allow "Hi Taxable" / get started to restart the flow mid-registration (or cancel tax profile and show menu)
-    if (isGetStarted && session.step !== 'done') {
-      if (taxProfileSteps.includes(session.step)) {
-        session.step = 'done';
-        session.taxProfileData = {};
-        await session.save();
-        const phoneForMenu = waIdToPhone(from);
-        const userForMenu = await User.findOne({ $or: [{ phone: phoneForMenu }, { phone: phoneForMenu.replace(/^0/, '234') }] }).select('firstName _id').lean();
-        const hasProfile = userForMenu ? await TaxableProfile.findOne({ user: userForMenu._id }).select('_id').lean() : null;
-        await reply(hasProfile ? getMessageProfileCompleted(userForMenu.firstName) : getMessageNoProfile(userForMenu.firstName));
-      } else {
-        session.step = 'first_name';
-        session.registrationData = {};
-        session.pendingUserId = undefined;
-        await session.save();
-        await reply("No worries! Let's start fresh. *What's your first name?*");
-      }
-      sendOk();
-      return;
     }
 
     // Registered user: handle "learn how tax works" and "menu/hi" so we don't just resend menu
@@ -928,6 +968,10 @@ const handleWebhook = async (req, res) => {
         "Share your income info in one message (e.g. employment salary, business income). Then we'll ask about reliefs and deductibles.\n\n" +
         "Reply with your income details below 👇"
       );
+      const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile.profileId);
+      if (monoLink?.link) {
+        await reply("Or connect your bank for *automatic income data* (secure, one-time):\n" + monoLink.link);
+      }
       sendOk();
       return;
     }

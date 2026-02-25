@@ -75,6 +75,7 @@ app.use('/api/profile-reviews', require('./routes/profileReviewRoutes')); // Pro
 app.use('/api/notifications', require('./routes/notificationRoutes')); // Notification routes
 app.use('/api/blogs', require('./routes/blogRoutes')); // Blog routes
 app.use('/api/whatsapp', require('./routes/whatsappWebhookRoutes')); // WhatsApp webhook
+app.use('/api/mono', require('./routes/monoRoutes')); // Mono open banking (connect bank, income)
 
 // Error handling middleware
 app.use((err, req, res, next) => {
