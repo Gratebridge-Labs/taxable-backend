@@ -423,9 +423,17 @@ const RELIEF_TYPES = [
   { num: 8, key: 'other', label: 'Other' }
 ];
 
-/** Check if user has an active subscription (for 🔒 gating) */
-async function safeHasActiveSubscription(userId) {
-  const sub = await Subscription.findOne({ user: userId, status: 'active' }).lean();
+/** Check if user has an active subscription (for 🔒 gating). Uses status and optional currentPeriodEnd. */
+async function hasActiveSubscriptionCore(userId) {
+  const sub = await Subscription.findOne({
+    user: userId,
+    status: 'active',
+    $or: [
+      { currentPeriodEnd: { $exists: false } },
+      { currentPeriodEnd: null },
+      { currentPeriodEnd: { $gt: new Date() } }
+    ]
+  }).lean();
   return !!sub;
 }
 
@@ -433,7 +441,7 @@ async function safeHasActiveSubscription(userId) {
 async function safeHasActiveSubscription(userId) {
   if (!userId) return false;
   try {
-    return await safeHasActiveSubscription(userId);
+    return await hasActiveSubscriptionCore(userId);
   } catch (e) {
     console.error('[WhatsApp] safeHasActiveSubscription error:', e.message);
     return false;
