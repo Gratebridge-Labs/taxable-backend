@@ -6,7 +6,7 @@ const TaxUpdate = require('../models/TaxUpdate');
 const MonoLink = require('../models/MonoLink');
 const { sendTextMessage } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
-const { initiateAccountLinking, isConfigured: isMonoConfigured } = require('../services/monoService');
+const { initiateAccountLinking, getAccountIncome, isConfigured: isMonoConfigured } = require('../services/monoService');
 
 const DASHBOARD_URL = 'dashboard.gettaxable.com';
 const APP_URL = process.env.APP_URL || 'https://dashboard.gettaxable.com';
@@ -794,7 +794,13 @@ const handleWebhook = async (req, res) => {
             session.step = 'tax_profile_income_info';
             session.taxProfileData = td;
             await session.save();
-            await reply("Done — we've reused your details.\n\nNext: share your *income* info (e.g. employment salary, business income, or a short description). Reply in one message.");
+            const monoLinkReuse = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
+            if (monoLinkReuse?.link) {
+              await reply("Done — we've reused your details.\n\nLet's get your *financial data* in. Connect your bank with Mono (one-time):\n\n" + monoLinkReuse.link);
+              await reply("After connecting, reply *done*. Or type your income details here if you prefer not to connect.");
+            } else {
+              await reply("Done — we've reused your details.\n\nNext: share your *income* info (e.g. employment salary, business income, or a short description). Reply in one message.");
+            }
           } else {
             session.step = 'tax_profile_dob';
             await session.save();
@@ -873,15 +879,50 @@ const handleWebhook = async (req, res) => {
         session.taxProfileData = td;
         session.step = 'tax_profile_income_info';
         await session.save();
-        await reply("Thanks. Next: share your *income* info (e.g. employment salary, business income, or a short description). Reply in one message.");
         const monoLinkState = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
         if (monoLinkState?.link) {
-          await reply("Or connect your bank for *automatic income data* (secure, one-time):\n" + monoLinkState.link);
+          await reply(
+            "Let's get your *financial data* in.\n\n" +
+            "Connect your bank securely with Mono (one-time) and we'll pull your income automatically:\n\n" +
+            monoLinkState.link
+          );
+          await reply("After you've connected, reply *done* here. Or type your income details in one message if you prefer not to connect.");
+        } else {
+          await reply("Thanks. Next: share your *income* info (e.g. employment salary, business income, or a short description). Reply in one message.");
         }
         sendOk();
         return;
       }
       if (session.step === 'tax_profile_income_info') {
+        const raw = text.trim().toLowerCase();
+        const isDoneIntent = raw === 'done' || raw === 'connected' || raw === "i've connected" || raw === 'i connected';
+        if (isDoneIntent && currentProfile) {
+          const link = await MonoLink.findOne({
+            user: userForTax._id,
+            status: 'linked'
+          }).sort({ updatedAt: -1 }).lean();
+          if (link) {
+            try {
+              const income = await getAccountIncome(link.monoAccountId);
+              currentProfile.incomeDetails = { source: 'mono', data: income };
+              await currentProfile.save();
+              session.step = 'tax_profile_deductibles';
+              session.taxProfileData = td;
+              await session.save();
+              await reply("We've got your financial data from your bank ✅ Last step: share any *relief or deductibles* (e.g. rent, pension, NHF, donations). Reply in one message — or *skip* to finish.");
+              sendOk();
+              return;
+            } catch (e) {
+              console.error('[WhatsApp] Mono income fetch error:', e.message);
+              await reply("We couldn't fetch your income from the link yet. You can try again in a moment, or type your income details here instead.");
+              sendOk();
+              return;
+            }
+          }
+          await reply("We didn't detect a connected bank yet. Open the link we sent above to connect, or type your income details here if you prefer.");
+          sendOk();
+          return;
+        }
         const incomeInfo = text.trim().slice(0, 2000);
         if (currentProfile) {
           currentProfile.incomeDetails = { source: 'whatsapp', text: incomeInfo };
@@ -962,14 +1003,20 @@ const handleWebhook = async (req, res) => {
         },
         { upsert: true, new: true }
       );
-      await reply(
-        "Next up is *Income* and *deductibles or reliefs*.\n\n" +
-        "Share your income info in one message (e.g. employment salary, business income). Then we'll ask about reliefs and deductibles.\n\n" +
-        "Reply with your income details below 👇"
-      );
       const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile.profileId);
       if (monoLink?.link) {
-        await reply("Or connect your bank for *automatic income data* (secure, one-time):\n" + monoLink.link);
+        await reply(
+          "Let's get your *financial data* in.\n\n" +
+          "Connect your bank securely with Mono (one-time) and we'll pull your income automatically:\n\n" +
+          monoLink.link
+        );
+        await reply("After you've connected, reply *done* here. Or if you prefer not to connect, just type your income details in one message (e.g. salary, business income).");
+      } else {
+        await reply(
+          "Let's get your *financial data* in.\n\n" +
+          "Share your income info in one message (e.g. employment salary, business income). Then we'll ask about reliefs and deductibles.\n\n" +
+          "Reply with your income details below 👇"
+        );
       }
       sendOk();
       return;
