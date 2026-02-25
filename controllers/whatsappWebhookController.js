@@ -7,7 +7,7 @@ const TaxUpdate = require('../models/TaxUpdate');
 const MonoLink = require('../models/MonoLink');
 const Deduction = require('../models/Deduction');
 const Subscription = require('../models/Subscription');
-const { sendTextMessage } = require('../services/whatsappService');
+const { sendTextMessage, sendImage } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
 const { initiateAccountLinking, getAccountIncome } = require('../services/monoService');
 const { estimateTaxFromAnnualIncome } = require('../utils/taxCalculator');
@@ -36,7 +36,10 @@ const {
   FILE_TAX_SUBMITTED,
   CONNECT_BANK_INTRO,
   getConnectBankLink,
-  CONNECT_ANOTHER_BANK
+  CONNECT_ANOTHER_BANK,
+  BACK_TO_MENU_FOOTER,
+  WATCH_VIDEO_THUMBNAIL_URL,
+  WATCH_VIDEO_CAPTION
 } = require('../constants/whatsappPrompts');
 const { generateCompleteBreakdown } = require('../utils/breakdownCalculator');
 const { performFileTax } = require('./profileController');
@@ -149,7 +152,7 @@ function isResendOTPIntent(text) {
 function isBackToMainMenuIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
-  return /back\s+to\s+main\s+menu/i.test(t) || /main\s+menu$/i.test(t) || t === 'back to main menu' || t === 'main menu';
+  return /back\s+to\s+(main\s+)?menu/i.test(t) || /go\s+back\s+to\s+menu/i.test(t) || /main\s+menu$/i.test(t) || t === 'back to main menu' || t === 'back to menu' || t === 'main menu';
 }
 
 function isMenuOrHiIntent(text) {
@@ -399,7 +402,7 @@ function isConfirmFileIntent(text) {
 function isManageConnectedBanksIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
-  return /manage\s*connected\s*banks/i.test(t) || /connected\s*banks/i.test(t) && /manage|list|view/i.test(t) || t === 'manage connected banks';
+  return /connect\s*and\s*manage\s*banks/i.test(t) || /manage\s*connected\s*banks/i.test(t) || (/connected\s*banks/i.test(t) && /manage|list|view|connect/i.test(t)) || t === 'manage connected banks' || t === 'connect and manage banks';
 }
 
 /** PDF: "Add reliefs & upload documents" */
@@ -688,6 +691,15 @@ const handleWebhook = async (req, res) => {
       .catch(err => console.error('[WhatsApp webhook] Send error:', err.message || err));
   };
 
+  /** Send YouTube thumbnail + caption so the video link shows with preview in WhatsApp. */
+  async function sendWatchVideoPreview() {
+    try {
+      await sendImage(from, WATCH_VIDEO_THUMBNAIL_URL, WATCH_VIDEO_CAPTION);
+    } catch (e) {
+      console.error('[WhatsApp] sendWatchVideoPreview error:', e.message);
+    }
+  }
+
   // —— Incoming image or document: save and link to relief (user can send docs in chat) ——
   if (type === 'image' || type === 'document') {
     try {
@@ -764,8 +776,10 @@ const handleWebhook = async (req, res) => {
           const hasSub = await safeHasActiveSubscription(userForMenu._id);
           const year = hasProfile?.year || new Date().getFullYear();
           if (hasProfile) {
+            await sendWatchVideoPreview();
             await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub));
           } else {
+            await sendWatchVideoPreview();
             await reply(getPostVerificationWelcome(userForMenu.firstName));
           }
           session = await WhatsAppSession.findOneAndUpdate(
@@ -774,6 +788,7 @@ const handleWebhook = async (req, res) => {
             { upsert: true, new: true }
           );
         } else {
+          await sendWatchVideoPreview();
           await reply(ENTRY_MESSAGE);
           session = await WhatsAppSession.findOneAndUpdate(
             { waId: from },
@@ -783,6 +798,7 @@ const handleWebhook = async (req, res) => {
         }
       } catch (e) {
         console.error('[WhatsApp] Get started error:', e.message);
+        await sendWatchVideoPreview();
         await reply(ENTRY_MESSAGE);
         try {
           session = await WhatsAppSession.findOneAndUpdate(
@@ -819,6 +835,7 @@ const handleWebhook = async (req, res) => {
         return;
       }
       if (isMenuOrHiIntent(text)) {
+        await sendWatchVideoPreview();
         await reply(ENTRY_MESSAGE);
         if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
         sendOk();
@@ -831,7 +848,7 @@ const handleWebhook = async (req, res) => {
         return;
       }
       if (isFAQOrTalkToSomeoneIntent(text)) {
-        await reply("You can reach us at support@gettaxable.com or reply *Talk to support* anytime. For quick answers, try *Learn how tax works* or *Create my account* to get started.");
+        await reply("You can reach us at support@gettaxable.com or reply *Talk to support* anytime. For quick answers, try *Learn how tax works* or *Create my account* to get started." + BACK_TO_MENU_FOOTER);
         if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
         sendOk();
         return;
@@ -852,6 +869,7 @@ const handleWebhook = async (req, res) => {
         return;
       }
       if (!session || session.step === 'welcome') {
+        await sendWatchVideoPreview();
         await reply(ENTRY_MESSAGE);
         if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
         sendOk();
@@ -906,8 +924,10 @@ const handleWebhook = async (req, res) => {
           const hasSub = await safeHasActiveSubscription(userDoc._id);
           const year = hasProfile?.year || new Date().getFullYear();
           if (hasProfile) {
+            await sendWatchVideoPreview();
             await reply(getLoggedInMainMenu(userDoc.firstName, year, hasSub));
           } else {
+            await sendWatchVideoPreview();
             await reply(getPostVerificationWelcome(userDoc.firstName));
           }
         } catch (e) {
@@ -1341,6 +1361,7 @@ const handleWebhook = async (req, res) => {
             const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
             const year = hasProfile?.year || new Date().getFullYear();
             const hasSub = await safeHasActiveSubscription(regUser._id);
+            await sendWatchVideoPreview();
             await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
           } else {
             await reply(result.message || "We couldn't file your tax right now. Please try again or contact support.");
@@ -1356,6 +1377,7 @@ const handleWebhook = async (req, res) => {
         const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
         const year = hasProfile?.year || new Date().getFullYear();
         const hasSub = await safeHasActiveSubscription(regUser._id);
+        await sendWatchVideoPreview();
         await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
       } else {
         await reply("Reply *CONFIRM* to file, or *Back* to review.");
@@ -1365,12 +1387,12 @@ const handleWebhook = async (req, res) => {
     }
 
     if (regUser && isLearnHowTaxWorksIntent(text)) {
-      await reply(getBeginnerExplanation(regUser.firstName));
+      await reply(getBeginnerExplanation(regUser.firstName) + BACK_TO_MENU_FOOTER);
       sendOk();
       return;
     }
     if (regUser && isBeginnerIntent(text)) {
-      await reply(getBeginnerExplanation(regUser.firstName));
+      await reply(getBeginnerExplanation(regUser.firstName) + BACK_TO_MENU_FOOTER);
       sendOk();
       return;
     }
@@ -1384,6 +1406,7 @@ const handleWebhook = async (req, res) => {
           const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).select('_id').lean();
           const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
           const year = latestProfile?.year || new Date().getFullYear();
+          await sendWatchVideoPreview();
           await reply(getLoggedInMainMenu(regUser.firstName, year, true));
         } else {
           await reply(result.message || PAYMENT_NOT_CONFIRMED_YET);
@@ -1413,7 +1436,7 @@ const handleWebhook = async (req, res) => {
         await reply(getPaymentLinkMessage(authorization_url));
       } catch (err) {
         console.error('[WhatsApp] createSubscriptionLink monthly error:', err.message);
-        await reply("We couldn't generate the payment link right now. Please try again in a moment or say *Subscription plans* to try again.");
+        await reply("We couldn't generate the payment link right now. Please try again in a moment or say *Subscription plans* to try again." + BACK_TO_MENU_FOOTER);
       }
       sendOk();
       return;
@@ -1424,7 +1447,7 @@ const handleWebhook = async (req, res) => {
         await reply(getPaymentLinkMessageYearly(authorization_url));
       } catch (err) {
         console.error('[WhatsApp] createSubscriptionLink yearly error:', err.message);
-        await reply("We couldn't generate the payment link right now. Please try again in a moment or say *Subscription plans* to try again.");
+        await reply("We couldn't generate the payment link right now. Please try again in a moment or say *Subscription plans* to try again." + BACK_TO_MENU_FOOTER);
       }
       sendOk();
       return;
@@ -1447,7 +1470,7 @@ const handleWebhook = async (req, res) => {
         { upsert: true, new: true }
       );
       await reply(getTaxProfileIntro(regUser.firstName, yearForIntro));
-      await reply("Reply *I'm ready* when you want to start.");
+      await reply("Reply *I'm ready* when you want to start." + BACK_TO_MENU_FOOTER);
       sendOk();
       return;
     }
@@ -1479,11 +1502,11 @@ const handleWebhook = async (req, res) => {
         msg += `*Reliefs applied*\n• Total reliefs & deductions: ₦${Number(totalDeductions).toLocaleString()}\n\n`;
         msg += `*Estimated tax due*\n• Estimated PAYE/Tax payable: ₦${Number(taxPayable).toLocaleString()}\n\n`;
         msg += `*Filing costs*\n• Filing service fee: ₦${feePlaceholder.toLocaleString()}\n• Estimated tax to pay government: ₦${Number(taxPayable).toLocaleString()}\n• *Total today: ₦${Number(totalToday).toLocaleString()}*\n\n`;
-        msg += `What would you like to do next?\n• View details\n• Continue adding reliefs\n• Proceed to file`;
+        msg += `What would you like to do next?\n• View details\n• Continue adding reliefs\n• Proceed to file${BACK_TO_MENU_FOOTER}`;
         await reply(msg);
       } catch (err) {
         console.error('[WhatsApp] Tax summary error:', err.message);
-        await reply("We're still building your summary. Make sure your bank is connected and you've added reliefs, then try *View tax summary* again. If it persists, contact support.");
+        await reply("We're still building your summary. Make sure your bank is connected and you've added reliefs, then try *View tax summary* again. If it persists, contact support." + BACK_TO_MENU_FOOTER);
       }
       sendOk();
       return;
@@ -1522,7 +1545,7 @@ const handleWebhook = async (req, res) => {
         { $set: { step: 'manage_banks_list', 'taxProfileData.manageBanksLinkIds': linkIds, updatedAt: new Date() } },
         { upsert: true }
       );
-      await reply(`Here are your connected banks 👇\n\n${list}\n\nReply with a *number* to view insights, or *Add* to connect another bank, or *Remove* to disconnect one.`);
+      await reply(`Here are your connected banks 👇\n\n${list}\n\nReply with a *number* to view insights, or *Add* to connect another bank, or *Remove* to disconnect one.${BACK_TO_MENU_FOOTER}`);
       sendOk();
       return;
     }
@@ -1534,6 +1557,7 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
         );
         const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        await sendWatchVideoPreview();
         await reply(menu);
         sendOk();
         return;
@@ -1564,10 +1588,10 @@ const handleWebhook = async (req, res) => {
           let msg = `*Bank ${num}* — View data${period}\n\n• Total income detected: ₦${Number(total).toLocaleString()}`;
           if (monthlyAvg != null && monthlyAvg > 0) msg += `\n• Monthly average: ₦${Number(monthlyAvg).toLocaleString()}`;
           if (snap?.income_type || snap?.type) msg += `\n• Type: ${snap.income_type || snap.type || 'Income'}`;
-          msg += `\n\nFor full breakdown and tax summary, reply *View tax summary* or check the dashboard:\nhttps://${DASHBOARD_URL}`;
+          msg += `\n\nFor full breakdown and tax summary, reply *View tax summary* or check the dashboard:\nhttps://${DASHBOARD_URL}${BACK_TO_MENU_FOOTER}`;
           await reply(msg);
         } else {
-          await reply("That bank isn't in your list. Reply *Manage connected banks* to see the list again.");
+          await reply("That bank isn't in your list. Reply *Manage connected banks* to see the list again." + BACK_TO_MENU_FOOTER);
         }
         await WhatsAppSession.findOneAndUpdate(
           { waId: from },
@@ -1605,6 +1629,7 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
         );
         const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        await sendWatchVideoPreview();
         await reply(menu);
         sendOk();
         return;
@@ -1676,7 +1701,7 @@ const handleWebhook = async (req, res) => {
         { $set: { step: 'relief_menu', 'taxProfileData.reliefProfileId': latestProfile.profileId, 'taxProfileData.reliefYear': latestProfile.year, updatedAt: new Date() } },
         { upsert: true }
       );
-      await reply(`Choose a relief type (reply with the number):\n\n${reliefList}\n\nOr reply *View added reliefs* to see what you've added, or *Back* for the main menu.`);
+      await reply(`Choose a relief type (reply with the number):\n\n${reliefList}\n\nOr reply *View added reliefs* to see what you've added, or *Back* for the main menu.${BACK_TO_MENU_FOOTER}`);
       sendOk();
       return;
     }
@@ -1694,7 +1719,7 @@ const handleWebhook = async (req, res) => {
         return;
       }
       const lines = deductions.map((d, i) => `${i + 1}. ${d.deductionType.replace(/_/g, ' ')}: ₦${Number(d.amount || 0).toLocaleString()}`).join('\n');
-      await reply(`Your added reliefs for ${latestProfile.year}:\n\n${lines}\n\nReply *Add reliefs* to add more, or *View tax summary* to see your estimate.`);
+      await reply(`Your added reliefs for ${latestProfile.year}:\n\n${lines}\n\nReply *Add reliefs* to add more, or *View tax summary* to see your estimate.${BACK_TO_MENU_FOOTER}`);
       sendOk();
       return;
     }
@@ -1706,6 +1731,7 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'done', 'taxProfileData.reliefProfileId': undefined, 'taxProfileData.reliefYear': undefined, 'taxProfileData.selectedReliefType': undefined, updatedAt: new Date() } }
         );
         const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        await sendWatchVideoPreview();
         await reply(menu);
         sendOk();
         return;
@@ -1718,7 +1744,7 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'relief_amount', 'taxProfileData.selectedReliefType': relief.key, updatedAt: new Date() } }
         );
         const hint = relief.key === 'rent_relief' ? ' (we\'ll apply 20% relief, max ₦500,000)' : '';
-        await reply(`Enter the *amount* in Naira for ${relief.label}${hint}. Example: 50000`);
+        await reply(`Enter the *amount* in Naira for ${relief.label}${hint}. Example: 50000${BACK_TO_MENU_FOOTER}`);
         sendOk();
         return;
       }
@@ -1771,9 +1797,9 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'relief_menu', 'taxProfileData.selectedReliefType': undefined, 'taxProfileData.lastDeductionId': String(deduction._id), updatedAt: new Date() } }
         );
         const displayAmount = deduction.amount != null ? deduction.amount : amount;
-        await reply(`Saved ✅ Relief added: ₦${Number(displayAmount).toLocaleString()}.\n\nYou can *send a photo or document* here to attach to this relief, or use the dashboard: https://${DASHBOARD_URL}\n\nReply with a number (1–8) to add another relief, *View added reliefs*, or *Back* for the main menu.`);
+        await reply(`Saved ✅ Relief added: ₦${Number(displayAmount).toLocaleString()}.\n\nYou can *send a photo or document* here to attach to this relief, or use the dashboard: https://${DASHBOARD_URL}\n\nReply with a number (1–8) to add another relief, *View added reliefs*, or *Back* for the main menu.${BACK_TO_MENU_FOOTER}`);
         const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
-        await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.`);
+        await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.${BACK_TO_MENU_FOOTER}`);
       } catch (err) {
         console.error('[WhatsApp] Relief save error:', err.message);
         await reply("Something went wrong saving that relief. Please try again or add it from the dashboard: https://" + DASHBOARD_URL);
@@ -1909,11 +1935,11 @@ const handleWebhook = async (req, res) => {
           let msg = "We have your *financial data* from your linked bank ✅\n\n";
           if (balance != null) msg += "• Balance: ₦" + Number(balance).toLocaleString() + "\n";
           if (totalIncome > 0) msg += "• Income (annual): ₦" + Number(totalIncome).toLocaleString() + "\n";
-          msg += "\nSay *Check my PAYE estimate* to see an estimated tax based on this income.";
+          msg += "\nSay *Check my PAYE estimate* to see an estimated tax based on this income." + BACK_TO_MENU_FOOTER;
           await reply(msg);
         } catch (e) {
           console.error('[WhatsApp] Get financial data fetch error:', e.message);
-          await reply("Your bank is linked ✅ We're still syncing the latest numbers. Say *Check my PAYE estimate* if you've already added income, or try again in a moment.");
+          await reply("Your bank is linked ✅ We're still syncing the latest numbers. Say *Check my PAYE estimate* if you've already added income, or try again in a moment." + BACK_TO_MENU_FOOTER);
         }
       } else {
         let monoLinkGet;
@@ -1924,10 +1950,10 @@ const handleWebhook = async (req, res) => {
           monoLinkGet = null;
         }
         if (monoLinkGet?.link) {
-          await reply("Let's get your *financial data* in. Connect your bank (one-time) and we'll pull your income:\n\n" + monoLinkGet.link);
+          await reply("Let's get your *financial data* in. Connect your bank (one-time) and we'll pull your income:\n\n" + monoLinkGet.link + BACK_TO_MENU_FOOTER);
           await reply("After connecting, say *Get my financial data* again to see your summary.");
         } else {
-          await reply("To get your financial data we need to connect your bank. Set up your tax profile first (reply *Continue my filing* or *Tax profile*), then we'll send you a secure link to connect.");
+          await reply("To get your financial data we need to connect your bank. Set up your tax profile first (reply *Continue my filing* or *Tax profile*), then we'll send you a secure link to connect." + BACK_TO_MENU_FOOTER);
         }
       }
       sendOk();
@@ -1949,7 +1975,7 @@ const handleWebhook = async (req, res) => {
         }
       }
       if (annualIncome <= 0) {
-        await reply("We don't have your income on file yet. Reply *Get my financial data* to connect your bank, or *Continue my filing* to add income manually. Then I can give you a PAYE estimate.");
+        await reply("We don't have your income on file yet. Reply *Get my financial data* to connect your bank, or *Continue my filing* to add income manually. Then I can give you a PAYE estimate." + BACK_TO_MENU_FOOTER);
         sendOk();
         return;
       }
@@ -1959,7 +1985,7 @@ const handleWebhook = async (req, res) => {
         "Based on your income of *₦" + annualIncome.toLocaleString() + "* (annual):\n\n" +
         "• Estimated tax: *₦" + e.totalTax.toLocaleString() + "*\n" +
         "• Effective rate: *" + pct + "%*\n\n" +
-        "(Rates: 0% up to ₦800k, then 15%, 18%, etc. This is an estimate only.)"
+        "(Rates: 0% up to ₦800k, then 15%, 18%, etc. This is an estimate only.)" + BACK_TO_MENU_FOOTER
       );
       sendOk();
       return;
@@ -1970,8 +1996,10 @@ const handleWebhook = async (req, res) => {
       const hasSub = await safeHasActiveSubscription(regUser._id);
       const year = hasProfile?.year || new Date().getFullYear();
       if (hasProfile) {
+        await sendWatchVideoPreview();
         await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
       } else {
+        await sendWatchVideoPreview();
         await reply(getPostVerificationWelcome(regUser.firstName));
       }
       sendOk();
@@ -1996,6 +2024,7 @@ const handleWebhook = async (req, res) => {
     }
 
     if (!session) {
+      await sendWatchVideoPreview();
       await reply(ENTRY_MESSAGE);
       sendOk();
       return;
@@ -2164,6 +2193,7 @@ const handleWebhook = async (req, res) => {
           await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — sign in when you're ready. Welcome back!`);
           session.step = 'done';
           await session.save();
+          await sendWatchVideoPreview();
           await reply(getPostVerificationWelcome(data.firstName));
           sendOk();
           return;
@@ -2187,6 +2217,7 @@ const handleWebhook = async (req, res) => {
         session.pendingUserId = undefined;
         await session.save();
         await reply(`✅ You're in, ${data.firstName}! Your email is verified. Your account is ready. Welcome to Taxable! 🎉`);
+        await sendWatchVideoPreview();
         await reply(getPostVerificationWelcome(data.firstName));
         break;
       }
@@ -2199,15 +2230,19 @@ const handleWebhook = async (req, res) => {
             const hasSubDone = await safeHasActiveSubscription(userDone._id);
             const yearDone = hasProfileDone?.year || new Date().getFullYear();
             if (hasProfileDone) {
+              await sendWatchVideoPreview();
               await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone));
             } else {
+              await sendWatchVideoPreview();
               await reply(getPostVerificationWelcome(userDone.firstName));
             }
           } else {
+            await sendWatchVideoPreview();
             await reply(ENTRY_MESSAGE);
           }
         } catch (e) {
           console.error('[WhatsApp] case done error:', e.message);
+          await sendWatchVideoPreview();
           await reply(ENTRY_MESSAGE);
         }
         break;
@@ -2219,7 +2254,7 @@ const handleWebhook = async (req, res) => {
   } catch (err) {
     console.error('[WhatsApp] webhook error:', err.message || err);
     try {
-      await sendTextMessage(from, "Oops! Something went wrong. Try again or say *Hi Taxable* to start fresh — we're here to help! 💬");
+      await sendTextMessage(from, "Oops! Something went wrong. Try again or say *Hi Taxable* to start fresh — we're here to help! 💬" + BACK_TO_MENU_FOOTER);
     } catch (e) {
       console.error('[WhatsApp] failed to send error reply:', e.message);
     }

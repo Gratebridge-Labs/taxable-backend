@@ -142,8 +142,64 @@ function sendTextMessage(to, body) {
   });
 }
 
+/**
+ * Send an image by URL (e.g. YouTube thumbnail) so it shows as a preview in WhatsApp.
+ * caption is optional; max 1024 chars.
+ */
+function sendImage(to, imageUrl, caption) {
+  return new Promise((resolve, reject) => {
+    const token = process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    if (!token || !phoneNumberId) return reject(new Error('WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID must be set'));
+    const toNumber = String(to).replace(/\D/g, '');
+    if (!toNumber.length) return reject(new Error('Invalid recipient phone number'));
+
+    const payload = JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to: toNumber,
+      type: 'image',
+      image: {
+        link: imageUrl,
+        ...(caption && { caption: String(caption).slice(0, 1024) })
+      }
+    });
+
+    const options = {
+      hostname: BASE_URL,
+      path: `/${API_VERSION}/${phoneNumberId}/messages`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try { resolve(JSON.parse(data || '{}')); } catch { resolve({}); }
+        } else {
+          try {
+            const errBody = JSON.parse(data || '{}');
+            reject(new Error(errBody.error?.message || `WhatsApp API ${res.statusCode}`));
+          } catch {
+            reject(new Error(`WhatsApp API error: ${res.statusCode}`));
+          }
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 module.exports = {
   sendTextMessage,
+  sendImage,
   getMediaUrl,
   downloadMedia
 };

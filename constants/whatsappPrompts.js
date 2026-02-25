@@ -7,6 +7,8 @@
 const TAXABLE_INTRO_LINE = `I'm Taxable — your personal tax assistant for everything Nigerian tax.`;
 
 const WATCH_VIDEO_URL = 'https://www.youtube.com/watch?v=KSeupcEGVN4&t=82s&pp=ygUJdGF4c2xheWVy';
+const WATCH_VIDEO_THUMBNAIL_URL = 'https://img.youtube.com/vi/KSeupcEGVN4/maxresdefault.jpg';
+const WATCH_VIDEO_CAPTION = `📽 Watch how it works in 2 minutes:\n${WATCH_VIDEO_URL}`;
 
 const MENU_CONSTANT_BLOCK = `Tax doesn't have to be confusing.
 On Taxable, it's simple. Just 5 easy steps:
@@ -19,9 +21,6 @@ On Taxable, it's simple. Just 5 easy steps:
 That's it.
 No guesswork. No overpaying. No missed deadlines.
 
-📽 Watch how it works in 2 minutes:
-${WATCH_VIDEO_URL}
-
 📌 Quick updates you should know:
 • Earn ₦800,000 or less? No PAYE.
 • Rent relief: 20% (up to ₦500k).
@@ -31,6 +30,11 @@ ${WATCH_VIDEO_URL}
 • Employers — Jan 31
 • Individuals — Mar 31
 Late filing attracts 10% penalty + interest.`;
+
+// —— Footer for every message that isn't the main menu (logged-in or new user) ——
+const BACK_TO_MENU_FOOTER = `
+
+• *Back to menu* — return to your options`;
 
 // —— ENTRY (logged out user) ——
 function getEntryMessage() {
@@ -155,12 +159,12 @@ What would you like to do?
 • Choose monthly
 • Choose yearly (Best value)
 • Learn why subscription matters
-• Go back`;
+• Go back${BACK_TO_MENU_FOOTER}`;
 
 const SUBSCRIPTION_WHY_IT_MATTERS = `Tax isn't just about filing once.
 It's about staying updated as your income changes, capturing new reliefs, and avoiding penalties.
 
-The subscription keeps everything running automatically so you don't have to think about it.`;
+The subscription keeps everything running automatically so you don't have to think about it.${BACK_TO_MENU_FOOTER}`;
 
 // —— CHOOSE MONTHLY ——
 function getPaymentLinkMessage(link) {
@@ -173,7 +177,7 @@ Please complete the payment using the link below:
 🔗 ${link}
 
 Once you're done, reply *Done* and I'll confirm your subscription.
-Take your time — I'll be here.`;
+Take your time — I'll be here.${BACK_TO_MENU_FOOTER}`;
 }
 
 // —— CHOOSE YEARLY (same pattern, different amount) ——
@@ -187,7 +191,7 @@ Please complete the payment using the link below:
 🔗 ${link}
 
 Once you're done, reply *Done* and I'll confirm your subscription.
-Take your time — I'll be here.`;
+Take your time — I'll be here.${BACK_TO_MENU_FOOTER}`;
 }
 
 // —— AFTER PAYMENT (webhook or Done verified) ——
@@ -199,21 +203,21 @@ You now have full access to:
 • Connect banks
 • File tax
 
-Let's continue 👇`;
+Let's continue 👇${BACK_TO_MENU_FOOTER}`;
 
 // —— User said Done but payment not found / not confirmed ——
 const PAYMENT_NOT_CONFIRMED_YET = `I'm still waiting for confirmation.
 If you've completed payment, give it a few seconds and reply *Check again*.
-If you're having issues, I can help.`;
+If you're having issues, I can help.${BACK_TO_MENU_FOOTER}`;
 
 // —— User clicked link but didn't pay (after 10–15 min) ——
 const PAYMENT_NOT_COMPLETED_RESEND = `It looks like the payment hasn't been completed yet.
-Would you like me to resend the payment link?`;
+Would you like me to resend the payment link?${BACK_TO_MENU_FOOTER}`;
 
 // —— TAX PROFILE CREATION ——
 function getTaxProfileIntro(firstName, year = 2025) {
   return `Alright ${firstName} — let's set up your ${year} tax profile.
-This will take about 2 minutes.`;
+This will take about 2 minutes.${BACK_TO_MENU_FOOTER}`;
 }
 
 const TAX_PROFILE_ASK_NIN = `What's your NIN? (11 digits)`;
@@ -248,19 +252,19 @@ const TAX_PROFILE_COMPLETE = `Great — your profile is now complete ✅`;
 
 // —— CONNECT BANK (Mono) ——
 const CONNECT_BANK_INTRO = `Next, let's connect your bank so I can keep your income in sync automatically.
-You can connect more than one bank.`;
+You can connect more than one bank.${BACK_TO_MENU_FOOTER}`;
 
 function getConnectBankLink(monoLink) {
   return `🔗 Connect a bank: ${monoLink}
 
-When you're done, reply *Done*.`;
+When you're done, reply *Done*.${BACK_TO_MENU_FOOTER}`;
 }
 
 const CONNECT_BANK_SUCCESS = `Connected ✅`;
 
 const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 • Yes — add another
-• No — continue`;
+• No — continue${BACK_TO_MENU_FOOTER}`;
 
 // —— LOGGED-IN MAIN MENU (has profile; menu varies by subscription) ——
 function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false) {
@@ -270,7 +274,7 @@ function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = fal
 • Add reliefs & upload documents
 • View tax summary
 • File your ${year} tax return
-• Manage connected banks
+• Connect and manage banks
 • Subscription details
 • I don't understand tax — explain it
 • FAQ
@@ -279,6 +283,7 @@ function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = fal
 • Review your ${year} tax profile 🔒
 • Add reliefs & upload documents 🔒
 • File your ${year} tax return 🔒
+• Connect and manage banks 🔒
 • Subscription plans
 • Learn how tax works
 • Estimate my tax
@@ -303,11 +308,11 @@ const FILE_TAX_CONFIRM = `Before I file, please confirm:
 2. Your relief documents are correct
 3. You're ready to submit your 2025 return
 
-Reply *CONFIRM* to file, or *Back* to review.`;
+Reply *CONFIRM* to file, or *Back* to review.${BACK_TO_MENU_FOOTER}`;
 
 const FILE_TAX_SUBMITTED = `Submitted ✅
 
-I'll update you once it's accepted, and you'll be able to download your filing receipt here.`;
+I'll update you once it's accepted, and you'll be able to download your filing receipt here.${BACK_TO_MENU_FOOTER}`;
 
 module.exports = {
   ENTRY_MESSAGE,
@@ -348,5 +353,8 @@ module.exports = {
   CONNECT_ANOTHER_BANK,
   getLoggedInMainMenu,
   FILE_TAX_CONFIRM,
-  FILE_TAX_SUBMITTED
+  FILE_TAX_SUBMITTED,
+  BACK_TO_MENU_FOOTER,
+  WATCH_VIDEO_THUMBNAIL_URL,
+  WATCH_VIDEO_CAPTION
 };
