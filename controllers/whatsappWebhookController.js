@@ -176,6 +176,42 @@ function isSetUpTaxProfileIntent(text) {
   );
 }
 
+/** User wants to continue their filing (menu option) */
+function isContinueMyFilingIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /continue\s*my\s*filing/i.test(t) ||
+    /continue\s*filing/i.test(t) ||
+    /continue\s*my\s*tax/i.test(t) ||
+    t === 'continue my filing'
+  );
+}
+
+/** User wants to complete/add DOB and address details */
+function isCompleteMyDetailsIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /complete\s*my\s*details/i.test(t) ||
+    /add\s*my\s*details/i.test(t) ||
+    /complete\s*my\s*profile/i.test(t) ||
+    /add\s*(my\s*)?(dob|address|details)/i.test(t) ||
+    t === 'complete my details'
+  );
+}
+
+/** True if profile has NIN and personal/address details needed before income & deductibles */
+function profileHasPersonalDetailsComplete(profile) {
+  if (!profile) return false;
+  const hasNin = !!(profile.primaryNIN && String(profile.primaryNIN).trim().length === 11);
+  const hasDob = !!(profile.dob != null);
+  const hasStreet = !!(profile.street != null && String(profile.street).trim());
+  const hasCity = !!(profile.city != null && String(profile.city).trim());
+  const hasState = !!(profile.state != null && String(profile.state).trim());
+  return hasNin && hasDob && hasStreet && hasCity && hasState;
+}
+
 /** User says they're ready to start (e.g. after tax profile summary). Handles "I'm ready", "im ready", "ready", smart quotes. */
 function isImReadyIntent(text) {
   if (!text || typeof text !== 'string') return false;
@@ -854,6 +890,75 @@ const handleWebhook = async (req, res) => {
         { upsert: true, new: true }
       );
       await reply(getTaxProfileSummary());
+      sendOk();
+      return;
+    }
+
+    if (regUser && isContinueMyFilingIntent(text)) {
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id })
+        .sort({ year: -1, createdAt: -1 })
+        .select('primaryNIN dob street city state profileId')
+        .lean();
+      if (!latestProfile) {
+        await reply("You don't have a tax profile yet. Reply *Set up tax profile* or *tax profile* to create one.");
+        sendOk();
+        return;
+      }
+      if (!profileHasPersonalDetailsComplete(latestProfile)) {
+        await reply(
+          "We need your *date of birth* and *address* (street, city, state) before we can continue.\n\n" +
+          "Reply *Complete my details* to add them now."
+        );
+        sendOk();
+        return;
+      }
+      session = await WhatsAppSession.findOneAndUpdate(
+        { waId: from },
+        {
+          $set: {
+            step: 'tax_profile_income_info',
+            taxProfileData: { currentProfileId: latestProfile.profileId },
+            updatedAt: new Date()
+          }
+        },
+        { upsert: true, new: true }
+      );
+      await reply(
+        "Next up is *Income* and *deductibles or reliefs*.\n\n" +
+        "Share your income info in one message (e.g. employment salary, business income). Then we'll ask about reliefs and deductibles.\n\n" +
+        "Reply with your income details below 👇"
+      );
+      sendOk();
+      return;
+    }
+
+    if (regUser && isCompleteMyDetailsIntent(text)) {
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id })
+        .sort({ year: -1, createdAt: -1 })
+        .select('primaryNIN dob street city state profileId')
+        .lean();
+      if (!latestProfile) {
+        await reply("You don't have a tax profile yet. Reply *Set up tax profile* or *tax profile* to create one.");
+        sendOk();
+        return;
+      }
+      if (profileHasPersonalDetailsComplete(latestProfile)) {
+        await reply("You're all set — we already have your DOB and address. Say *Continue my filing* for the next step.");
+        sendOk();
+        return;
+      }
+      session = await WhatsAppSession.findOneAndUpdate(
+        { waId: from },
+        {
+          $set: {
+            step: 'tax_profile_dob',
+            taxProfileData: { currentProfileId: latestProfile.profileId },
+            updatedAt: new Date()
+          }
+        },
+        { upsert: true, new: true }
+      );
+      await reply("What's your *date of birth*? (e.g. 1990-01-15 or 15-Jan-1990)");
       sendOk();
       return;
     }
