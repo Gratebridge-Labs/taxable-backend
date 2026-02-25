@@ -910,7 +910,6 @@ const handleWebhook = async (req, res) => {
     }
 
     // Registered user: handle "learn how tax works" and "menu/hi" so we don't just resend menu
-    const phoneForLookup = waIdToPhone(from);
     const regUser = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
     if (regUser && isLearnHowTaxWorksIntent(text)) {
       await reply(getBeginnerExplanation(regUser.firstName));
