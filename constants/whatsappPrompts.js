@@ -32,7 +32,7 @@ No guesswork. No overpaying. No missed deadlines.
 Late filing attracts 10% penalty + interest.`;
 
 /** Logged-in user: only individuals filing deadline (no 5 steps, no quick updates). */
-const FILING_DEADLINE_INDIVIDUAL = `🗓 Filing deadlines:
+const FILING_DEADLINE_INDIVIDUAL = `🗓 Filing deadline reminder:
 • Individuals — Mar 31
 Late filing attracts 10% penalty + interest.`;
 
@@ -274,27 +274,34 @@ const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 // —— LOGGED-IN MAIN MENU (has profile; slim copy: intro + individuals deadline only, then menu) ——
 function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false) {
   const menuBlock = hasActiveSubscription
-    ? `Here's what you can do today:
-• Review your ${year} tax profile
-• Add reliefs & upload documents
-• View tax summary
-• File your ${year} tax return
-• Connect and manage banks
-• Subscription details
-• I don't understand tax — explain it
-• FAQ
-• Talk to support`
-    : `Here's what you can do today:
-• Review your ${year} tax profile 🔒
-• Add reliefs & upload documents 🔒
-• File your ${year} tax return 🔒
-• Connect and manage banks 🔒
+    ? `Here's what you can do today 👇
+
+• Review your ${year} tax profile (review)
+• Add reliefs & upload documents (relief)
+• View tax summary (summary)
+• File your ${year} tax return (file)
+• Connect & manage banks (connect)
+• Subscription details (subscription)
+• I don't understand tax — explain it (explain)
+• FAQ (faq)
+• Talk to support (support)
+
+Just type the word in brackets to continue.`
+    : `Here's what you can do today 👇
+
+• Review your ${year} tax profile (review) 🔒
+• Add reliefs & upload documents (relief) 🔒
+• View tax summary (summary) 🔒
+• File your ${year} tax return (file) 🔒
+• Connect & manage banks (connect) 🔒
 • Subscription plans
 • Learn how tax works
 • Estimate my tax
-• FAQ
-• I don't understand tax — explain it
-• Talk to support
+• FAQ (faq)
+• I don't understand tax — explain it (explain)
+• Talk to support (support)
+
+Just type the word in brackets to continue.
 
 🔒 = Requires active subscription`;
 

@@ -198,11 +198,12 @@ function isLearnHowTaxWorksIntent(text) {
   );
 }
 
-/** PDF: "I don't understand tax — explain it" (curious mode) */
+/** PDF: "I don't understand tax — explain it" (curious mode); bracket shortcut (explain) */
 function isIDontUnderstandTaxIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
   return (
+    /^explain\.?$/i.test(t) ||
     /i don'?t understand tax/i.test(t) ||
     /don'?t understand tax/i.test(t) ||
     /explain\s*(it|tax)/i.test(t) ||
@@ -211,12 +212,13 @@ function isIDontUnderstandTaxIntent(text) {
   );
 }
 
-/** PDF: "FAQ" or "Talk to someone" / "Talk to support" */
+/** PDF: "FAQ" or "Talk to someone" / "Talk to support"; bracket shortcuts (faq), (support) */
 function isFAQOrTalkToSomeoneIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
   return (
-    /^faq$/i.test(t) ||
+    /^faq\.?$/i.test(t) ||
+    /^support\.?$/i.test(t) ||
     /talk\s*to\s*(someone|support)/i.test(t) ||
     t === 'talk to someone' ||
     t === 'talk to support'
@@ -259,6 +261,17 @@ function isSetUpTaxProfileIntent(text) {
     /setup\s*(my\s*)?tax\s*profile/i.test(t) ||
     /tax\s*profile/i.test(t) && !/login/i.test(t) ||
     /create\s*(my\s*)?tax\s*profile/i.test(t)
+  );
+}
+
+/** User wants to review tax profile (light dashboard view; bracket shortcut "review") */
+function isReviewProfileIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /^review\.?$/i.test(t) ||
+    /review\s*(your|my)\s*(tax\s*)?profile/i.test(t) ||
+    /review\s*profile/i.test(t)
   );
 }
 
@@ -378,18 +391,18 @@ function isDoneOrCheckAgainIntent(text) {
   return /^done\.?$/i.test(t) || /check\s*again/i.test(t) || t === 'done' || t === 'check again';
 }
 
-/** PDF: "View tax summary" */
+/** PDF: "View tax summary"; bracket shortcut (summary) */
 function isViewTaxSummaryIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
-  return /view\s*tax\s*summary/i.test(t) || t === 'view tax summary' || /tax\s*summary/i.test(t) && /view|show|see/i.test(t);
+  return /^summary\.?$/i.test(t) || /view\s*tax\s*summary/i.test(t) || t === 'view tax summary' || /tax\s*summary/i.test(t) && /view|show|see/i.test(t);
 }
 
-/** PDF: "Proceed to file" */
+/** PDF: "Proceed to file"; bracket shortcut (file) */
 function isProceedToFileIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
-  return /proceed\s*to\s*file/i.test(t) || /file\s*(my\s*)?tax/i.test(t) && /proceed|ready|submit/i.test(t) || t === 'proceed to file';
+  return /^file\.?$/i.test(t) || /proceed\s*to\s*file/i.test(t) || /file\s*(my\s*)?tax/i.test(t) && /proceed|ready|submit/i.test(t) || t === 'proceed to file';
 }
 
 /** PDF: "Reply CONFIRM to file" */
@@ -398,18 +411,18 @@ function isConfirmFileIntent(text) {
   return /^confirm\.?$/i.test(text.trim()) || text.trim().toLowerCase() === 'confirm';
 }
 
-/** PDF: "Manage connected banks" */
+/** PDF: "Manage connected banks"; bracket shortcut (connect) */
 function isManageConnectedBanksIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
-  return /connect\s*and\s*manage\s*banks/i.test(t) || /manage\s*connected\s*banks/i.test(t) || (/connected\s*banks/i.test(t) && /manage|list|view|connect/i.test(t)) || t === 'manage connected banks' || t === 'connect and manage banks';
+  return /^connect\.?$/i.test(t) || /connect\s*and\s*manage\s*banks/i.test(t) || /manage\s*connected\s*banks/i.test(t) || (/connected\s*banks/i.test(t) && /manage|list|view|connect/i.test(t)) || t === 'manage connected banks' || t === 'connect and manage banks';
 }
 
-/** PDF: "Add reliefs & upload documents" */
+/** PDF: "Add reliefs & upload documents"; bracket shortcut (relief) */
 function isAddReliefsIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
-  return /add\s*reliefs/i.test(t) || /reliefs?\s*&\s*upload\s*documents?/i.test(t) || /upload\s*documents?/i.test(t) && /relief/i.test(t) || t === 'add reliefs' || t === 'add reliefs & upload documents';
+  return /^relief\.?$/i.test(t) || /add\s*reliefs/i.test(t) || /reliefs?\s*&\s*upload\s*documents?/i.test(t) || /upload\s*documents?/i.test(t) && /relief/i.test(t) || t === 'add reliefs' || t === 'add reliefs & upload documents';
 }
 
 const RELIEF_TYPES = [
@@ -457,6 +470,42 @@ const INCOME_SOURCE_OPTIONS = [
   'Rental income',
   'Digital Assets/Crypto'
 ];
+
+/** Build light dashboard message for "Review" (profile summary + follow-up options). */
+function getReviewProfileSummaryMessage(profile) {
+  if (!profile) return null;
+  const year = profile.year || new Date().getFullYear();
+  const nin = profile.primaryNIN ? String(profile.primaryNIN).trim() : '';
+  const ninDisplay = nin.length >= 4 ? `****${nin.slice(-4)}` : nin ? '****' : '—';
+  const incomeSources = Array.isArray(profile.primaryIncomeSources) && profile.primaryIncomeSources.length
+    ? profile.primaryIncomeSources.join(', ')
+    : '—';
+  const resident = profile.residency183Days === true ? 'Nigeria (183+ days)' : profile.residency183Days === false ? 'Not Nigeria' : '—';
+  const yesNo = (v) => (v === true ? 'Yes' : v === false ? 'No' : '—');
+  const rent = yesNo(profile.paysRent);
+  const pension = yesNo(profile.hasPension);
+  const health = yesNo(profile.hasHealthInsurance);
+  const mortgage = yesNo(profile.paysMortgage);
+  let msg = `Here's your *${year}* tax profile summary 👇\n\n`;
+  msg += `🧾 *Identity*\n`;
+  msg += `• NIN: ${ninDisplay}\n`;
+  msg += `• Income sources: ${incomeSources}\n`;
+  msg += `• Resident status: ${resident}\n\n`;
+  msg += `💡 *Relief indicators*\n`;
+  msg += `• Rent: ${rent}\n`;
+  msg += `• Pension: ${pension}\n`;
+  msg += `• NHF: —\n`;
+  msg += `• Life insurance: —\n`;
+  msg += `• Health insurance: ${health}\n`;
+  msg += `• Mortgage: ${mortgage}\n\n`;
+  msg += `Would you like to:\n`;
+  msg += `• Change income sources\n`;
+  msg += `• Update relief answers\n`;
+  msg += `• Update NIN\n`;
+  msg += `• Go back\n\n`;
+  msg += `Type what you'd like to change.`;
+  return msg;
+}
 
 /** Parse "1" or "1,2" or "1, 2, 3" into array of option labels. Returns [] if invalid. */
 function parseIncomeSourceReply(text) {
@@ -1456,7 +1505,66 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
+    // —— After "Review" summary: go back, or point to Tax profile for updates ——
+    if (regUser && session?.step === 'review_profile_view') {
+      const t = text.trim().toLowerCase();
+      if (isBackToMainMenuIntent(text) || /^go\s*back\.?$/i.test(t) || /^back\.?$/i.test(t)) {
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', updatedAt: new Date() } }
+        );
+        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        await reply(menu);
+        sendOk();
+        return;
+      }
+      if (/change\s*income\s*sources/i.test(t) || /update\s*relief/i.test(t) || /update\s*nin/i.test(t)) {
+        await reply("Reply *Tax profile* or *Update my tax profile* to change that." + BACK_TO_MENU_FOOTER);
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', updatedAt: new Date() } },
+          { new: true }
+        );
+        sendOk();
+        return;
+      }
+      await reply("Reply *Go back* for the main menu, or *Tax profile* to update your details." + BACK_TO_MENU_FOOTER);
+      sendOk();
+      return;
+    }
+
     // —— Locked actions: require active subscription (PDF 🔒) ——
+    if (regUser && isReviewProfileIntent(text)) {
+      const hasSub = await safeHasActiveSubscription(regUser._id);
+      if (!hasSub) {
+        await reply(SUBSCRIPTION_REQUIRED);
+        sendOk();
+        return;
+      }
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id })
+        .sort({ year: -1 })
+        .select('year primaryNIN primaryIncomeSources residency183Days paysRent hasPension hasHealthInsurance paysMortgage')
+        .lean();
+      if (!latestProfile) {
+        await reply("You don't have a tax profile yet. Reply *Create tax profile* to set one up.");
+        sendOk();
+        return;
+      }
+      const summaryMsg = getReviewProfileSummaryMessage(latestProfile);
+      if (summaryMsg) {
+        await reply(summaryMsg);
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'review_profile_view', updatedAt: new Date() } },
+          { upsert: true }
+        );
+      } else {
+        await reply("We couldn't load your profile summary. Reply *Tax profile* to update your details.");
+      }
+      sendOk();
+      return;
+    }
+
     if (regUser && isSetUpTaxProfileIntent(text)) {
       const hasSub = await safeHasActiveSubscription(regUser._id);
       if (!hasSub) {
