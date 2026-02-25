@@ -146,10 +146,17 @@ function isResendOTPIntent(text) {
 }
 
 /** User is asking for menu or saying hi (for registered users) */
+function isBackToMainMenuIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return /back\s+to\s+main\s+menu/i.test(t) || /main\s+menu$/i.test(t) || t === 'back to main menu' || t === 'main menu';
+}
+
 function isMenuOrHiIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
   return (
+    isBackToMainMenuIntent(text) ||
     /^menu$/i.test(t) ||
     /^hi$/i.test(t) ||
     /^hey$/i.test(t) ||

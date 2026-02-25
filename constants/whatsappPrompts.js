@@ -3,21 +3,42 @@
  * Use these for consistent copy and easy updates.
  */
 
-// —— ENTRY (no account) ——
-const ENTRY_MESSAGE = `Hi 👋
+// —— SHARED INTRO & MENU CONSTANT BLOCK (same for all users after greeting) ——
+const TAXABLE_INTRO_LINE = `I'm Taxable — your personal tax assistant for everything Nigerian tax.`;
 
-I'm Taxable — your personal tax assistant for everything Nigerian tax.
-Tax doesn't have to be confusing.
+const WATCH_VIDEO_URL = 'https://www.youtube.com/watch?v=KSeupcEGVN4&t=82s&pp=ygUJdGF4c2xheWVy';
 
+const MENU_CONSTANT_BLOCK = `Tax doesn't have to be confusing.
 On Taxable, it's simple. Just 5 easy steps:
-1⃣ Create your account
-2⃣ Set up your tax profile
-3⃣ Connect your banks
-4⃣ Add your reliefs & deductibles
-5⃣ File your tax
+1️⃣ Create your account
+2️⃣ Set up your tax profile
+3️⃣ Connect your banks
+4️⃣ Add your reliefs & deductibles
+5️⃣ File your tax
 
 That's it.
 No guesswork. No overpaying. No missed deadlines.
+
+📽 Watch how it works in 2 minutes:
+${WATCH_VIDEO_URL}
+
+📌 Quick updates you should know:
+• Earn ₦800,000 or less? No PAYE.
+• Rent relief: 20% (up to ₦500k).
+• SMEs under ₦50m turnover? 100% CIT exemption.
+
+🗓 Filing deadlines:
+• Employers — Jan 31
+• Individuals — Mar 31
+Late filing attracts 10% penalty + interest.`;
+
+// —— ENTRY (logged out user) ——
+function getEntryMessage() {
+  return `Hi 👋
+
+${TAXABLE_INTRO_LINE}
+
+${MENU_CONSTANT_BLOCK}
 
 What would you like to do?
 • I don't understand tax — explain it
@@ -27,16 +48,19 @@ What would you like to do?
 • Talk to someone
 
 Just reply with your choice 👇`;
+}
+
+const ENTRY_MESSAGE = getEntryMessage();
 
 // —— CURIOUS MODE (education) ——
 const CURIOUS_MODE_REPLY = `That's completely okay 🙂
 
 Tax can sound complicated — but it's actually built on just two main things:
 
-1⃣ Your Income
+1️⃣ Your Income
 How much money you earn — salary or business.
 
-2⃣ Your Reliefs & Deductions
+2️⃣ Your Reliefs & Deductions
 Things that legally reduce the tax you pay.
 For example:
 ● Pension
@@ -60,7 +84,9 @@ Ready to move forward?
 • Create my account
 • I still have questions
 • FAQ
-• Talk to support`;
+• Talk to support
+
+• *Back to main menu* — return to your options above`;
 
 // —— ACCOUNT CREATION ——
 const CREATE_ACCOUNT_INTRO = `Amazing 🙌
@@ -87,41 +113,23 @@ const CREATE_ACCOUNT_EMAIL = `What's your email address?`;
 
 const CREATE_ACCOUNT_PASSWORD = `Now create a password.`;
 
-// —— POST-VERIFICATION WELCOME (logged in, no subscription yet) ——
-function getPostVerificationWelcome(firstName) {
+// —— POST-VERIFICATION WELCOME (logged in, NO active subscription) ——
+function getPostVerificationWelcome(firstName, year = 2025) {
   return `Hi ${firstName} 👋
 
-Your account is all set up ✅
-You should PIN this chat so you can always access Taxable quickly 📌
+${TAXABLE_INTRO_LINE}
 
-With Taxable, staying compliant happens in just a few simple steps:
-1⃣ Set up your tax profile
-2⃣ Connect your banks
-3⃣ Add reliefs & deductibles
-4⃣ File your tax
-
-Simple. Structured. Done properly.
-
-📌 Quick updates you should know:
-• Earn ₦800,000 or less? No PAYE.
-• Rent relief: 20% (up to ₦500k).
-• SMEs under ₦50m turnover? 100% CIT exemption.
-
-🗓 Filing deadlines:
-• Employers — Jan 31
-• Individuals — Mar 31
-Late filing attracts 10% penalty + interest.
-
-Now let's get you moving 👇
+${MENU_CONSTANT_BLOCK}
 
 Here's what you can do today:
-• Create tax profile 🔒
-• Connect your banks 🔒
-• File your tax 🔒
+• Review your ${year} tax profile 🔒
+• Add reliefs & upload documents 🔒
+• File your ${year} tax return 🔒
 • Subscription plans
 • Learn how tax works
 • Estimate my tax
 • FAQ
+• I don't understand tax — explain it
 • Talk to support
 
 🔒 = Requires active subscription`;
@@ -254,46 +262,39 @@ const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 • Yes — add another
 • No — continue`;
 
-// —— LOGGED-IN MAIN MENU (has profile + bank) ——
+// —— LOGGED-IN MAIN MENU (has profile; menu varies by subscription) ——
 function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false) {
-  const locked = hasActiveSubscription ? '' : ' 🔒';
-  return `Hi ${firstName} 👋
-
-Your account is fully set up ✅
-Tax profile created. Bank connected.
-
-Tip: Please pin this chat so you can always access Taxable quickly 📌
-
-With Taxable, staying compliant is simple:
-1⃣ Keep your income synced
-2⃣ Add reliefs & deductibles
-3⃣ Review your tax summary
-4⃣ File before the deadline
-
-📌 Quick updates you should know:
-• Earn ₦800,000 or less? No PAYE.
-• Rent relief: 20% (up to ₦500k).
-• SMEs under ₦50m turnover? 100% CIT exemption.
-
-🗓 Filing deadlines:
-• Employers — Jan 31
-• Individuals — Mar 31
-Late filing attracts 10% penalty + interest.
-
-Now let's move forward 👇
-
-Here's what you can do today:
-• Review your ${year} tax profile${locked}
-• Add reliefs & upload documents${locked}
-• View tax summary${hasActiveSubscription ? '' : ' 🔒'}
-• File your ${year} tax return${locked}
-${hasActiveSubscription ? '• Manage connected banks\n• Subscription details\n' : ''}• Subscription plans
+  const menuBlock = hasActiveSubscription
+    ? `Here's what you can do today:
+• Review your ${year} tax profile
+• Add reliefs & upload documents
+• View tax summary
+• File your ${year} tax return
+• Manage connected banks
+• Subscription details
+• I don't understand tax — explain it
+• FAQ
+• Talk to support`
+    : `Here's what you can do today:
+• Review your ${year} tax profile 🔒
+• Add reliefs & upload documents 🔒
+• File your ${year} tax return 🔒
+• Subscription plans
 • Learn how tax works
 • Estimate my tax
 • FAQ
+• I don't understand tax — explain it
 • Talk to support
 
-${!hasActiveSubscription ? '🔒 = Requires active subscription' : ''}`;
+🔒 = Requires active subscription`;
+
+  return `Hi ${firstName} 👋
+
+${TAXABLE_INTRO_LINE}
+
+${MENU_CONSTANT_BLOCK}
+
+${menuBlock}`;
 }
 
 // —— FILING ——
