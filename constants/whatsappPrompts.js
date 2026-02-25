@@ -31,6 +31,11 @@ No guesswork. No overpaying. No missed deadlines.
 • Individuals — Mar 31
 Late filing attracts 10% penalty + interest.`;
 
+/** Logged-in user: only individuals filing deadline (no 5 steps, no quick updates). */
+const FILING_DEADLINE_INDIVIDUAL = `🗓 Filing deadlines:
+• Individuals — Mar 31
+Late filing attracts 10% penalty + interest.`;
+
 // —— Footer for every message that isn't the main menu (logged-in or new user) ——
 const BACK_TO_MENU_FOOTER = `
 
@@ -266,7 +271,7 @@ const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 • Yes — add another
 • No — continue${BACK_TO_MENU_FOOTER}`;
 
-// —— LOGGED-IN MAIN MENU (has profile; menu varies by subscription) ——
+// —— LOGGED-IN MAIN MENU (has profile; slim copy: intro + individuals deadline only, then menu) ——
 function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false) {
   const menuBlock = hasActiveSubscription
     ? `Here's what you can do today:
@@ -297,7 +302,7 @@ function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = fal
 
 ${TAXABLE_INTRO_LINE}
 
-${MENU_CONSTANT_BLOCK}
+${FILING_DEADLINE_INDIVIDUAL}
 
 ${menuBlock}`;
 }

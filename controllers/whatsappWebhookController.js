@@ -784,7 +784,6 @@ const handleWebhook = async (req, res) => {
           const hasSub = await safeHasActiveSubscription(userForMenu._id);
           const year = hasProfile?.year || new Date().getFullYear();
           if (hasProfile) {
-            await sendWatchVideoPreview();
             await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub));
           } else {
             await sendWatchVideoPreview();
@@ -932,7 +931,6 @@ const handleWebhook = async (req, res) => {
           const hasSub = await safeHasActiveSubscription(userDoc._id);
           const year = hasProfile?.year || new Date().getFullYear();
           if (hasProfile) {
-            await sendWatchVideoPreview();
             await reply(getLoggedInMainMenu(userDoc.firstName, year, hasSub));
           } else {
             await sendWatchVideoPreview();
@@ -1369,7 +1367,6 @@ const handleWebhook = async (req, res) => {
             const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
             const year = hasProfile?.year || new Date().getFullYear();
             const hasSub = await safeHasActiveSubscription(regUser._id);
-            await sendWatchVideoPreview();
             await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
           } else {
             await reply(result.message || "We couldn't file your tax right now. Please try again or contact support.");
@@ -1385,7 +1382,6 @@ const handleWebhook = async (req, res) => {
         const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
         const year = hasProfile?.year || new Date().getFullYear();
         const hasSub = await safeHasActiveSubscription(regUser._id);
-        await sendWatchVideoPreview();
         await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
       } else {
         await reply("Reply *CONFIRM* to file, or *Back* to review.");
@@ -1414,7 +1410,6 @@ const handleWebhook = async (req, res) => {
           const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).select('_id').lean();
           const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
           const year = latestProfile?.year || new Date().getFullYear();
-          await sendWatchVideoPreview();
           await reply(getLoggedInMainMenu(regUser.firstName, year, true));
         } else {
           await reply(result.message || PAYMENT_NOT_CONFIRMED_YET);
@@ -1565,7 +1560,6 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
         );
         const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
-        await sendWatchVideoPreview();
         await reply(menu);
         sendOk();
         return;
@@ -1637,7 +1631,6 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
         );
         const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
-        await sendWatchVideoPreview();
         await reply(menu);
         sendOk();
         return;
@@ -1739,7 +1732,6 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'done', 'taxProfileData.reliefProfileId': undefined, 'taxProfileData.reliefYear': undefined, 'taxProfileData.selectedReliefType': undefined, updatedAt: new Date() } }
         );
         const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
-        await sendWatchVideoPreview();
         await reply(menu);
         sendOk();
         return;
@@ -2004,7 +1996,6 @@ const handleWebhook = async (req, res) => {
       const hasSub = await safeHasActiveSubscription(regUser._id);
       const year = hasProfile?.year || new Date().getFullYear();
       if (hasProfile) {
-        await sendWatchVideoPreview();
         await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
       } else {
         await sendWatchVideoPreview();
@@ -2238,7 +2229,6 @@ const handleWebhook = async (req, res) => {
             const hasSubDone = await safeHasActiveSubscription(userDone._id);
             const yearDone = hasProfileDone?.year || new Date().getFullYear();
             if (hasProfileDone) {
-              await sendWatchVideoPreview();
               await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone));
             } else {
               await sendWatchVideoPreview();
