@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const { createProfile, getUserProfiles, getProfileById, submitTaxInformation, fileTax } = require('../controllers/profileController');
+const { createProfile, getUserProfiles, getProfileById, updateProfile, submitTaxInformation, fileTax } = require('../controllers/profileController');
 const { authenticate } = require('../middleware/auth');
 const { checkEmailVerified } = require('../middleware/profileAuth');
 
@@ -44,10 +44,21 @@ const createProfileValidation = [
   body('paysMortgage').optional({ values: 'falsy' }).isBoolean().withMessage('paysMortgage must be true or false')
 ];
 
+// Update profile: optional dob, street, city, state, incomeDetails, deductiblesDetails
+const updateProfileValidation = [
+  body('dob').optional({ values: 'falsy' }).isISO8601().withMessage('dob must be a valid date (e.g. YYYY-MM-DD)'),
+  body('street').optional({ values: 'falsy' }).trim().isLength({ max: 500 }).withMessage('street max 500 characters'),
+  body('city').optional({ values: 'falsy' }).trim().isLength({ max: 100 }).withMessage('city max 100 characters'),
+  body('state').optional({ values: 'falsy' }).trim().isLength({ max: 100 }).withMessage('state max 100 characters'),
+  body('incomeDetails').optional({ values: 'falsy' }),
+  body('deductiblesDetails').optional({ values: 'falsy' })
+];
+
 // Protected routes (require authentication and email verification)
 router.post('/create', authenticate, checkEmailVerified, createProfileValidation, createProfile);
 router.get('/list', authenticate, checkEmailVerified, getUserProfiles);
 router.get('/:profileId', authenticate, checkEmailVerified, getProfileById);
+router.put('/:profileId', authenticate, checkEmailVerified, updateProfileValidation, updateProfile);
 router.post('/:profileId/submit', authenticate, checkEmailVerified, submitTaxInformation); // Submit tax information for review
 router.post('/:profileId/file', authenticate, checkEmailVerified, fileTax); // File tax (after approval)
 

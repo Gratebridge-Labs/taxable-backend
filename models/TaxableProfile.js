@@ -102,6 +102,16 @@ const taxableProfileSchema = new mongoose.Schema({
   hasPension: { type: Boolean, required: false },
   /** Pays a mortgage */
   paysMortgage: { type: Boolean, required: false },
+  /** Date of birth (for individuals) */
+  dob: { type: Date, required: false },
+  /** Address */
+  street: { type: String, trim: true, required: false },
+  city: { type: String, trim: true, required: false },
+  state: { type: String, trim: true, required: false },
+  /** Income details (collected after base setup; structure can be extended) */
+  incomeDetails: { type: mongoose.Schema.Types.Mixed, required: false },
+  /** Relief/deductibles details for individuals */
+  deductiblesDetails: { type: mongoose.Schema.Types.Mixed, required: false },
   primaryTIN: {
     type: String,
     match: [/^[0-9]{10,12}$/, 'TIN must be 10-12 digits'],

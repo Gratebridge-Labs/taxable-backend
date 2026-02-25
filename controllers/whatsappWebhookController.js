@@ -164,6 +164,44 @@ function isLoginIntent(text) {
   );
 }
 
+/** User wants to set up tax profile */
+function isSetUpTaxProfileIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /set\s*up\s*(my\s*)?tax\s*profile/i.test(t) ||
+    /setup\s*(my\s*)?tax\s*profile/i.test(t) ||
+    /tax\s*profile/i.test(t) && !/login/i.test(t) ||
+    /create\s*(my\s*)?tax\s*profile/i.test(t)
+  );
+}
+
+/** User says they're ready to start (e.g. after tax profile summary) */
+function isImReadyIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return /^i'?m\s*ready$/i.test(t) || /^im\s*ready$/i.test(t) || /^ready$/i.test(t);
+}
+
+/** Income source options for tax profile (order 1–6). */
+const INCOME_SOURCE_OPTIONS = [
+  'Salary / Employment',
+  'Business/Self-employment',
+  'Freelance/Consulting',
+  'Investment income',
+  'Rental income',
+  'Digital Assets/Crypto'
+];
+
+/** Parse "1" or "1,2" or "1, 2, 3" into array of option labels. Returns [] if invalid. */
+function parseIncomeSourceReply(text) {
+  const t = text.trim().replace(/\s+/g, '');
+  const parts = t.split(',').map(s => parseInt(s, 10)).filter(n => n >= 1 && n <= 6);
+  const unique = [...new Set(parts)];
+  if (unique.length === 0) return null;
+  return unique.map(n => INCOME_SOURCE_OPTIONS[n - 1]);
+}
+
 /** Time-based greeting: Good morning / afternoon / evening */
 function getTimeBasedGreeting() {
   const hour = new Date().getHours();
@@ -252,6 +290,16 @@ function getSimpleTaxExplanation() {
     'Here\'s the simple version:\n\n' +
     'There is *income*, and there are *deductibles*. The government wants a piece of the income — that\'s tax.\n\n' +
     '*Deductibles* are different life aspects that can help relieve or reduce the amount you pay as tax (e.g. rent, pension, certain allowances).'
+  );
+}
+
+/** Summary shown before tax profile questions; user replies "I'm ready" to start. */
+function getTaxProfileSummary() {
+  return (
+    'Here\'s what we\'ll need — it\'s quick:\n\n' +
+    '• *NIN* (National ID Number, 11 digits — this is your Tax ID)\n' +
+    '• A few *yes/no* questions: residency (183+ days in Nigeria), rent, health insurance, pension, mortgage\n\n' +
+    'Reply *I\'m ready* when you want to start.'
   );
 }
 
@@ -439,13 +487,344 @@ const handleWebhook = async (req, res) => {
       }
     }
 
-    // Allow "Hi Taxable" / get started to restart the flow mid-registration
+    // Tax profile setup flow: intro → year → NIN → income → residency → rent → health → pension → mortgage → create → reuse_ask → dob → street → city → state → income_info → deductibles
+    const taxProfileSteps = ['tax_profile_intro', 'tax_profile_year', 'tax_profile_nin', 'tax_profile_income', 'tax_profile_residency', 'tax_profile_rent', 'tax_profile_health', 'tax_profile_pension', 'tax_profile_mortgage', 'tax_profile_reuse_ask', 'tax_profile_dob', 'tax_profile_street', 'tax_profile_city', 'tax_profile_state', 'tax_profile_income_info', 'tax_profile_deductibles'];
+    if (session && taxProfileSteps.includes(session.step)) {
+      const phoneForTax = waIdToPhone(from);
+      const userForTax = await User.findOne({ $or: [{ phone: phoneForTax }, { phone: phoneForTax.replace(/^0/, '234') }] }).select('_id firstName').lean();
+      if (!userForTax) {
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        await reply("We couldn't find your account. Say *Hi Taxable* to start fresh.");
+        sendOk();
+        return;
+      }
+      const td = session.taxProfileData || {};
+
+      if (session.step === 'tax_profile_intro') {
+        if (!isImReadyIntent(text)) {
+          await reply("Reply *I'm ready* when you want to start the tax profile setup.");
+          sendOk();
+          return;
+        }
+        session.step = 'tax_profile_year';
+        session.taxProfileData = {};
+        await session.save();
+        await reply("Which *tax year*? (e.g. 2025 or 2026). Minimum is 2025.");
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_year') {
+        const y = parseInt(String(text).trim(), 10);
+        if (isNaN(y) || y < 2025 || y > 2100) {
+          await reply("Please send a valid year (2025 or later), e.g. 2026.");
+          sendOk();
+          return;
+        }
+        td.year = y;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_nin';
+        await session.save();
+        await reply("What's your *NIN*? (11 digits — your National ID Number, used as Tax ID).");
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_nin') {
+        const nin = String(text).trim().replace(/\D/g, '');
+        if (nin.length !== 11) {
+          await reply("NIN must be exactly 11 digits. Send your National ID Number.");
+          sendOk();
+          return;
+        }
+        td.nin = nin;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_income';
+        await session.save();
+        const incomeList = INCOME_SOURCE_OPTIONS.map((label, i) => `${i + 1}. ${label}`).join('\n');
+        await reply("What's your *primary income source*? You can pick one or more. Reply with the number(s), e.g. *1* or *1,2* or *1,2,3*:\n\n" + incomeList);
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_income') {
+        const sources = parseIncomeSourceReply(text);
+        if (!sources || sources.length === 0) {
+          await reply("Reply with the number(s) for your income source(s), e.g. 1 or 1,2. Options: 1=Salary, 2=Business, 3=Freelance, 4=Investment, 5=Rental, 6=Digital/Crypto.");
+          sendOk();
+          return;
+        }
+        td.primaryIncomeSources = sources;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_residency';
+        await session.save();
+        await reply("Did you live in Nigeria for *183+ days* this tax year? (This affects whether you declare worldwide or only Nigerian income.) Reply *Yes* or *No*.");
+        sendOk();
+        return;
+      }
+
+      const yesNo = (t) => { const x = t.trim().toLowerCase(); return x === 'yes' || x === 'y' ? true : x === 'no' || x === 'n' ? false : null; };
+      if (session.step === 'tax_profile_residency') {
+        const val = yesNo(text);
+        if (val === null) { await reply("Reply *Yes* or *No*."); sendOk(); return; }
+        td.residency183Days = val;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_rent';
+        await session.save();
+        await reply("Do you *pay rent*? (If yes, you may get 20% rent relief, up to ₦500k.) Reply *Yes* or *No*.");
+        sendOk();
+        return;
+      }
+      if (session.step === 'tax_profile_rent') {
+        const val = yesNo(text);
+        if (val === null) { await reply("Reply *Yes* or *No*."); sendOk(); return; }
+        td.paysRent = val;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_health';
+        await session.save();
+        await reply("Do you pay for *health insurance*? Reply *Yes* or *No*.");
+        sendOk();
+        return;
+      }
+      if (session.step === 'tax_profile_health') {
+        const val = yesNo(text);
+        if (val === null) { await reply("Reply *Yes* or *No*."); sendOk(); return; }
+        td.hasHealthInsurance = val;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_pension';
+        await session.save();
+        await reply("Do you contribute to a *pension plan*? Reply *Yes* or *No*.");
+        sendOk();
+        return;
+      }
+      if (session.step === 'tax_profile_pension') {
+        const val = yesNo(text);
+        if (val === null) { await reply("Reply *Yes* or *No*."); sendOk(); return; }
+        td.hasPension = val;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_mortgage';
+        await session.save();
+        await reply("Do you pay a *mortgage*? Reply *Yes* or *No*.");
+        sendOk();
+        return;
+      }
+      if (session.step === 'tax_profile_mortgage') {
+        const val = yesNo(text);
+        if (val === null) { await reply("Reply *Yes* or *No*."); sendOk(); return; }
+        td.paysMortgage = val;
+        session.taxProfileData = td;
+        const year = td.year;
+        const nin = td.nin;
+        const primaryIncomeSources = td.primaryIncomeSources || [];
+        const residency183Days = td.residency183Days;
+        const paysRent = td.paysRent;
+        const hasHealthInsurance = td.hasHealthInsurance;
+        const hasPension = td.hasPension;
+        const paysMortgage = td.paysMortgage;
+        const existing = await TaxableProfile.findOne({ user: userForTax._id, year, profileType: 'Individual' });
+        if (existing) {
+          await reply(`You already have a tax profile for ${year}. Say *Hi* or *menu* to see your options.`);
+          session.step = 'done';
+          session.taxProfileData = {};
+          await session.save();
+          sendOk();
+          return;
+        }
+        let createdProfile;
+        try {
+          createdProfile = await TaxableProfile.create({
+            user: userForTax._id,
+            author: userForTax._id,
+            year,
+            profileType: 'Individual',
+            status: 'draft',
+            primaryNIN: nin,
+            primaryIncomeSources: primaryIncomeSources.length ? primaryIncomeSources : undefined,
+            residency183Days,
+            paysRent,
+            hasHealthInsurance,
+            hasPension,
+            paysMortgage
+          });
+        } catch (err) {
+          console.error('[WhatsApp] Tax profile create error:', err);
+          await reply("Something went wrong creating your profile. Please try again or say *menu* for options.");
+          sendOk();
+          return;
+        }
+        td.currentProfileId = createdProfile.profileId;
+        session.taxProfileData = td;
+        const previousProfileWithDetails = await TaxableProfile.findOne({
+          user: userForTax._id,
+          _id: { $ne: createdProfile._id },
+          $or: [{ dob: { $exists: true, $ne: null } }, { street: { $exists: true, $ne: '', $ne: null } }]
+        }).sort({ year: -1 }).select('year dob street city state').lean();
+        if (previousProfileWithDetails && (previousProfileWithDetails.dob || previousProfileWithDetails.street)) {
+          session.step = 'tax_profile_reuse_ask';
+          await session.save();
+          await reply(`Your tax profile for *${year}* is created ✅\n\nDo you want to *reuse* the details (date of birth, address) from your ${previousProfileWithDetails.year} profile? Reply *Yes* or *No*.`);
+        } else {
+          session.step = 'tax_profile_dob';
+          await session.save();
+          await reply(`Your tax profile for *${year}* is created ✅\n\nNext: what's your *date of birth*? (e.g. 15-Jan-1990 or 1990-01-15)`);
+        }
+        sendOk();
+        return;
+      }
+
+      const pid = td.currentProfileId;
+      const currentProfile = pid ? await TaxableProfile.findOne({ user: userForTax._id, $or: [{ profileId: pid }, { _id: pid }] }) : null;
+
+      if (session.step === 'tax_profile_reuse_ask') {
+        const val = yesNo(text);
+        if (val === null) { await reply("Reply *Yes* or *No*."); sendOk(); return; }
+        if (val && currentProfile) {
+          const previous = await TaxableProfile.findOne({
+            user: userForTax._id,
+            _id: { $ne: currentProfile._id },
+            $or: [{ dob: { $exists: true, $ne: null } }, { street: { $exists: true, $ne: '' } }]
+          }).sort({ year: -1 });
+          if (previous) {
+            if (currentProfile) {
+              currentProfile.dob = previous.dob;
+              currentProfile.street = previous.street;
+              currentProfile.city = previous.city;
+              currentProfile.state = previous.state;
+              await currentProfile.save();
+            }
+            session.step = 'tax_profile_income_info';
+            session.taxProfileData = td;
+            await session.save();
+            await reply("Done — we've reused your details.\n\nNext: share your *income* info (e.g. employment salary, business income, or a short description). Reply in one message.");
+          } else {
+            session.step = 'tax_profile_dob';
+            await session.save();
+            await reply("We couldn't find previous details. What's your *date of birth*? (e.g. 1990-01-15)");
+          }
+        } else if (!currentProfile) {
+          session.step = 'tax_profile_dob';
+          await session.save();
+          await reply("What's your *date of birth*? (e.g. 1990-01-15)");
+        } else {
+          session.step = 'tax_profile_dob';
+          await session.save();
+          await reply("What's your *date of birth*? (e.g. 1990-01-15 or 15-Jan-1990)");
+        }
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_dob') {
+        const raw = text.trim();
+        let dobDate = null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) dobDate = new Date(raw);
+        else if (/^\d{1,2}-\w{3}-\d{4}$/i.test(raw) || /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)) dobDate = new Date(raw);
+        if (!dobDate || isNaN(dobDate.getTime())) {
+          await reply("Send a valid date, e.g. *1990-01-15* or *15-Jan-1990*.");
+          sendOk();
+          return;
+        }
+        if (currentProfile) {
+          currentProfile.dob = dobDate;
+          await currentProfile.save();
+        }
+        td.dob = raw;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_street';
+        await session.save();
+        await reply("What's your *street address*? (e.g. 12 Main Street, Apapa)");
+        sendOk();
+        return;
+      }
+      if (session.step === 'tax_profile_street') {
+        const street = text.trim().slice(0, 500);
+        if (currentProfile) {
+          currentProfile.street = street;
+          await currentProfile.save();
+        }
+        td.street = street;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_city';
+        await session.save();
+        await reply("What's your *city*?");
+        sendOk();
+        return;
+      }
+      if (session.step === 'tax_profile_city') {
+        const city = text.trim().slice(0, 100);
+        if (currentProfile) {
+          currentProfile.city = city;
+          await currentProfile.save();
+        }
+        td.city = city;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_state';
+        await session.save();
+        await reply("What's your *state*?");
+        sendOk();
+        return;
+      }
+      if (session.step === 'tax_profile_state') {
+        const state = text.trim().slice(0, 100);
+        if (currentProfile) {
+          currentProfile.state = state;
+          await currentProfile.save();
+        }
+        td.state = state;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_income_info';
+        await session.save();
+        await reply("Thanks. Next: share your *income* info (e.g. employment salary, business income, or a short description). Reply in one message.");
+        sendOk();
+        return;
+      }
+      if (session.step === 'tax_profile_income_info') {
+        const incomeInfo = text.trim().slice(0, 2000);
+        if (currentProfile) {
+          currentProfile.incomeDetails = { source: 'whatsapp', text: incomeInfo };
+          await currentProfile.save();
+        }
+        session.step = 'tax_profile_deductibles';
+        session.taxProfileData = td;
+        await session.save();
+        await reply("Got it. Last step: share any *relief or deductibles* (e.g. rent, pension, NHF, donations). Reply in one message — or *skip* to finish.");
+        sendOk();
+        return;
+      }
+      if (session.step === 'tax_profile_deductibles') {
+        const deductiblesInfo = text.trim().toLowerCase() === 'skip' ? '' : text.trim().slice(0, 2000);
+        if (currentProfile) {
+          currentProfile.deductiblesDetails = deductiblesInfo ? { source: 'whatsapp', text: deductiblesInfo } : undefined;
+          await currentProfile.save();
+        }
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        await reply("You're all set ✅ Your tax profile is complete. Say *Hi* or *menu* anytime.");
+        sendOk();
+        return;
+      }
+    }
+
+    // Allow "Hi Taxable" / get started to restart the flow mid-registration (or cancel tax profile and show menu)
     if (isGetStarted && session.step !== 'done') {
-      session.step = 'first_name';
-      session.registrationData = {};
-      session.pendingUserId = undefined;
-      await session.save();
-      await reply("No worries! Let's start fresh. *What's your first name?*");
+      if (taxProfileSteps.includes(session.step)) {
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        const phoneForMenu = waIdToPhone(from);
+        const userForMenu = await User.findOne({ $or: [{ phone: phoneForMenu }, { phone: phoneForMenu.replace(/^0/, '234') }] }).select('firstName _id').lean();
+        const hasProfile = userForMenu ? await TaxableProfile.findOne({ user: userForMenu._id }).select('_id').lean() : null;
+        await reply(hasProfile ? getMessageProfileCompleted(userForMenu.firstName) : getMessageNoProfile(userForMenu.firstName));
+      } else {
+        session.step = 'first_name';
+        session.registrationData = {};
+        session.pendingUserId = undefined;
+        await session.save();
+        await reply("No worries! Let's start fresh. *What's your first name?*");
+      }
       sendOk();
       return;
     }
@@ -460,6 +839,17 @@ const handleWebhook = async (req, res) => {
     }
     if (regUser && isBeginnerIntent(text)) {
       await reply(getBeginnerExplanation(regUser.firstName));
+      sendOk();
+      return;
+    }
+
+    if (regUser && isSetUpTaxProfileIntent(text)) {
+      session = await WhatsAppSession.findOneAndUpdate(
+        { waId: from },
+        { $set: { step: 'tax_profile_intro', taxProfileData: {}, updatedAt: new Date() } },
+        { upsert: true, new: true }
+      );
+      await reply(getTaxProfileSummary());
       sendOk();
       return;
     }

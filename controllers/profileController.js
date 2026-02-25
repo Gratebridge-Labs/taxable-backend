@@ -196,6 +196,68 @@ const getProfileById = async (req, res) => {
 };
 
 /**
+ * Update a taxable profile (partial update: dob, street, city, state, incomeDetails, deductiblesDetails)
+ * PUT /api/taxableprofile/:profileId — pass profile ID in the URL
+ */
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { profileId } = req.params;
+    const { dob, street, city, state, incomeDetails, deductiblesDetails } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    const profile = await TaxableProfile.findOne({
+      $or: [
+        { profileId: profileId, user: userId },
+        { _id: profileId, user: userId }
+      ]
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    if (dob !== undefined) profile.dob = dob ? new Date(dob) : null;
+    if (street !== undefined) profile.street = street || '';
+    if (city !== undefined) profile.city = city || '';
+    if (state !== undefined) profile.state = state || '';
+    if (incomeDetails !== undefined) profile.incomeDetails = incomeDetails;
+    if (deductiblesDetails !== undefined) profile.deductiblesDetails = deductiblesDetails;
+
+    await profile.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Tax profile updated successfully',
+      data: {
+        profileId: profile.profileId,
+        id: profile._id,
+        dob: profile.dob,
+        street: profile.street,
+        city: profile.city,
+        state: profile.state
+      }
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while updating your tax profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
  * Submit tax information for review (user submits completed profile)
  */
 const submitTaxInformation = async (req, res) => {
@@ -345,6 +407,7 @@ module.exports = {
   createProfile,
   getUserProfiles,
   getProfileById,
+  updateProfile,
   submitTaxInformation,
   fileTax
 };
