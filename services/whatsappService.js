@@ -1,11 +1,73 @@
 /**
- * WhatsApp Cloud API - send text messages
+ * WhatsApp Cloud API - send text messages, fetch/download media (image, document)
  * Requires: WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID in env
  */
 const https = require('https');
 
 const API_VERSION = process.env.WHATSAPP_API_VERSION || 'v21.0';
-const BASE_URL = `graph.facebook.com`;
+const BASE_URL = 'graph.facebook.com';
+
+/** GET media URL from WhatsApp (response has .url); then download from that URL with same token */
+function getMediaUrl(mediaId) {
+  return new Promise((resolve, reject) => {
+    const token = process.env.WHATSAPP_ACCESS_TOKEN;
+    if (!token) return reject(new Error('WHATSAPP_ACCESS_TOKEN not set'));
+    const path = `/${API_VERSION}/${mediaId}`;
+    const options = {
+      hostname: BASE_URL,
+      path,
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try {
+            const json = JSON.parse(data || '{}');
+            const url = json.url;
+            if (url) resolve(url);
+            else reject(new Error('No url in media response'));
+          } catch (e) {
+            reject(e);
+          }
+        } else {
+          reject(new Error(`WhatsApp media URL failed: ${res.statusCode} ${data}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/** Download media file from WhatsApp; returns { buffer, mimeType } (mime from Content-Type) */
+function downloadMedia(mediaId) {
+  return getMediaUrl(mediaId).then(downloadUrl => {
+    return new Promise((resolve, reject) => {
+      const token = process.env.WHATSAPP_ACCESS_TOKEN;
+      const u = new URL(downloadUrl);
+      const options = {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` }
+      };
+      const req = https.request(options, (res) => {
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          const mimeType = (res.headers['content-type'] || 'application/octet-stream').split(';')[0].trim();
+          resolve({ buffer, mimeType });
+        });
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  });
+}
 
 function sendTextMessage(to, body) {
   return new Promise((resolve, reject) => {
@@ -81,5 +143,7 @@ function sendTextMessage(to, body) {
 }
 
 module.exports = {
-  sendTextMessage
+  sendTextMessage,
+  getMediaUrl,
+  downloadMedia
 };

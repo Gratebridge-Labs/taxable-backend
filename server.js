@@ -88,8 +88,11 @@ app.use('/api/notifications', require('./routes/notificationRoutes')); // Notifi
 app.use('/api/blogs', require('./routes/blogRoutes')); // Blog routes
 app.use('/api/whatsapp', require('./routes/whatsappWebhookRoutes')); // WhatsApp webhook
 app.use('/api/mono', require('./routes/monoRoutes')); // Mono open banking (connect bank, income)
+app.use('/api/deductions', require('./routes/deductionRoutes')); // Reliefs/deductions (create, list, update, delete)
+app.use('/api/documents', require('./routes/documentRoutes')); // Document upload/link (create, list, delete)
 app.use('/api/tax', require('./routes/taxEstimateRoutes')); // Tax estimate (sample + by income)
 app.use('/api/paystack', require('./routes/paystackRoutes')); // Paystack subscriptions & charges (webhook mounted above)
+app.use('/api/cron', require('./routes/cronRoutes')); // Cron: subscription expiry reminders (use CRON_SECRET)
 
 // Error handling middleware
 app.use((err, req, res, next) => {

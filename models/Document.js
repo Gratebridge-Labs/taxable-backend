@@ -29,6 +29,11 @@ const documentSchema = new mongoose.Schema({
     type: String,
     required: [true, 'File URL is required']
   },
+  /** Local filesystem path for files uploaded via WhatsApp (optional; used by serve endpoint) */
+  filePath: {
+    type: String,
+    required: false
+  },
   fileSize: {
     type: Number,
     required: true,

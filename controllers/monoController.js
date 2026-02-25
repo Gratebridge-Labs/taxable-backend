@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const MonoLink = require('../models/MonoLink');
 const User = require('../models/User');
 const { initiateAccountLinking, getAccountIncome, isConfigured } = require('../services/monoService');
+const { sendBankConnectedEmail } = require('../utils/emailService');
 
 /**
  * POST /api/mono/connect/initiate
@@ -120,7 +121,7 @@ const handleWebhook = async (req, res) => {
       ) : null;
 
       if (!updateByRef && ref) {
-        const upserted = await MonoLink.findOneAndUpdate(
+        await MonoLink.findOneAndUpdate(
           { ref },
           {
             user: userObjectId,
@@ -153,6 +154,14 @@ const handleWebhook = async (req, res) => {
           });
           console.log('[Mono webhook] Account linked (new doc, no ref):', id, 'user:', userId, 'newId:', created._id);
         }
+      }
+      try {
+        const user = await User.findById(userObjectId).select('email firstName').lean();
+        if (user?.email) {
+          await sendBankConnectedEmail(user.email, user.firstName || 'there', 'your bank');
+        }
+      } catch (e) {
+        console.error('[Mono webhook] Bank connected email failed:', e.message);
       }
     } else if (!id) {
       console.warn('[Mono webhook] No account id in payload; event=', event, 'id=', id);
@@ -238,9 +247,71 @@ const getStatus = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/mono/connections
+ * List all bank connections for the user (PDF: Manage connected banks).
+ */
+const listConnections = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const links = await MonoLink.find({ user: userId, status: 'linked' })
+      .sort({ updatedAt: -1 })
+      .select('monoAccountId profileId createdAt updatedAt incomeSnapshot lastIncomeFetchAt')
+      .lean();
+    return res.status(200).json({
+      success: true,
+      data: {
+        connections: links.map((l, i) => ({
+          id: l._id,
+          index: i + 1,
+          monoAccountId: l.monoAccountId,
+          profileId: l.profileId,
+          linkedAt: l.createdAt,
+          lastIncomeFetchAt: l.lastIncomeFetchAt,
+          incomeSnapshot: l.incomeSnapshot
+        })),
+        count: links.length
+      }
+    });
+  } catch (err) {
+    console.error('[Mono] listConnections error:', err.message);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to list connections' });
+  }
+};
+
+/**
+ * POST /api/mono/connections/:linkId/unlink
+ * Unlink (remove) a bank connection. Sets status to 'unlinked' (PDF: add/remove flow).
+ */
+const unlinkConnection = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const { linkId } = req.params;
+    const link = await MonoLink.findOne({ _id: linkId, user: userId });
+    if (!link) {
+      return res.status(404).json({ success: false, message: 'Connection not found' });
+    }
+    link.status = 'unlinked';
+    link.updatedAt = new Date();
+    await link.save();
+    return res.status(200).json({
+      success: true,
+      message: 'Bank disconnected successfully',
+      data: { linkId: link._id, status: 'unlinked' }
+    });
+  } catch (err) {
+    console.error('[Mono] unlinkConnection error:', err.message);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to disconnect' });
+  }
+};
+
 module.exports = {
   initiateConnect,
   handleWebhook,
   getIncome,
-  getStatus
+  getStatus,
+  listConnections,
+  unlinkConnection
 };

@@ -1,6 +1,8 @@
 const TaxableProfile = require('../models/TaxableProfile');
+const User = require('../models/User');
 const { validateYear, validateProfileType } = require('../utils/profileValidation');
 const { validationResult } = require('express-validator');
+const { sendTaxProfileCreatedEmail, sendFilingSubmittedEmail } = require('../utils/emailService');
 
 /**
  * Create a new Taxable Profile
@@ -85,6 +87,15 @@ const createProfile = async (req, res) => {
     if (typeof paysMortgage === 'boolean') profilePayload.paysMortgage = paysMortgage;
 
     const profile = await TaxableProfile.create(profilePayload);
+
+    try {
+      const user = await User.findById(userId).select('email firstName').lean();
+      if (user?.email) {
+        await sendTaxProfileCreatedEmail(user.email, user.firstName || 'there', profile.year);
+      }
+    } catch (e) {
+      console.error('[Profile] Tax profile created email failed:', e.message);
+    }
 
     res.status(201).json({
       success: true,
@@ -314,62 +325,64 @@ const submitTaxInformation = async (req, res) => {
 };
 
 /**
- * File tax (after approval/review)
+ * Perform submit (if needed) + file tax. Shared for API and WhatsApp (PDF: CONFIRM to file).
+ * @returns {{ success: boolean, message: string, profile?: object }}
+ */
+const performFileTax = async (userId, profileId) => {
+  const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
+  if (!profile) {
+    return { success: false, message: 'Tax profile not found' };
+  }
+  if (profile.filed) {
+    return { success: false, message: 'Tax has already been filed for this profile' };
+  }
+  if (!profile.submitted) {
+    profile.submitted = true;
+    profile.submittedAt = new Date();
+    profile.status = 'active';
+    profile.baseQuestionsAnswered = true;
+    await profile.save();
+  }
+  profile.filed = true;
+  profile.filedAt = new Date();
+  profile.status = 'completed';
+  await profile.save();
+  try {
+    const user = await User.findById(userId).select('email firstName').lean();
+    if (user?.email) {
+      await sendFilingSubmittedEmail(user.email, user.firstName || 'there', profile.year, null);
+    }
+  } catch (e) {
+    console.error('[Profile] Filing submitted email failed:', e.message);
+  }
+  return { success: true, message: 'Tax filed successfully', profile };
+};
+
+/**
+ * File tax (after approval/review) — HTTP handler
  */
 const fileTax = async (req, res) => {
   try {
     const userId = req.user?.userId;
     const { profileId } = req.params;
-
     if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Unauthorized'
-      });
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
-
-    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
-
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Tax profile not found'
-      });
+    const result = await performFileTax(userId, profileId);
+    if (!result.success) {
+      const status = result.message === 'Tax profile not found' ? 404 : 400;
+      return res.status(status).json({ success: false, message: result.message });
     }
-
-    // Check if submitted
-    if (!profile.submitted) {
-      return res.status(400).json({
-        success: false,
-        message: 'Profile must be submitted before filing'
-      });
-    }
-
-    // Check if already filed
-    if (profile.filed) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tax has already been filed for this profile'
-      });
-    }
-
-    // Mark as filed
-    profile.filed = true;
-    profile.filedAt = Date.now();
-    profile.status = 'completed';
-    await profile.save();
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: 'Tax filed successfully',
+      message: result.message,
       data: {
-        profileId: profile.profileId,
+        profileId: result.profile.profileId,
         filed: true,
-        filedAt: profile.filedAt,
-        status: profile.status
+        filedAt: result.profile.filedAt,
+        status: result.profile.status
       }
     });
-
   } catch (error) {
     console.error('File tax error:', error);
     res.status(500).json({
@@ -386,6 +399,7 @@ module.exports = {
   getProfileById,
   updateProfile,
   submitTaxInformation,
-  fileTax
+  fileTax,
+  performFileTax
 };
 

@@ -16,7 +16,7 @@ const whatsAppSessionSchema = new mongoose.Schema({
   step: {
     type: String,
     default: 'welcome',
-    enum: ['welcome', 'first_name', 'last_name', 'email', 'phone', 'phone_confirm', 'phone_input', 'password', 'otp', 'done', 'login_email', 'login_password', 'tax_profile_intro', 'tax_profile_year', 'tax_profile_nin', 'tax_profile_income', 'tax_profile_residency', 'tax_profile_rent', 'tax_profile_health', 'tax_profile_pension', 'tax_profile_mortgage', 'tax_profile_reuse_ask', 'tax_profile_dob', 'tax_profile_street', 'tax_profile_city', 'tax_profile_state', 'tax_profile_income_info', 'tax_profile_deductibles']
+    enum: ['welcome', 'create_account_ready', 'first_name', 'last_name', 'email', 'phone', 'phone_confirm', 'phone_input', 'password', 'otp', 'done', 'login_email', 'login_password', 'tax_profile_intro', 'tax_profile_year', 'tax_profile_nin', 'tax_profile_income', 'tax_profile_residency', 'tax_profile_rent', 'tax_profile_health', 'tax_profile_pension', 'tax_profile_mortgage', 'tax_profile_reuse_ask', 'tax_profile_dob', 'tax_profile_street', 'tax_profile_city', 'tax_profile_state', 'tax_profile_income_info', 'tax_profile_deductibles', 'filing_confirm', 'manage_banks_remove', 'manage_banks_list', 'relief_menu', 'relief_amount']
   },
   /** Partial registration data collected so far; loginEmail used during login flow */
   registrationData: {
@@ -41,7 +41,15 @@ const whatsAppSessionSchema = new mongoose.Schema({
     dob: { type: String, trim: true },
     street: { type: String, trim: true },
     city: { type: String, trim: true },
-    state: { type: String, trim: true }
+    state: { type: String, trim: true },
+    /** For manage_banks_remove: ordered list of MonoLink _ids (string) */
+    manageBanksLinkIds: [String],
+    filingProfileId: { type: String, trim: true },
+    reliefProfileId: { type: String, trim: true },
+    reliefYear: { type: Number },
+    selectedReliefType: { type: String, trim: true },
+    /** After adding a relief, store last created deduction id so next image/document can link to it */
+    lastDeductionId: { type: String, trim: true }
   },
   /** After user is created, we may need to verify OTP */
   pendingUserId: {

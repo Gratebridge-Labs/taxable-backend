@@ -1,13 +1,47 @@
+const mongoose = require('mongoose');
 const WhatsAppSession = require('../models/WhatsAppSession');
 const User = require('../models/User');
 const OTP = require('../models/OTP');
 const TaxableProfile = require('../models/TaxableProfile');
 const TaxUpdate = require('../models/TaxUpdate');
 const MonoLink = require('../models/MonoLink');
+const Deduction = require('../models/Deduction');
+const Subscription = require('../models/Subscription');
 const { sendTextMessage } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
 const { initiateAccountLinking, getAccountIncome } = require('../services/monoService');
 const { estimateTaxFromAnnualIncome } = require('../utils/taxCalculator');
+const { createSubscriptionLinkForUser, verifyPendingSubscriptionForUser } = require('./paystackController');
+const { sendTaxProfileCreatedEmail } = require('../utils/emailService');
+const {
+  ENTRY_MESSAGE,
+  CURIOUS_MODE_REPLY,
+  CREATE_ACCOUNT_INTRO,
+  CREATE_ACCOUNT_FIRST_NAME,
+  CREATE_ACCOUNT_LAST_NAME,
+  CREATE_ACCOUNT_USE_WHATSAPP_NUMBER,
+  CREATE_ACCOUNT_EMAIL,
+  CREATE_ACCOUNT_PASSWORD,
+  getPostVerificationWelcome,
+  getTaxProfileIntro,
+  TAX_PROFILE_ASK_NIN,
+  SUBSCRIPTION_REQUIRED,
+  SUBSCRIPTION_WHY_IT_MATTERS,
+  getPaymentLinkMessage,
+  getPaymentLinkMessageYearly,
+  PAYMENT_CONFIRMED,
+  PAYMENT_NOT_CONFIRMED_YET,
+  getLoggedInMainMenu,
+  FILE_TAX_CONFIRM,
+  FILE_TAX_SUBMITTED,
+  CONNECT_BANK_INTRO,
+  getConnectBankLink,
+  CONNECT_ANOTHER_BANK
+} = require('../constants/whatsappPrompts');
+const { generateCompleteBreakdown } = require('../utils/breakdownCalculator');
+const { performFileTax } = require('./profileController');
+const { downloadMedia } = require('../services/whatsappService');
+const { createDocumentFromBuffer } = require('./documentController');
 
 const DASHBOARD_URL = 'dashboard.gettaxable.com';
 const APP_URL = process.env.APP_URL || 'https://dashboard.gettaxable.com';
@@ -154,6 +188,31 @@ function isLearnHowTaxWorksIntent(text) {
   );
 }
 
+/** PDF: "I don't understand tax — explain it" (curious mode) */
+function isIDontUnderstandTaxIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /i don'?t understand tax/i.test(t) ||
+    /don'?t understand tax/i.test(t) ||
+    /explain\s*(it|tax)/i.test(t) ||
+    t === "i don't understand tax" ||
+    t === "explain it"
+  );
+}
+
+/** PDF: "FAQ" or "Talk to someone" / "Talk to support" */
+function isFAQOrTalkToSomeoneIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /^faq$/i.test(t) ||
+    /talk\s*to\s*(someone|support)/i.test(t) ||
+    t === 'talk to someone' ||
+    t === 'talk to support'
+  );
+}
+
 /** User wants to login to existing account */
 function isLoginIntent(text) {
   if (!text || typeof text !== 'string') return false;
@@ -264,6 +323,100 @@ function isImReadyIntent(text) {
     /^i\s+am\s+ready\.?$/i.test(t) ||
     /^ready\.?$/i.test(t)
   );
+}
+
+/** User wants subscription plans (PDF: "Subscription plans" menu option) */
+function isSubscriptionPlansIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /subscription\s*plans?/i.test(t) ||
+    /^subscription$/i.test(t) ||
+    t === 'subscription plans'
+  );
+}
+
+/** User chose monthly plan (PDF: "Choose monthly") */
+function isChooseMonthlyIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return /choose\s*monthly/i.test(t) || t === 'monthly' || t === 'choose monthly';
+}
+
+/** User chose yearly plan (PDF: "Choose yearly") */
+function isChooseYearlyIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return /choose\s*yearly/i.test(t) || t === 'yearly' || t === 'choose yearly' || /best\s*value/i.test(t);
+}
+
+/** User wants to learn why subscription matters */
+function isLearnWhySubscriptionMattersIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /learn\s*why\s*subscription\s*matters/i.test(t) ||
+    /why\s*subscription/i.test(t) ||
+    /subscription\s*matters/i.test(t)
+  );
+}
+
+/** User says Done or Check again (after payment link – PDF flow) */
+function isDoneOrCheckAgainIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return /^done\.?$/i.test(t) || /check\s*again/i.test(t) || t === 'done' || t === 'check again';
+}
+
+/** PDF: "View tax summary" */
+function isViewTaxSummaryIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return /view\s*tax\s*summary/i.test(t) || t === 'view tax summary' || /tax\s*summary/i.test(t) && /view|show|see/i.test(t);
+}
+
+/** PDF: "Proceed to file" */
+function isProceedToFileIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return /proceed\s*to\s*file/i.test(t) || /file\s*(my\s*)?tax/i.test(t) && /proceed|ready|submit/i.test(t) || t === 'proceed to file';
+}
+
+/** PDF: "Reply CONFIRM to file" */
+function isConfirmFileIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  return /^confirm\.?$/i.test(text.trim()) || text.trim().toLowerCase() === 'confirm';
+}
+
+/** PDF: "Manage connected banks" */
+function isManageConnectedBanksIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return /manage\s*connected\s*banks/i.test(t) || /connected\s*banks/i.test(t) && /manage|list|view/i.test(t) || t === 'manage connected banks';
+}
+
+/** PDF: "Add reliefs & upload documents" */
+function isAddReliefsIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return /add\s*reliefs/i.test(t) || /reliefs?\s*&\s*upload\s*documents?/i.test(t) || /upload\s*documents?/i.test(t) && /relief/i.test(t) || t === 'add reliefs' || t === 'add reliefs & upload documents';
+}
+
+const RELIEF_TYPES = [
+  { num: 1, key: 'nhf', label: 'NHF (National Housing Fund)' },
+  { num: 2, key: 'nhis', label: 'NHIS (Health Insurance)' },
+  { num: 3, key: 'pension', label: 'Pension' },
+  { num: 4, key: 'life_insurance', label: 'Life insurance' },
+  { num: 5, key: 'mortgage_interest', label: 'Mortgage interest' },
+  { num: 6, key: 'rent_relief', label: 'Rent relief' },
+  { num: 7, key: 'transport_allowance', label: 'Transport allowance' },
+  { num: 8, key: 'other', label: 'Other' }
+];
+
+/** Check if user has an active subscription (for 🔒 gating) */
+async function hasActiveSubscription(userId) {
+  const sub = await Subscription.findOne({ user: userId, status: 'active' }).lean();
+  return !!sub;
 }
 
 /** Income source options for tax profile (order 1–6). */
@@ -508,14 +661,7 @@ const handleWebhook = async (req, res) => {
   const from = message.from; // wa_id
   const type = message.type;
   let text = '';
-  if (type === 'text' && message.text) text = message.text.body || '';
-  if (!text.trim()) {
-    console.log('[WhatsApp webhook] Ignored: no text (type=', type, ')');
-    sendOk();
-    return;
-  }
-
-  console.log('[WhatsApp webhook] Message from', from, ':', text.substring(0, 80));
+  if (type === 'text' && message.text) text = (message.text.body || '').trim();
 
   /** Send reply and return promise so we can await it before ending the request (required on serverless) */
   const reply = (msg) => {
@@ -524,24 +670,87 @@ const handleWebhook = async (req, res) => {
       .catch(err => console.error('[WhatsApp webhook] Send error:', err.message || err));
   };
 
+  // —— Incoming image or document: save and link to relief (user can send docs in chat) ——
+  if (type === 'image' || type === 'document') {
+    const phoneForLookup = waIdToPhone(from);
+    const regUserForMedia = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('_id').lean();
+    if (regUserForMedia) {
+      const mediaId = type === 'image' ? message.image?.id : message.document?.id;
+      const originalFileName = type === 'document' ? (message.document?.filename || 'document') : (message.image?.caption ? `${message.image.caption}.jpg` : 'image.jpg');
+      if (mediaId) {
+        try {
+          const { buffer, mimeType } = await downloadMedia(mediaId);
+          const profile = await TaxableProfile.findOne({ user: regUserForMedia._id }).sort({ year: -1 }).select('_id year').lean();
+          if (!profile) {
+            await reply("Create a tax profile first (Reply *Create tax profile*), then add a relief. After that you can send documents here to attach to the relief.");
+            sendOk();
+            return;
+          }
+          let sessionForMedia = await WhatsAppSession.findOne({ waId: from }).lean();
+          let deductionId = sessionForMedia?.taxProfileData?.lastDeductionId || null;
+          if (!deductionId) {
+            const lastDeduction = await Deduction.findOne({ profileId: profile._id, 'period.year': profile.year }).sort({ createdAt: -1 }).select('_id').lean();
+            deductionId = lastDeduction ? String(lastDeduction._id) : null;
+          }
+          const doc = await createDocumentFromBuffer(
+            regUserForMedia._id,
+            profile._id,
+            deductionId ? new mongoose.Types.ObjectId(deductionId) : null,
+            buffer,
+            originalFileName,
+            mimeType
+          );
+          if (deductionId) {
+            await reply("Document received ✅ Saved and linked to your relief. You can send another or reply *View added reliefs* / *Back*.");
+          } else {
+            await reply("Document received ✅ Saved. To attach it to a relief, add a relief first then send the document again, or link it from the dashboard.");
+          }
+        } catch (err) {
+          console.error('[WhatsApp] Document upload error:', err.message);
+          await reply("We couldn't save that file. Please try again or upload from the dashboard: https://" + DASHBOARD_URL);
+        }
+      } else {
+        await reply("We didn't receive the file. Please send the image or document again.");
+      }
+    } else {
+      await reply("Create an account and add a relief first; then you can send documents here to attach to your relief.");
+    }
+    sendOk();
+    return;
+  }
+
+  if (!text) {
+    console.log('[WhatsApp webhook] Ignored: no text (type=', type, ')');
+    sendOk();
+    return;
+  }
+
+  console.log('[WhatsApp webhook] Message from', from, ':', text.substring(0, 80));
+
   try {
     let session = await WhatsAppSession.findOne({ waId: from });
     const isGetStarted = isGetStartedIntent(text);
     const phoneForLookup = waIdToPhone(from);
 
-    // Hi Taxable / Get started → always show menu (redirect to menu)
+    // Hi Taxable / Get started → PDF: entry (no account) or post-verification / logged-in menu (returning user)
     if (isGetStarted) {
       const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
       if (userForMenu) {
-        const hasProfile = await TaxableProfile.findOne({ user: userForMenu._id }).select('_id').lean();
-        await reply(hasProfile ? getMessageProfileCompleted(userForMenu.firstName) : getMessageNoProfile(userForMenu.firstName));
+        const hasProfile = await TaxableProfile.findOne({ user: userForMenu._id }).sort({ year: -1 }).select('_id year').lean();
+        const hasSub = await hasActiveSubscription(userForMenu._id);
+        const year = hasProfile?.year || new Date().getFullYear();
+        if (hasProfile) {
+          await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub));
+        } else {
+          await reply(getPostVerificationWelcome(userForMenu.firstName));
+        }
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
           { $set: { step: 'done', updatedAt: new Date() } },
           { upsert: true, new: true }
         );
       } else {
-        await reply(getMessageNoAccount());
+        await reply(ENTRY_MESSAGE);
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
           { $set: { step: 'welcome', updatedAt: new Date() } },
@@ -552,32 +761,67 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // No session or welcome: show menu options or start registration when they say "Create my account"
-    if (!session || session.step === 'welcome') {
-      if (isCreateAccountIntent(text)) {
+    // No session or welcome: PDF entry menu, Create account (intro → Ready), Curious mode, Login, FAQ/Talk to someone
+    if (!session || session.step === 'welcome' || session.step === 'create_account_ready') {
+      if (session?.step === 'create_account_ready' && isImReadyIntent(text)) {
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
           { $set: { step: 'first_name', registrationData: {}, updatedAt: new Date() } },
           { upsert: true, new: true }
         );
-        await reply("Welcome to *Taxable*! 🎉 Let's create your account. *What's your first name?*");
-      } else if (isMenuOrHiIntent(text)) {
-        await reply(getMessageNoAccount());
+        await reply(CREATE_ACCOUNT_FIRST_NAME);
+        sendOk();
+        return;
+      }
+      if (isCreateAccountIntent(text)) {
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'create_account_ready', registrationData: {}, updatedAt: new Date() } },
+          { upsert: true, new: true }
+        );
+        await reply(CREATE_ACCOUNT_INTRO);
+        sendOk();
+        return;
+      }
+      if (isMenuOrHiIntent(text)) {
+        await reply(ENTRY_MESSAGE);
         if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
-      } else if (isLearnHowTaxWorksIntent(text)) {
-        await reply(getSimpleTaxExplanation() + '\n\nReply *Create my account* or *Login to your account* to get started.');
-      } else if (isLoginIntent(text)) {
+        sendOk();
+        return;
+      }
+      if (isIDontUnderstandTaxIntent(text) || isLearnHowTaxWorksIntent(text) || isBeginnerIntent(text)) {
+        await reply(CURIOUS_MODE_REPLY);
+        if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
+        sendOk();
+        return;
+      }
+      if (isFAQOrTalkToSomeoneIntent(text)) {
+        await reply("You can reach us at support@gettaxable.com or reply *Talk to support* anytime. For quick answers, try *Learn how tax works* or *Create my account* to get started.");
+        if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
+        sendOk();
+        return;
+      }
+      if (isLoginIntent(text)) {
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
           { $set: { step: 'login_email', registrationData: {}, updatedAt: new Date() } },
           { upsert: true, new: true }
         );
         await reply("What's the *email address* for your Taxable account?");
-      } else if (isBeginnerIntent(text)) {
-        await reply(getSimpleTaxExplanation() + '\n\nReply *Hi Taxable* for the menu, then *Create my account* or *Login to your account*.');
+        sendOk();
+        return;
       }
-      sendOk();
-      return;
+      if (session?.step === 'create_account_ready') {
+        await reply("When you're ready, reply *Ready* and we'll begin.");
+        sendOk();
+        return;
+      }
+      if (!session || session.step === 'welcome') {
+        await reply(ENTRY_MESSAGE);
+        if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
+        sendOk();
+        return;
+      }
     }
 
     // Login flow: collect email then password, verify, link user to this WhatsApp and set session to done
@@ -622,8 +866,14 @@ const handleWebhook = async (req, res) => {
         };
         session.pendingUserId = undefined;
         await session.save();
-        const hasProfile = await TaxableProfile.findOne({ user: userDoc._id }).select('_id').lean();
-        await reply(hasProfile ? getMessageProfileCompleted(userDoc.firstName) : getMessageNoProfile(userDoc.firstName));
+        const hasProfile = await TaxableProfile.findOne({ user: userDoc._id }).sort({ year: -1 }).select('_id year').lean();
+        const hasSub = await hasActiveSubscription(userDoc._id);
+        const year = hasProfile?.year || new Date().getFullYear();
+        if (hasProfile) {
+          await reply(getLoggedInMainMenu(userDoc.firstName, year, hasSub));
+        } else {
+          await reply(getPostVerificationWelcome(userDoc.firstName));
+        }
         sendOk();
         return;
       }
@@ -650,10 +900,21 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        session.step = 'tax_profile_year';
-        session.taxProfileData = {};
-        await session.save();
-        await reply("Which *tax year*? (e.g. 2025 or 2026). Minimum is 2025.");
+        // PDF: if no existing profile, year already set (e.g. 2025); don't ask. If existing, ask year.
+        const existingProfileForYear = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year').lean();
+        if (existingProfileForYear) {
+          session.step = 'tax_profile_year';
+          session.taxProfileData = td;
+          await session.save();
+          await reply("Which *tax year*? (e.g. 2025 or 2026). Minimum is 2025.");
+        } else {
+          const yearDefault = td.year || new Date().getFullYear();
+          td.year = yearDefault;
+          session.taxProfileData = td;
+          session.step = 'tax_profile_nin';
+          await session.save();
+          await reply(TAX_PROFILE_ASK_NIN);
+        }
         sendOk();
         return;
       }
@@ -795,6 +1056,12 @@ const handleWebhook = async (req, res) => {
           await reply("Something went wrong creating your profile. Please try again or say *menu* for options.");
           sendOk();
           return;
+        }
+        try {
+          const u = await User.findById(userForTax._id).select('email firstName').lean();
+          if (u?.email) await sendTaxProfileCreatedEmail(u.email, u.firstName || 'there', year);
+        } catch (e) {
+          console.error('[WhatsApp] Tax profile created email failed:', e.message);
         }
         td.currentProfileId = createdProfile.profileId;
         session.taxProfileData = td;
@@ -998,8 +1265,53 @@ const handleWebhook = async (req, res) => {
       }
     }
 
-    // Registered user: handle "learn how tax works" and "menu/hi" so we don't just resend menu
+    // Registered user
     const regUser = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
+
+    // —— Filing confirm (PDF: CONFIRM to file, or Back) ——
+    if (regUser && session?.step === 'filing_confirm') {
+      const filingProfileId = session.taxProfileData?.filingProfileId;
+      if (isConfirmFileIntent(text)) {
+        if (!filingProfileId) {
+          await reply("Something went wrong — please say *View tax summary* then *Proceed to file* again.");
+          session.step = 'done';
+          await session.save();
+          sendOk();
+          return;
+        }
+        try {
+          const result = await performFileTax(regUser._id, filingProfileId);
+          if (result.success) {
+            await reply(FILE_TAX_SUBMITTED);
+            session.step = 'done';
+            session.taxProfileData = { ...(session.taxProfileData || {}), filingProfileId: undefined };
+            await session.save();
+            const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
+            const year = hasProfile?.year || new Date().getFullYear();
+            const hasSub = await hasActiveSubscription(regUser._id);
+            await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
+          } else {
+            await reply(result.message || "We couldn't file your tax right now. Please try again or contact support.");
+          }
+        } catch (err) {
+          console.error('[WhatsApp] performFileTax error:', err.message);
+          await reply("Something went wrong while filing. Please try again in a moment or contact support.");
+        }
+      } else if (text.trim().toLowerCase() === 'back') {
+        session.step = 'done';
+        session.taxProfileData = { ...(session.taxProfileData || {}), filingProfileId: undefined };
+        await session.save();
+        const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
+        const year = hasProfile?.year || new Date().getFullYear();
+        const hasSub = await hasActiveSubscription(regUser._id);
+        await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
+      } else {
+        await reply("Reply *CONFIRM* to file, or *Back* to review.");
+      }
+      sendOk();
+      return;
+    }
+
     if (regUser && isLearnHowTaxWorksIntent(text)) {
       await reply(getBeginnerExplanation(regUser.firstName));
       sendOk();
@@ -1011,18 +1323,435 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
+    // —— Subscription flow (PDF): Done / Check again → verify payment ——
+    if (regUser && isDoneOrCheckAgainIntent(text)) {
+      try {
+        const result = await verifyPendingSubscriptionForUser(regUser._id);
+        if (result.verified) {
+          await reply(PAYMENT_CONFIRMED);
+          const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).select('_id').lean();
+          const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
+          const year = latestProfile?.year || new Date().getFullYear();
+          await reply(getLoggedInMainMenu(regUser.firstName, year, true));
+        } else {
+          await reply(result.message || PAYMENT_NOT_CONFIRMED_YET);
+        }
+      } catch (err) {
+        console.error('[WhatsApp] verifyPendingSubscription error:', err.message);
+        await reply(PAYMENT_NOT_CONFIRMED_YET);
+      }
+      sendOk();
+      return;
+    }
+
+    // —— Subscription plans menu (PDF) ——
+    if (regUser && isSubscriptionPlansIntent(text)) {
+      await reply(SUBSCRIPTION_REQUIRED);
+      sendOk();
+      return;
+    }
+    if (regUser && isLearnWhySubscriptionMattersIntent(text)) {
+      await reply(SUBSCRIPTION_WHY_IT_MATTERS);
+      sendOk();
+      return;
+    }
+    if (regUser && isChooseMonthlyIntent(text)) {
+      try {
+        const { authorization_url } = await createSubscriptionLinkForUser(regUser._id, 'monthly');
+        await reply(getPaymentLinkMessage(authorization_url));
+      } catch (err) {
+        console.error('[WhatsApp] createSubscriptionLink monthly error:', err.message);
+        await reply("We couldn't generate the payment link right now. Please try again in a moment or say *Subscription plans* to try again.");
+      }
+      sendOk();
+      return;
+    }
+    if (regUser && isChooseYearlyIntent(text)) {
+      try {
+        const { authorization_url } = await createSubscriptionLinkForUser(regUser._id, 'yearly');
+        await reply(getPaymentLinkMessageYearly(authorization_url));
+      } catch (err) {
+        console.error('[WhatsApp] createSubscriptionLink yearly error:', err.message);
+        await reply("We couldn't generate the payment link right now. Please try again in a moment or say *Subscription plans* to try again.");
+      }
+      sendOk();
+      return;
+    }
+
+    // —— Locked actions: require active subscription (PDF 🔒) ——
     if (regUser && isSetUpTaxProfileIntent(text)) {
+      const hasSub = await hasActiveSubscription(regUser._id);
+      if (!hasSub) {
+        await reply(SUBSCRIPTION_REQUIRED);
+        sendOk();
+        return;
+      }
+      const existingProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
+      const yearForIntro = existingProfile?.year || 2025; // PDF: if none → 2025
+      const taxProfileDataInitial = existingProfile ? {} : { year: 2025 };
       session = await WhatsAppSession.findOneAndUpdate(
         { waId: from },
-        { $set: { step: 'tax_profile_intro', taxProfileData: {}, updatedAt: new Date() } },
+        { $set: { step: 'tax_profile_intro', taxProfileData: taxProfileDataInitial, updatedAt: new Date() } },
         { upsert: true, new: true }
       );
-      await reply(getTaxProfileSummary());
+      await reply(getTaxProfileIntro(regUser.firstName, yearForIntro));
+      await reply("Reply *I'm ready* when you want to start.");
+      sendOk();
+      return;
+    }
+
+    // —— View tax summary (PDF: income, reliefs, estimated tax, fee, next steps) ——
+    if (regUser && isViewTaxSummaryIntent(text)) {
+      const hasSub = await hasActiveSubscription(regUser._id);
+      if (!hasSub) {
+        await reply(SUBSCRIPTION_REQUIRED);
+        sendOk();
+        return;
+      }
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year profileId').lean();
+      if (!latestProfile) {
+        await reply("You don't have a tax profile yet. Reply *Create tax profile* to set one up.");
+        sendOk();
+        return;
+      }
+      try {
+        const breakdown = await generateCompleteBreakdown(latestProfile._id, latestProfile.year);
+        const s = breakdown?.summary || {};
+        const totalIncome = s.totalIncome ?? 0;
+        const totalDeductions = s.totalDeductions ?? 0;
+        const taxPayable = s.finalTaxPayable ?? s.taxCalculated ?? 0;
+        const feePlaceholder = 5000;
+        const totalToday = taxPayable + feePlaceholder;
+        let msg = `Here's your *${latestProfile.year}* tax summary (based on your connected banks + reliefs):\n\n`;
+        msg += `*Income snapshot*\n• Total income detected: ₦${Number(totalIncome).toLocaleString()}\n• Period: Jan–Dec ${latestProfile.year} (or current-to-date)\n\n`;
+        msg += `*Reliefs applied*\n• Total reliefs & deductions: ₦${Number(totalDeductions).toLocaleString()}\n\n`;
+        msg += `*Estimated tax due*\n• Estimated PAYE/Tax payable: ₦${Number(taxPayable).toLocaleString()}\n\n`;
+        msg += `*Filing costs*\n• Filing service fee: ₦${feePlaceholder.toLocaleString()}\n• Estimated tax to pay government: ₦${Number(taxPayable).toLocaleString()}\n• *Total today: ₦${Number(totalToday).toLocaleString()}*\n\n`;
+        msg += `What would you like to do next?\n• View details\n• Continue adding reliefs\n• Proceed to file`;
+        await reply(msg);
+      } catch (err) {
+        console.error('[WhatsApp] Tax summary error:', err.message);
+        await reply("We're still building your summary. Make sure your bank is connected and you've added reliefs, then try *View tax summary* again. If it persists, contact support.");
+      }
+      sendOk();
+      return;
+    }
+
+    // —— Manage connected banks (PDF: list, add, remove) ——
+    if (regUser && isManageConnectedBanksIntent(text)) {
+      const hasSub = await hasActiveSubscription(regUser._id);
+      if (!hasSub) {
+        await reply(SUBSCRIPTION_REQUIRED);
+        sendOk();
+        return;
+      }
+      const links = await MonoLink.find({ user: regUser._id, status: 'linked' }).sort({ updatedAt: -1 }).lean();
+      if (!links.length) {
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId').lean();
+        const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile?.profileId);
+        if (monoLink?.link) {
+          await reply(CONNECT_BANK_INTRO);
+          await reply(getConnectBankLink(monoLink.link));
+        } else {
+          await reply("You don't have any banks connected yet. Reply *Continue my filing* to get a link to connect your bank.");
+        }
+        sendOk();
+        return;
+      }
+      const list = links.map((l, i) => `${i + 1}. Bank ${i + 1} (${l.monoAccountId ? '****' + String(l.monoAccountId).slice(-4) : 'connected'})`).join('\n');
+      const linkIds = links.map((l) => String(l._id));
+      await WhatsAppSession.findOneAndUpdate(
+        { waId: from },
+        { $set: { step: 'manage_banks_list', 'taxProfileData.manageBanksLinkIds': linkIds, updatedAt: new Date() } },
+        { upsert: true }
+      );
+      await reply(`Here are your connected banks 👇\n\n${list}\n\nReply with a number to view insights, or *Add* to connect another bank, or *Remove* to disconnect one.`);
+      sendOk();
+      return;
+    }
+    // In manage_banks_list: number = view insights for that bank; Back = main menu
+    if (regUser && session?.step === 'manage_banks_list') {
+      if (/^back\.?$/i.test(text.trim())) {
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
+        );
+        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await hasActiveSubscription(regUser._id));
+        await reply(menu);
+        sendOk();
+        return;
+      }
+      const linkIds = session.taxProfileData?.manageBanksLinkIds || [];
+      const num = parseInt(text.trim(), 10);
+      if (num >= 1 && num <= linkIds.length) {
+        const link = await MonoLink.findById(linkIds[num - 1]);
+        if (link && link.user.toString() === regUser._id.toString()) {
+          let snap = link.incomeSnapshot;
+          try {
+            if (link.monoAccountId) {
+              const fresh = await getAccountIncome(link.monoAccountId);
+              if (fresh) {
+                snap = fresh;
+                link.incomeSnapshot = fresh;
+                link.lastIncomeFetchAt = new Date();
+                link.updatedAt = new Date();
+                await link.save();
+              }
+            }
+          } catch (e) {
+            console.error('[WhatsApp] Fresh income fetch for bank failed:', e.message);
+          }
+          const total = snap?.total_income ?? snap?.income ?? snap?.data?.total_income ?? 0;
+          const monthlyAvg = snap?.monthly_average ?? snap?.average_monthly_income ?? snap?.data?.monthly_average;
+          const period = snap?.period ? ` (${snap.period})` : '';
+          let msg = `*Bank ${num}* — View data${period}\n\n• Total income detected: ₦${Number(total).toLocaleString()}`;
+          if (monthlyAvg != null && monthlyAvg > 0) msg += `\n• Monthly average: ₦${Number(monthlyAvg).toLocaleString()}`;
+          if (snap?.income_type || snap?.type) msg += `\n• Type: ${snap.income_type || snap.type || 'Income'}`;
+          msg += `\n\nFor full breakdown and tax summary, reply *View tax summary* or check the dashboard: https://${DASHBOARD_URL}`;
+          await reply(msg);
+        } else {
+          await reply("That bank isn't in your list. Reply *Manage connected banks* to see the list again.");
+        }
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
+        );
+      } else {
+        await reply("Reply with a number from the list, or *Add*, or *Remove*, or *Back* for the main menu.");
+      }
+      sendOk();
+      return;
+    }
+    // Remove: ask which bank (store linkIds for next message)
+    if (regUser && text.trim().toLowerCase() === 'remove') {
+      const linksForRemove = await MonoLink.find({ user: regUser._id, status: 'linked' }).sort({ updatedAt: -1 }).lean();
+      if (!linksForRemove.length) {
+        await reply("You don't have any connected banks to remove.");
+        sendOk();
+        return;
+      }
+      const linkIds = linksForRemove.map((l) => String(l._id));
+      await WhatsAppSession.findOneAndUpdate(
+        { waId: from },
+        { $set: { step: 'manage_banks_remove', 'taxProfileData.manageBanksLinkIds': linkIds, updatedAt: new Date() } },
+        { upsert: true }
+      );
+      await reply("Reply with the *number* of the bank to remove (e.g. 1, 2, 3).");
+      sendOk();
+      return;
+    }
+    // In manage_banks_remove step: number = unlink that bank; Back = cancel
+    if (regUser && session?.step === 'manage_banks_remove') {
+      if (/^back\.?$/i.test(text.trim())) {
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
+        );
+        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await hasActiveSubscription(regUser._id));
+        await reply(menu);
+        sendOk();
+        return;
+      }
+      const linkIds = session.taxProfileData?.manageBanksLinkIds || [];
+      const num = parseInt(text.trim(), 10);
+      if (num >= 1 && num <= linkIds.length) {
+        const linkId = linkIds[num - 1];
+        const link = await MonoLink.findOne({ _id: linkId, user: regUser._id });
+        if (link) {
+          link.status = 'unlinked';
+          link.updatedAt = new Date();
+          await link.save();
+          await reply("Bank disconnected ✅ You can connect it again anytime via *Manage connected banks*.");
+        } else {
+          await reply("That connection wasn't found. Reply *Manage connected banks* to see the list again.");
+        }
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
+        );
+      } else {
+        await reply(`Please reply with a number between 1 and ${linkIds.length}, or *Back* to cancel.`);
+      }
+      sendOk();
+      return;
+    }
+    if (regUser && text.trim().toLowerCase() === 'add') {
+      const links = await MonoLink.find({ user: regUser._id, status: 'linked' }).lean();
+      if (links.length >= 5) {
+        await reply("You can connect up to 5 banks. Reply *Remove* next to a bank to disconnect one first.");
+        sendOk();
+        return;
+      }
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId').lean();
+      const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile?.profileId);
+      if (monoLink?.link) {
+        await reply(CONNECT_ANOTHER_BANK);
+        await reply(getConnectBankLink(monoLink.link));
+      } else {
+        await reply("We couldn't generate a new link right now. Please try again in a moment.");
+      }
+      sendOk();
+      return;
+    }
+
+    // —— Add reliefs (PDF: relief menu → amount → saved; documents via dashboard) ——
+    if (regUser && isAddReliefsIntent(text)) {
+      const hasSub = await hasActiveSubscription(regUser._id);
+      if (!hasSub) {
+        await reply(SUBSCRIPTION_REQUIRED);
+        sendOk();
+        return;
+      }
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id profileId year').lean();
+      if (!latestProfile) {
+        await reply("You don't have a tax profile yet. Reply *Create tax profile* first.");
+        sendOk();
+        return;
+      }
+      const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
+      await WhatsAppSession.findOneAndUpdate(
+        { waId: from },
+        { $set: { step: 'relief_menu', 'taxProfileData.reliefProfileId': latestProfile.profileId, 'taxProfileData.reliefYear': latestProfile.year, updatedAt: new Date() } },
+        { upsert: true }
+      );
+      await reply(`Choose a relief type (reply with the number):\n\n${reliefList}\n\nOr reply *View added reliefs* to see what you've added, or *Back* for the main menu.`);
+      sendOk();
+      return;
+    }
+    if (regUser && /^view\s*added\s*reliefs?\.?$/i.test(text.trim())) {
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id profileId year').lean();
+      if (!latestProfile) {
+        await reply("You don't have a tax profile yet.");
+        sendOk();
+        return;
+      }
+      const deductions = await Deduction.find({ profileId: latestProfile._id, 'period.year': latestProfile.year }).sort({ createdAt: -1 }).lean();
+      if (!deductions.length) {
+        await reply("You haven't added any reliefs yet. Reply *Add reliefs* to add one.");
+        sendOk();
+        return;
+      }
+      const lines = deductions.map((d, i) => `${i + 1}. ${d.deductionType.replace(/_/g, ' ')}: ₦${Number(d.amount || 0).toLocaleString()}`).join('\n');
+      await reply(`Your added reliefs for ${latestProfile.year}:\n\n${lines}\n\nReply *Add reliefs* to add more, or *View tax summary* to see your estimate.`);
+      sendOk();
+      return;
+    }
+    // relief_menu: number 1–8 → relief_amount
+    if (regUser && session?.step === 'relief_menu') {
+      if (/^back\.?$/i.test(text.trim())) {
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', 'taxProfileData.reliefProfileId': undefined, 'taxProfileData.reliefYear': undefined, 'taxProfileData.selectedReliefType': undefined, updatedAt: new Date() } }
+        );
+        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await hasActiveSubscription(regUser._id));
+        await reply(menu);
+        sendOk();
+        return;
+      }
+      const num = parseInt(text.trim(), 10);
+      const relief = RELIEF_TYPES.find((r) => r.num === num);
+      if (relief) {
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'relief_amount', 'taxProfileData.selectedReliefType': relief.key, updatedAt: new Date() } }
+        );
+        const hint = relief.key === 'rent_relief' ? ' (we\'ll apply 20% relief, max ₦500,000)' : '';
+        await reply(`Enter the *amount* in Naira for ${relief.label}${hint}. Example: 50000`);
+        sendOk();
+        return;
+      }
+      await reply("Reply with a number from 1 to 8, or *View added reliefs* or *Back*.");
+      sendOk();
+      return;
+    }
+    // relief_amount: number → create deduction, then offer add another / view / back
+    if (regUser && session?.step === 'relief_amount') {
+      if (/^back\.?$/i.test(text.trim())) {
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'relief_menu', 'taxProfileData.selectedReliefType': undefined, updatedAt: new Date() } }
+        );
+        const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
+        await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.`);
+        sendOk();
+        return;
+      }
+      const amount = parseFloat(String(text).replace(/[,₦\s]/g, ''), 10);
+      if (isNaN(amount) || amount < 0) {
+        await reply("Please enter a valid amount in Naira (e.g. 50000). Or reply *Back* to cancel.");
+        sendOk();
+        return;
+      }
+      const profileIdStr = session.taxProfileData?.reliefProfileId;
+      const year = session.taxProfileData?.reliefYear;
+      const deductionType = session.taxProfileData?.selectedReliefType;
+      const profile = await TaxableProfile.findOne({ profileId: profileIdStr, user: regUser._id }).select('_id').lean();
+      if (!profile) {
+        await reply("Your profile wasn't found. Reply *Back* and try again.");
+        sendOk();
+        return;
+      }
+      const period = { year, startDate: new Date(year, 0, 1), endDate: new Date(year, 11, 31) };
+      const payload = { profileId: profile._id, deductionType, period, amount: 0 };
+      if (deductionType === 'nhf') payload.nhf = { contribution: amount };
+      else if (deductionType === 'nhis') payload.nhis = { contribution: amount };
+      else if (deductionType === 'pension') payload.pension = { contribution: amount };
+      else if (deductionType === 'life_insurance') payload.lifeInsurance = { premium: amount };
+      else if (deductionType === 'mortgage_interest') payload.mortgageInterest = { interestPaid: amount };
+      else if (deductionType === 'rent_relief') payload.rentRelief = { annualRent: amount };
+      else if (deductionType === 'transport_allowance') payload.transportAllowance = { amount: Math.min(amount, 200000) };
+      else if (deductionType === 'other') payload.other = { amount, description: 'Other deduction' };
+      try {
+        const deduction = new Deduction(payload);
+        await deduction.save();
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'relief_menu', 'taxProfileData.selectedReliefType': undefined, 'taxProfileData.lastDeductionId': String(deduction._id), updatedAt: new Date() } }
+        );
+        const displayAmount = deduction.amount != null ? deduction.amount : amount;
+        await reply(`Saved ✅ Relief added: ₦${Number(displayAmount).toLocaleString()}.\n\nYou can *send a photo or document* here to attach to this relief, or use the dashboard: https://${DASHBOARD_URL}\n\nReply with a number (1–8) to add another relief, *View added reliefs*, or *Back* for the main menu.`);
+        const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
+        await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.`);
+      } catch (err) {
+        console.error('[WhatsApp] Relief save error:', err.message);
+        await reply("Something went wrong saving that relief. Please try again or add it from the dashboard: https://" + DASHBOARD_URL);
+      }
+      sendOk();
+      return;
+    }
+
+    // —— Proceed to file (PDF: CONFIRM step) ——
+    if (regUser && isProceedToFileIntent(text)) {
+      const hasSub = await hasActiveSubscription(regUser._id);
+      if (!hasSub) {
+        await reply(SUBSCRIPTION_REQUIRED);
+        sendOk();
+        return;
+      }
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId year').lean();
+      if (!latestProfile) {
+        await reply("You don't have a tax profile yet. Reply *Create tax profile* first.");
+        sendOk();
+        return;
+      }
+      session = await WhatsAppSession.findOneAndUpdate(
+        { waId: from },
+        { $set: { step: 'filing_confirm', 'taxProfileData.filingProfileId': latestProfile.profileId, updatedAt: new Date() } },
+        { upsert: true, new: true }
+      );
+      const confirmMsg = FILE_TAX_CONFIRM.replace('2025', String(latestProfile.year));
+      await reply(confirmMsg);
       sendOk();
       return;
     }
 
     if (regUser && isContinueMyFilingIntent(text)) {
+      const hasSub = await hasActiveSubscription(regUser._id);
+      if (!hasSub) {
+        await reply(SUBSCRIPTION_REQUIRED);
+        sendOk();
+        return;
+      }
       const latestProfile = await TaxableProfile.findOne({ user: regUser._id })
         .sort({ year: -1, createdAt: -1 })
         .select('primaryNIN dob street city state profileId')
@@ -1163,8 +1892,14 @@ const handleWebhook = async (req, res) => {
     }
 
     if (regUser && isMenuOrHiIntent(text)) {
-      const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).select('_id').lean();
-      await reply(hasProfile ? getMessageProfileCompleted(regUser.firstName) : getMessageNoProfile(regUser.firstName));
+      const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year').lean();
+      const hasSub = await hasActiveSubscription(regUser._id);
+      const year = hasProfile?.year || new Date().getFullYear();
+      if (hasProfile) {
+        await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
+      } else {
+        await reply(getPostVerificationWelcome(regUser.firstName));
+      }
       sendOk();
       return;
     }
@@ -1200,7 +1935,7 @@ const handleWebhook = async (req, res) => {
         session.registrationData = data;
         session.step = 'last_name';
         await session.save();
-        await reply(`Nice to meet you, ${data.firstName}! 👋 *What's your last name?*`);
+        await reply(CREATE_ACCOUNT_LAST_NAME);
         break;
       }
       case 'last_name': {
@@ -1213,7 +1948,7 @@ const handleWebhook = async (req, res) => {
         session.registrationData = data;
         session.step = 'email';
         await session.save();
-        await reply(`${data.firstName}, what's your *email address*? We'll use it to verify your account and keep you updated.`);
+        await reply(CREATE_ACCOUNT_EMAIL);
         break;
       }
       case 'email': {
@@ -1226,18 +1961,14 @@ const handleWebhook = async (req, res) => {
         session.registrationData = data;
         session.step = 'phone_confirm';
         await session.save();
-        const suggestedPhone = waIdToPhone(from);
-        const firstName = data.firstName || '';
-        await reply(`Great, ${firstName}! We have *${suggestedPhone}* from WhatsApp. Do you want to use this number? Reply *yes* or *no*.`);
+        await reply(CREATE_ACCOUNT_USE_WHATSAPP_NUMBER);
         break;
       }
       case 'phone': {
         // Legacy: session had step 'phone' (old flow). Treat as phone_confirm and ask yes/no.
         session.step = 'phone_confirm';
         await session.save();
-        const suggestedPhone = waIdToPhone(from);
-        const firstName = data.firstName || '';
-        await reply(`Great, ${firstName}! We have *${suggestedPhone}* from WhatsApp. Do you want to use this number? Reply *yes* or *no*.`);
+        await reply(CREATE_ACCOUNT_USE_WHATSAPP_NUMBER);
         break;
       }
       case 'phone_confirm': {
@@ -1249,16 +1980,16 @@ const handleWebhook = async (req, res) => {
           session.registrationData = data;
           session.step = 'password';
           await session.save();
-          await reply(`${firstName}, almost there! *Choose a password* — at least 8 characters, with one uppercase letter, one lowercase letter, and one number. We never show or repeat it in chat for your security. 🔒`);
+          await reply(CREATE_ACCOUNT_PASSWORD);
           break;
         }
         if (t === 'no' || t === 'n') {
           session.step = 'phone_input';
           await session.save();
-          await reply(`No problem, ${firstName}! What's your *phone number*?`);
+          await reply(`No problem, ${firstName}! What's your *phone number*? (e.g. 08012345678)`);
           break;
         }
-        await reply(`Reply *yes* to use ${suggestedPhone}, or *no* to enter a different number, ${firstName}. 😊`);
+        await reply("Reply *Yes* to use this WhatsApp number, or *No* to send another number.");
         sendOk();
         return;
       }
@@ -1275,7 +2006,7 @@ const handleWebhook = async (req, res) => {
         session.registrationData = data;
         session.step = 'password';
         await session.save();
-        await reply(`${firstName}, almost there! *Choose a password* — at least 8 characters, with one uppercase letter, one lowercase letter, and one number. We never show or repeat it in chat for your security. 🔒`);
+        await reply(CREATE_ACCOUNT_PASSWORD);
         break;
       }
       case 'password': {
@@ -1351,10 +2082,10 @@ const handleWebhook = async (req, res) => {
           return;
         }
         if (otpRecord.verified) {
-          await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — open the Taxable app or website and sign in when you're ready. Welcome back!`);
+          await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — sign in when you're ready. Welcome back!`);
           session.step = 'done';
           await session.save();
-          await reply(getMessageNoProfile(data.firstName));
+          await reply(getPostVerificationWelcome(data.firstName));
           sendOk();
           return;
         }
@@ -1376,15 +2107,25 @@ const handleWebhook = async (req, res) => {
         session.step = 'done';
         session.pendingUserId = undefined;
         await session.save();
-        await reply(`✅ You're in, ${data.firstName}! Your email is verified. Open the Taxable app or website and sign in with the password you just set — your account is ready. Welcome to Taxable! 🎉`);
-        await reply(getMessageNoProfile(data.firstName));
+        await reply(`✅ You're in, ${data.firstName}! Your email is verified. Your account is ready. Welcome to Taxable! 🎉`);
+        await reply(getPostVerificationWelcome(data.firstName));
         break;
       }
       case 'done': {
         const phoneForDone = waIdToPhone(from);
         const userDone = await User.findOne({ $or: [{ phone: phoneForDone }, { phone: phoneForDone.replace(/^0/, '234') }] }).select('_id firstName').lean();
-        const hasProfileDone = userDone ? await TaxableProfile.findOne({ user: userDone._id }).select('_id').lean() : null;
-        await reply(hasProfileDone ? getMessageProfileCompleted(userDone.firstName) : getMessageNoProfile(data.firstName || userDone?.firstName));
+        if (userDone) {
+          const hasProfileDone = await TaxableProfile.findOne({ user: userDone._id }).sort({ year: -1 }).select('_id year').lean();
+          const hasSubDone = await hasActiveSubscription(userDone._id);
+          const yearDone = hasProfileDone?.year || new Date().getFullYear();
+          if (hasProfileDone) {
+            await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone));
+          } else {
+            await reply(getPostVerificationWelcome(userDone.firstName));
+          }
+        } else {
+          await reply(ENTRY_MESSAGE);
+        }
         break;
       }
       default:
