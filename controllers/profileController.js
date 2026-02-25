@@ -163,13 +163,7 @@ const getProfileById = async (req, res) => {
     const userId = req.user?.userId;
     const { profileId } = req.params;
 
-    // Try to find by custom profileId first, then by MongoDB _id
-    const profile = await TaxableProfile.findOne({
-      $or: [
-        { profileId: profileId, user: userId },
-        { _id: profileId, user: userId }
-      ]
-    });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
@@ -212,12 +206,7 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    const profile = await TaxableProfile.findOne({
-      $or: [
-        { profileId: profileId, user: userId },
-        { _id: profileId, user: userId }
-      ]
-    });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
@@ -272,13 +261,7 @@ const submitTaxInformation = async (req, res) => {
       });
     }
 
-    // Find profile
-    const profile = await TaxableProfile.findOne({
-      $or: [
-        { profileId: profileId, user: userId },
-        { _id: profileId, user: userId }
-      ]
-    });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
@@ -345,13 +328,7 @@ const fileTax = async (req, res) => {
       });
     }
 
-    // Find profile
-    const profile = await TaxableProfile.findOne({
-      $or: [
-        { profileId: profileId, user: userId },
-        { _id: profileId, user: userId }
-      ]
-    });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({

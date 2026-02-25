@@ -168,6 +168,25 @@ const taxableProfileSchema = new mongoose.Schema({
   timestamps: true
 });
 
+/** Return true if str looks like a MongoDB ObjectId (24 hex chars) */
+function isMongoObjectId(str) {
+  return typeof str === 'string' && /^[a-fA-F0-9]{24}$/.test(str);
+}
+
+/**
+ * Find one profile by custom profileId (e.g. TP589605302) or MongoDB _id.
+ * Use this instead of findOne({ $or: [{ profileId }, { _id }] }) to avoid CastError
+ * when the value is a custom profileId string.
+ */
+taxableProfileSchema.statics.findByProfileIdOrId = function (idParam, userId) {
+  const byProfileId = userId ? { profileId: idParam, user: userId } : { profileId: idParam };
+  if (isMongoObjectId(idParam)) {
+    const byId = userId ? { _id: idParam, user: userId } : { _id: idParam };
+    return this.findOne({ $or: [byProfileId, byId] });
+  }
+  return this.findOne(byProfileId);
+};
+
 // Compound index to ensure one profile per user per year per profileType
 // This allows users to have both Individual and Business profiles for the same year
 taxableProfileSchema.index({ user: 1, year: 1, profileType: 1 }, { unique: true });

@@ -450,13 +450,7 @@ const addProfileNotes = async (req, res) => {
       });
     }
 
-    // Find profile
-    const profile = await TaxableProfile.findOne({
-      $or: [
-        { profileId: profileId },
-        { _id: profileId }
-      ]
-    });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId);
 
     if (!profile) {
       return res.status(404).json({

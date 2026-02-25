@@ -679,7 +679,7 @@ const handleWebhook = async (req, res) => {
       }
 
       const pid = td.currentProfileId;
-      const currentProfile = pid ? await TaxableProfile.findOne({ user: userForTax._id, $or: [{ profileId: pid }, { _id: pid }] }) : null;
+      const currentProfile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
 
       if (session.step === 'tax_profile_reuse_ask') {
         const val = yesNo(text);

@@ -26,13 +26,7 @@ const requestProfileReview = async (req, res) => {
       });
     }
 
-    // Verify profile exists and belongs to user
-    const profile = await TaxableProfile.findOne({
-      $or: [
-        { profileId: profileId, user: userId },
-        { _id: profileId, user: userId }
-      ]
-    });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
