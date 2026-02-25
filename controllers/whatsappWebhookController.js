@@ -176,11 +176,15 @@ function isSetUpTaxProfileIntent(text) {
   );
 }
 
-/** User says they're ready to start (e.g. after tax profile summary) */
+/** User says they're ready to start (e.g. after tax profile summary). Handles "I'm ready", "im ready", "ready", smart quotes. */
 function isImReadyIntent(text) {
   if (!text || typeof text !== 'string') return false;
-  const t = text.trim().toLowerCase();
-  return /^i'?m\s*ready$/i.test(t) || /^im\s*ready$/i.test(t) || /^ready$/i.test(t);
+  const t = text.trim().toLowerCase().replace(/[\u2018\u2019\u201B]/g, "'"); // normalize smart apostrophes
+  return (
+    /^i'?m\s*ready\.?$/i.test(t) ||
+    /^i\s+am\s+ready\.?$/i.test(t) ||
+    /^ready\.?$/i.test(t)
+  );
 }
 
 /** Income source options for tax profile (order 1–6). */
