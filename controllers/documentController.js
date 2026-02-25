@@ -5,13 +5,16 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const mongoose = require('mongoose');
 const Document = require('../models/Document');
 const TaxableProfile = require('../models/TaxableProfile');
 const Deduction = require('../models/Deduction');
 
 const APP_URL = process.env.APP_URL || 'https://dashboard.gettaxable.com';
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads', 'documents');
+// On Vercel/Lambda, process.cwd() is read-only; use tmp dir so mkdir doesn't fail (files are ephemeral on serverless)
+const UPLOADS_BASE = (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) ? os.tmpdir() : process.cwd();
+const UPLOADS_DIR = path.join(UPLOADS_BASE, 'uploads', 'documents');
 
 /** Resolve profileId string to TaxableProfile belonging to user */
 async function getProfileForUser(profileIdStr, userId) {
@@ -236,9 +239,10 @@ async function createDocumentFromBuffer(userId, profileId, deductionId, buffer, 
   const fileName = `${id}${ext}`;
   const userDir = path.join(UPLOADS_DIR, String(userId));
   fs.mkdirSync(userDir, { recursive: true });
-  const relativePath = path.join('uploads', 'documents', String(userId), fileName);
-  const absolutePath = path.join(process.cwd(), relativePath);
+  const absolutePath = path.join(userDir, fileName);
   fs.writeFileSync(absolutePath, buffer);
+  // Store absolute path when using tmp (serverless) so serve can resolve; otherwise relative for portability
+  const filePathForDoc = UPLOADS_BASE !== process.cwd() ? absolutePath : path.join('uploads', 'documents', String(userId), fileName);
   const doc = new Document({
     _id: id,
     profileId,
@@ -247,7 +251,7 @@ async function createDocumentFromBuffer(userId, profileId, deductionId, buffer, 
     fileName,
     originalFileName: originalFileName || fileName,
     fileUrl: `${APP_URL}/api/documents/serve/${id}`,
-    filePath: relativePath,
+    filePath: filePathForDoc,
     fileSize: buffer.length,
     mimeType: mimeType || 'application/octet-stream',
     linkedTo: deductionId ? { deductionId } : {},

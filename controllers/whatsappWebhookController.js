@@ -6,6 +6,7 @@ const TaxableProfile = require('../models/TaxableProfile');
 const TaxUpdate = require('../models/TaxUpdate');
 const MonoLink = require('../models/MonoLink');
 const Deduction = require('../models/Deduction');
+const Document = require('../models/Document');
 const Subscription = require('../models/Subscription');
 const { sendTextMessage, sendImage } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
@@ -494,10 +495,9 @@ function getReviewProfileSummaryMessage(profile) {
   msg += `💡 *Relief indicators*\n`;
   msg += `• Rent: ${rent}\n`;
   msg += `• Pension: ${pension}\n`;
-  msg += `• NHF: —\n`;
+  msg += `• NHF/Mortgage: ${mortgage}\n`;
   msg += `• Life insurance: —\n`;
-  msg += `• Health insurance: ${health}\n`;
-  msg += `• Mortgage: ${mortgage}\n\n`;
+  msg += `• Health insurance: ${health}\n\n`;
   msg += `Would you like to:\n`;
   msg += `• Change income sources\n`;
   msg += `• Update relief answers\n`;
@@ -789,7 +789,16 @@ const handleWebhook = async (req, res) => {
               mimeType
             );
             if (deductionId) {
-              await reply("Document received ✅ Saved and linked to your relief. You can send another or reply *View added reliefs* / *Back*.");
+              await reply("Document received ✅ Saved and linked to your relief.");
+              const sessionAfter = await WhatsAppSession.findOne({ waId: from }).lean();
+              if (sessionAfter?.step === 'relief_awaiting_document') {
+                await WhatsAppSession.findOneAndUpdate(
+                  { waId: from },
+                  { $set: { step: 'relief_menu', updatedAt: new Date() } }
+                );
+                const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
+                await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.${BACK_TO_MENU_FOOTER}`);
+              }
             } else {
               await reply("Document received ✅ Saved. To attach it to a relief, add a relief first then send the document again, or link it from the dashboard.");
             }
@@ -1860,6 +1869,33 @@ const handleWebhook = async (req, res) => {
       sendOk();
       return;
     }
+    // relief_awaiting_document: wait for document or Skip / Back before showing relief menu again
+    if (regUser && session?.step === 'relief_awaiting_document') {
+      const t = text.trim().toLowerCase();
+      if (/^back\.?$/i.test(t)) {
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', 'taxProfileData.reliefProfileId': undefined, 'taxProfileData.reliefYear': undefined, 'taxProfileData.lastDeductionId': undefined, updatedAt: new Date() } }
+        );
+        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        await reply(menu);
+        sendOk();
+        return;
+      }
+      if (/^skip\.?$/i.test(t)) {
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'relief_menu', updatedAt: new Date() } }
+        );
+        const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
+        await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.${BACK_TO_MENU_FOOTER}`);
+        sendOk();
+        return;
+      }
+      await reply("Reply *Skip* to add another relief later, or *Back* to menu.");
+      sendOk();
+      return;
+    }
     // relief_amount: number → create deduction, then offer add another / view / back
     if (regUser && session?.step === 'relief_amount') {
       if (/^back\.?$/i.test(text.trim())) {
@@ -1872,9 +1908,10 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
+      // Accept amounts with or without commas (e.g. 3,000,000 or 3000000)
       const amount = parseFloat(String(text).replace(/[,₦\s]/g, ''), 10);
       if (isNaN(amount) || amount < 0) {
-        await reply("Please enter a valid amount in Naira (e.g. 50000). Or reply *Back* to cancel.");
+        await reply("Please enter a valid amount in Naira (e.g. 50000 or 3,000,000). Or reply *Back* to cancel.");
         sendOk();
         return;
       }
@@ -1902,12 +1939,19 @@ const handleWebhook = async (req, res) => {
         await deduction.save();
         await WhatsAppSession.findOneAndUpdate(
           { waId: from },
-          { $set: { step: 'relief_menu', 'taxProfileData.selectedReliefType': undefined, 'taxProfileData.lastDeductionId': String(deduction._id), updatedAt: new Date() } }
+          { $set: { step: 'relief_awaiting_document', 'taxProfileData.selectedReliefType': undefined, 'taxProfileData.lastDeductionId': String(deduction._id), updatedAt: new Date() } }
         );
-        const displayAmount = deduction.amount != null ? deduction.amount : amount;
-        await reply(`Saved ✅ Relief added: ₦${Number(displayAmount).toLocaleString()}.\n\nYou can *send a photo or document* here to attach to this relief, or use the dashboard: https://${DASHBOARD_URL}\n\nReply with a number (1–8) to add another relief, *View added reliefs*, or *Back* for the main menu.${BACK_TO_MENU_FOOTER}`);
-        const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
-        await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.${BACK_TO_MENU_FOOTER}`);
+        const reliefLabel = RELIEF_TYPES.find((r) => r.key === deductionType)?.label || deductionType;
+        let savedMsg;
+        if (deductionType === 'rent_relief' && deduction.rentRelief?.annualRent != null) {
+          const annualRent = Number(deduction.rentRelief.annualRent);
+          const reliefApplied = Number(deduction.amount != null ? deduction.amount : 0);
+          savedMsg = `Saved ✅ Rent relief: annual rent ₦${annualRent.toLocaleString()} — relief applied ₦${reliefApplied.toLocaleString()}.\n\nYou can *send a photo or document* here to attach to this relief, or use the dashboard: https://${DASHBOARD_URL}\n\nReply *Skip* to add another relief later, or *Back* to menu.`;
+        } else {
+          const displayAmount = deduction.amount != null ? deduction.amount : amount;
+          savedMsg = `Saved ✅ ${reliefLabel}: ₦${Number(displayAmount).toLocaleString()}.\n\nYou can *send a photo or document* here to attach to this relief, or use the dashboard: https://${DASHBOARD_URL}\n\nReply *Skip* to add another relief later, or *Back* to menu.`;
+        }
+        await reply(savedMsg);
       } catch (err) {
         console.error('[WhatsApp] Relief save error:', err.message);
         await reply("Something went wrong saving that relief. Please try again or add it from the dashboard: https://" + DASHBOARD_URL);
@@ -1924,9 +1968,21 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
-      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId year').lean();
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId year _id').lean();
       if (!latestProfile) {
         await reply("You don't have a tax profile yet. Reply *Create tax profile* first.");
+        sendOk();
+        return;
+      }
+      const deductions = await Deduction.find({ profileId: latestProfile._id, 'period.year': latestProfile.year }).select('_id deductionType').lean();
+      const withoutDoc = [];
+      for (const d of deductions) {
+        const count = await Document.countDocuments({ 'linkedTo.deductionId': d._id });
+        if (count === 0) withoutDoc.push(d);
+      }
+      if (withoutDoc.length > 0) {
+        const labels = withoutDoc.map((d) => RELIEF_TYPES.find((r) => r.key === d.deductionType)?.label || d.deductionType);
+        await reply(`Before filing, every relief needs a supporting document.\n\nStill missing documents for:\n• ${labels.join('\n• ')}\n\nAdd a relief, enter the amount, then send a photo or document for that relief. You can also *View added reliefs* and send documents for any relief.${BACK_TO_MENU_FOOTER}`);
         sendOk();
         return;
       }
