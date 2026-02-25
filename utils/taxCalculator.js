@@ -276,8 +276,30 @@ function calculateCompanyTaxComplete(incomeSources, expenses, capitalAllowances,
   };
 }
 
+/**
+ * Simple estimate: given annual chargeable income, return tax and effective rate %.
+ * Uses same brackets as calculateIndividualTax (e.g. 0% up to ₦800k, 15% next, etc.).
+ */
+function estimateTaxFromAnnualIncome(annualIncome) {
+  const n = Number(annualIncome);
+  if (!Number.isFinite(n) || n < 0) {
+    return { totalTax: 0, effectiveRatePercent: 0, chargeableIncome: 0 };
+  }
+  const result = calculateIndividualTax(n);
+  const chargeableIncome = n;
+  const totalTax = result.totalTax;
+  const effectiveRatePercent = chargeableIncome > 0 ? (totalTax / chargeableIncome) * 100 : 0;
+  return {
+    totalTax,
+    effectiveRatePercent,
+    chargeableIncome,
+    breakdown: result.brackets
+  };
+}
+
 module.exports = {
   calculateIndividualTax,
+  estimateTaxFromAnnualIncome,
   calculateCompanyTax,
   calculateRentRelief,
   calculateNHF,

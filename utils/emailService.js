@@ -400,6 +400,76 @@ const sendPasswordResetEmail = async (email, firstName, otpCode) => {
   }
 };
 
+// Subscription active email (after Paystack webhook confirms payment)
+const generateSubscriptionActiveEmailTemplate = (firstName, planName = 'Subscription') => {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your subscription is active - Taxable</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f5f5f5;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f5f5f5; padding: 20px;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" style="max-width: 600px; width: 100%; border-collapse: collapse; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+          <tr>
+            <td style="background-color: #1a3a5c; padding: 30px 40px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">Taxable</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px;">
+              <h2 style="margin: 0 0 20px 0; color: #1a3a5c; font-size: 24px;">Your subscription is active</h2>
+              <p style="margin: 0 0 20px 0; color: #333; font-size: 16px; line-height: 1.6;">Hi ${firstName},</p>
+              <p style="margin: 0 0 20px 0; color: #555; font-size: 16px; line-height: 1.6;">Thank you for your payment. Your <strong>${planName}</strong> subscription is now active.</p>
+              <table role="presentation" style="width: 100%; border-collapse: collapse; margin: 25px 0;">
+                <tr>
+                  <td style="background-color: #f5d7d7; padding: 20px; border-radius: 8px; border-left: 4px solid #1a3a5c;">
+                    <p style="margin: 0; color: #1a3a5c; font-size: 16px; font-weight: 500;">You can now use all features included in your plan. If you have any questions, contact us at <a href="mailto:support@gettaxable.com" style="color: #1a3a5c;">support@gettaxable.com</a>.</p>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin: 20px 0 0 0; color: #666; font-size: 14px;">Best regards,<br>The Taxable Team</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #a8d5e2; padding: 25px 40px; text-align: center;">
+              <p style="margin: 0; color: #1a3a5c; font-size: 14px;">Need help? Contact us at support@gettaxable.com</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+};
+
+const sendSubscriptionActiveEmail = async (email, firstName, planName = 'Subscription') => {
+  try {
+    const transporter = createTransporter();
+    const fromName = process.env.EMAIL_FROM_NAME || 'Taxable';
+    const fromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER;
+    const mailOptions = {
+      from: `"${fromName}" <${fromEmail}>`,
+      to: email,
+      subject: 'Your Taxable subscription is active',
+      html: generateSubscriptionActiveEmailTemplate(firstName, planName),
+      text: `Hi ${firstName},\n\nThank you for your payment. Your ${planName} subscription is now active. You can now use all features included in your plan.\n\nBest regards,\nThe Taxable Team`
+    };
+    const info = await transporter.sendMail(mailOptions);
+    console.log('[Email] Subscription active email sent to', email, 'messageId:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('[Email] Subscription active send failed to', email, '|', error.message);
+    throw new Error(error.message || 'Failed to send subscription active email');
+  }
+};
+
 // Send a test email (for health check / debugging). Requires `to` so you receive it at an inbox you check.
 const sendTestEmail = async (to) => {
   const recipient = (to && to.trim()) || process.env.EMAIL_USER;
@@ -427,9 +497,11 @@ module.exports = {
   sendOTPEmail,
   sendWelcomeEmail,
   sendPasswordResetEmail,
+  sendSubscriptionActiveEmail,
   sendTestEmail,
   generateOTPEmailTemplate,
   generateWelcomeEmailTemplate,
-  generatePasswordResetEmailTemplate
+  generatePasswordResetEmailTemplate,
+  generateSubscriptionActiveEmailTemplate
 };
 

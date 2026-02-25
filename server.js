@@ -9,6 +9,18 @@ const PORT = process.env.PORT || 3000;
 // Connect to MongoDB
 connectDB();
 
+// Paystack webhook must receive raw body for signature verification (mount before express.json)
+const paystackWebhook = require('./controllers/paystackController').handleWebhook;
+app.use('/api/paystack/webhook', express.raw({ type: 'application/json' }), (req, res, next) => {
+  try {
+    req.rawBody = req.body;
+    req.body = req.body && Buffer.isBuffer(req.body) ? JSON.parse(req.body.toString()) : {};
+  } catch (e) {
+    req.body = {};
+  }
+  next();
+}, paystackWebhook);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -76,6 +88,8 @@ app.use('/api/notifications', require('./routes/notificationRoutes')); // Notifi
 app.use('/api/blogs', require('./routes/blogRoutes')); // Blog routes
 app.use('/api/whatsapp', require('./routes/whatsappWebhookRoutes')); // WhatsApp webhook
 app.use('/api/mono', require('./routes/monoRoutes')); // Mono open banking (connect bank, income)
+app.use('/api/tax', require('./routes/taxEstimateRoutes')); // Tax estimate (sample + by income)
+app.use('/api/paystack', require('./routes/paystackRoutes')); // Paystack subscriptions & charges (webhook mounted above)
 
 // Error handling middleware
 app.use((err, req, res, next) => {

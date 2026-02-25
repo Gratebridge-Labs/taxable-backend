@@ -7,6 +7,7 @@ const MonoLink = require('../models/MonoLink');
 const { sendTextMessage } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
 const { initiateAccountLinking, getAccountIncome } = require('../services/monoService');
+const { estimateTaxFromAnnualIncome } = require('../utils/taxCalculator');
 
 const DASHBOARD_URL = 'dashboard.gettaxable.com';
 const APP_URL = process.env.APP_URL || 'https://dashboard.gettaxable.com';
@@ -228,6 +229,32 @@ function profileHasPersonalDetailsComplete(profile) {
   return hasNin && hasDob && hasStreet && hasCity && hasState;
 }
 
+/** User wants to get their financial data (Mono link or summary) */
+function isGetMyFinancialDataIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /get\s*my\s*financial\s*data/i.test(t) ||
+    /my\s*financial\s*data/i.test(t) ||
+    /financial\s*data/i.test(t) && /get|show|fetch/i.test(t) ||
+    t === 'get my financial data'
+  );
+}
+
+/** User wants PAYE / tax estimate */
+function isCheckPayeEstimateIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  return (
+    /check\s*my\s*paye\s*estimate/i.test(t) ||
+    /paye\s*estimate/i.test(t) ||
+    /estimate\s*my\s*tax/i.test(t) ||
+    /tax\s*estimate/i.test(t) ||
+    t === 'check my paye estimate' ||
+    t === 'estimate my tax'
+  );
+}
+
 /** User says they're ready to start (e.g. after tax profile summary). Handles "I'm ready", "im ready", "ready", smart quotes. */
 function isImReadyIntent(text) {
   if (!text || typeof text !== 'string') return false;
@@ -314,6 +341,8 @@ function getPinnedMenuCommands() {
     '• *Hi Taxable* or *Menu* — Show this menu\n' +
     '• *Tax profile* — Set up / manage tax profile\n' +
     '• *Continue my filing* — Continue filing\n' +
+    '• *Get my financial data* — Bank link / income summary\n' +
+    '• *Check my PAYE estimate* — Tax estimate from your income\n' +
     '• *Complete my details* — Add DOB & address'
   );
 }
@@ -338,6 +367,7 @@ function getMessageNoProfile(firstName) {
     'Late payment = 10% penalty + interest.\n\n' +
     'What would you like to do next?\n\n' +
     '• Set up my tax profile\n' +
+    '• Get my financial data\n' +
     '• Learn how tax works (simple version)\n' +
     '• Estimate my PAYE\n' +
     '• Speak to someone\n\n' +
@@ -363,6 +393,7 @@ function getMessageProfileCompleted(firstName) {
     'Late payment = 10% + interest.\n\n' +
     'Would you like to:\n\n' +
     '• Continue my filing\n' +
+    '• Get my financial data\n' +
     '• Check my PAYE estimate\n' +
     '• Ask a question\n\n' +
     'Tell me what you need and I\'ll handle it.' +
@@ -1067,6 +1098,66 @@ const handleWebhook = async (req, res) => {
         { upsert: true, new: true }
       );
       await reply("What's your *date of birth*? (e.g. 1990-01-15 or 15-Jan-1990)");
+      sendOk();
+      return;
+    }
+
+    if (regUser && isGetMyFinancialDataIntent(text)) {
+      const link = await MonoLink.findOne({ user: regUser._id, status: 'linked' }).sort({ updatedAt: -1 }).lean();
+      if (link) {
+        try {
+          const income = await getAccountIncome(link.monoAccountId);
+          const totalIncome = (income && (income.total_income ?? income.totalIncome ?? income.monthly_average * 12)) || 0;
+          const balance = (income && (income.balance ?? income.total_balance)) || null;
+          let msg = "We have your *financial data* from your linked bank ✅\n\n";
+          if (balance != null) msg += "• Balance: ₦" + Number(balance).toLocaleString() + "\n";
+          if (totalIncome > 0) msg += "• Income (annual): ₦" + Number(totalIncome).toLocaleString() + "\n";
+          msg += "\nSay *Check my PAYE estimate* to see an estimated tax based on this income.";
+          await reply(msg);
+        } catch (e) {
+          console.error('[WhatsApp] Get financial data fetch error:', e.message);
+          await reply("Your bank is linked ✅ We're still syncing the latest numbers. Say *Check my PAYE estimate* if you've already added income, or try again in a moment.");
+        }
+      } else {
+        const monoLinkGet = await getMonoConnectLinkForUser(regUser._id, null);
+        if (monoLinkGet?.link) {
+          await reply("Let's get your *financial data* in. Connect your bank (one-time) and we'll pull your income:\n\n" + monoLinkGet.link);
+          await reply("After connecting, say *Get my financial data* again to see your summary.");
+        } else {
+          await reply("To get your financial data we need to connect your bank. Set up your tax profile first (reply *Continue my filing* or *Tax profile*), then we'll send you a secure link to connect.");
+        }
+      }
+      sendOk();
+      return;
+    }
+
+    if (regUser && isCheckPayeEstimateIntent(text)) {
+      const profile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1, createdAt: -1 }).select('incomeDetails').lean();
+      let annualIncome = 0;
+      if (profile?.incomeDetails) {
+        const id = profile.incomeDetails;
+        if (id.source === 'mono' && id.data) {
+          const d = id.data;
+          annualIncome = d.total_income ?? d.totalIncome ?? (d.monthly_average != null ? d.monthly_average * 12 : 0) ?? (d.income && (d.income.total ?? d.income.annual)) ?? 0;
+        }
+        if (annualIncome <= 0 && id.text) {
+          const match = String(id.text).match(/(\d[\d,.\s]*)\s*(?:naira|ngn|₦|k|m)/i) || String(id.text).match(/(\d{1,3}(?:,\d{3})*(?:\.\d+)?)/);
+          if (match) annualIncome = parseFloat(String(match[1]).replace(/,/g, ''), 10) || 0;
+        }
+      }
+      if (annualIncome <= 0) {
+        await reply("We don't have your income on file yet. Reply *Get my financial data* to connect your bank, or *Continue my filing* to add income manually. Then I can give you a PAYE estimate.");
+        sendOk();
+        return;
+      }
+      const e = estimateTaxFromAnnualIncome(annualIncome);
+      const pct = Math.round(e.effectiveRatePercent * 100) / 100;
+      await reply(
+        "Based on your income of *₦" + annualIncome.toLocaleString() + "* (annual):\n\n" +
+        "• Estimated tax: *₦" + e.totalTax.toLocaleString() + "*\n" +
+        "• Effective rate: *" + pct + "%*\n\n" +
+        "(Rates: 0% up to ₦800k, then 15%, 18%, etc. This is an estimate only.)"
+      );
       sendOk();
       return;
     }
