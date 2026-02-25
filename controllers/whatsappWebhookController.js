@@ -1515,7 +1515,7 @@ const handleWebhook = async (req, res) => {
         { $set: { step: 'manage_banks_list', 'taxProfileData.manageBanksLinkIds': linkIds, updatedAt: new Date() } },
         { upsert: true }
       );
-      await reply(`Here are your connected banks 👇\n\n${list}\n\nReply with a number to view insights, or *Add* to connect another bank, or *Remove* to disconnect one.`);
+      await reply(`Here are your connected banks 👇\n\n${list}\n\nReply with a *number* to view insights, or *Add* to connect another bank, or *Remove* to disconnect one.`);
       sendOk();
       return;
     }
@@ -1557,7 +1557,7 @@ const handleWebhook = async (req, res) => {
           let msg = `*Bank ${num}* — View data${period}\n\n• Total income detected: ₦${Number(total).toLocaleString()}`;
           if (monthlyAvg != null && monthlyAvg > 0) msg += `\n• Monthly average: ₦${Number(monthlyAvg).toLocaleString()}`;
           if (snap?.income_type || snap?.type) msg += `\n• Type: ${snap.income_type || snap.type || 'Income'}`;
-          msg += `\n\nFor full breakdown and tax summary, reply *View tax summary* or check the dashboard: https://${DASHBOARD_URL}`;
+          msg += `\n\nFor full breakdown and tax summary, reply *View tax summary* or check the dashboard:\nhttps://${DASHBOARD_URL}`;
           await reply(msg);
         } else {
           await reply("That bank isn't in your list. Reply *Manage connected banks* to see the list again.");
