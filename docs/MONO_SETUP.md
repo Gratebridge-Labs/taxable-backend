@@ -4,6 +4,19 @@ Taxable uses [Mono](https://mono.co) so users can connect their bank and we pull
 
 **API base URL:** `https://api.gettaxable.com/api`
 
+## What we get from Mono
+
+1. **From initiate (POST /v2/accounts/initiate)**  
+   We get a **link** (URL). We send this link to the user (e.g. in WhatsApp). The user opens it in a browser, signs into their bank via Mono, and connects their account. We do **not** get any account data from initiate—only the one-time URL.
+
+2. **From the webhook (when the user has connected)**  
+   Mono sends a POST to our webhook with an **account id** (and often our `meta.ref`). We store this in `MonoLink` (user, monoAccountId, status: linked). We need this id to fetch income later.
+
+3. **From getAccountIncome(accountId)**  
+   We call Mono’s **Income API** with the stored account id and get back **income data** (e.g. total income, streams, employer info). We save that into the user’s tax profile when they reply “done” in WhatsApp.
+
+So the flow is: **initiate → link** → user opens link → **webhook → account id** → user says “done” → **getAccountIncome → income data** saved to profile.
+
 ## Docs
 
 - [Mono Docs](https://docs.mono.co/docs)
@@ -59,10 +72,7 @@ Mono may send different event names; we treat as “linked” when we get an acc
 
 ## Storing income on profile
 
-Today we do not auto-save Mono income into `TaxableProfile.incomeDetails`. You can:
-
-- Call `GET /api/mono/income` from the dashboard or another flow and then map the response into your profile/calculations, or
-- Add a small job/cron that calls `getAccountIncome` for linked accounts and writes a summary into `incomeDetails` or a dedicated store.
+When the user replies *done* in WhatsApp after connecting their bank, we call Mono’s income API and save the result to `TaxableProfile.incomeDetails` as `{ source: 'mono', data: income }`. You can also call `GET /api/mono/income` from the dashboard and map the response into calculations.
 
 ## Status
 

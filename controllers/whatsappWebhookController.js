@@ -6,7 +6,7 @@ const TaxUpdate = require('../models/TaxUpdate');
 const MonoLink = require('../models/MonoLink');
 const { sendTextMessage } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
-const { initiateAccountLinking, getAccountIncome, isConfigured: isMonoConfigured } = require('../services/monoService');
+const { initiateAccountLinking, getAccountIncome } = require('../services/monoService');
 
 const DASHBOARD_URL = 'dashboard.gettaxable.com';
 const APP_URL = process.env.APP_URL || 'https://dashboard.gettaxable.com';
@@ -266,14 +266,22 @@ function getTimeBasedGreeting() {
   return 'Good evening';
 }
 
-/** Get Mono connect link for this user/profile so we can offer bank linking for income. Returns { link } or null. */
+/**
+ * Get Mono connect link for this user/profile. Returns { link } or null.
+ * What we get from Mono: (1) From initiate → a link (URL) for the user to open and connect their bank.
+ * (2) From webhook → account id when they've connected. (3) From getAccountIncome(accountId) → income data.
+ */
 async function getMonoConnectLinkForUser(userId, profileId) {
-  if (!isMonoConfigured()) return null;
+  const hasKey = !!(process.env.MONO_SECRET_KEY && process.env.MONO_SECRET_KEY.trim());
+  console.log('[Mono] getMonoConnectLinkForUser called', { userId: String(userId), profileId: profileId || null, MONO_SECRET_KEY_set: hasKey });
   try {
     const userDoc = await User.findById(userId).select('email firstName lastName').lean();
-    if (!userDoc || !userDoc.email) return null;
+    if (!userDoc || !userDoc.email) {
+      console.log('[Mono] getMonoConnectLinkForUser: no user or email', { hasUser: !!userDoc, hasEmail: !!userDoc?.email });
+      return null;
+    }
     const ref = `u${userId}_${Date.now()}${profileId ? `_p${profileId}` : ''}`;
-    const { link } = await initiateAccountLinking({
+    const result = await initiateAccountLinking({
       customer: {
         name: [userDoc.firstName, userDoc.lastName].filter(Boolean).join(' ') || userDoc.email?.split('@')[0] || 'Customer',
         email: userDoc.email
@@ -281,6 +289,12 @@ async function getMonoConnectLinkForUser(userId, profileId) {
       redirectUrl: APP_URL,
       meta: { ref, userId: userId.toString(), profileId: profileId || undefined }
     });
+    const link = result.link || result.url || result.authorisation_url;
+    console.log('[Mono] initiateAccountLinking result', { hasLink: !!link, resultKeys: Object.keys(result || {}), linkLength: link ? String(link).length : 0 });
+    if (!link) {
+      console.warn('[Mono] initiate returned no link; full result:', JSON.stringify(result).slice(0, 500));
+      return null;
+    }
     await MonoLink.findOneAndUpdate(
       { ref },
       { user: userId, profileId: profileId || undefined, ref, status: 'pending', updatedAt: new Date() },
@@ -288,7 +302,7 @@ async function getMonoConnectLinkForUser(userId, profileId) {
     );
     return { link };
   } catch (e) {
-    console.error('[WhatsApp] Mono link error:', e.message);
+    console.error('[Mono] getMonoConnectLinkForUser error', { message: e.message, stack: e.stack });
     return null;
   }
 }
@@ -795,6 +809,7 @@ const handleWebhook = async (req, res) => {
             session.taxProfileData = td;
             await session.save();
             const monoLinkReuse = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
+            console.log('[Mono] reuse_ask → income step', { gotLink: !!monoLinkReuse?.link, waId: from });
             if (monoLinkReuse?.link) {
               await reply("Done — we've reused your details.\n\nLet's get your *financial data* in. Connect your bank with Mono (one-time):\n\n" + monoLinkReuse.link);
               await reply("After connecting, reply *done*. Or type your income details here if you prefer not to connect.");
@@ -880,6 +895,7 @@ const handleWebhook = async (req, res) => {
         session.step = 'tax_profile_income_info';
         await session.save();
         const monoLinkState = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
+        console.log('[Mono] tax_profile_state → income step', { gotLink: !!monoLinkState?.link, waId: from });
         if (monoLinkState?.link) {
           await reply(
             "Let's get your *financial data* in.\n\n" +
@@ -1004,6 +1020,7 @@ const handleWebhook = async (req, res) => {
         { upsert: true, new: true }
       );
       const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile.profileId);
+      console.log('[Mono] Continue my filing → income step', { gotLink: !!monoLink?.link, waId: from });
       if (monoLink?.link) {
         await reply(
           "Let's get your *financial data* in.\n\n" +

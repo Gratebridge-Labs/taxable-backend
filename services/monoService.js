@@ -50,7 +50,10 @@ function monoRequest(method, path, body = null) {
  * @param {Object} opts - { customer: { name, email }, redirectUrl?, meta: { ref, profileId?, userId? } }
  */
 async function initiateAccountLinking(opts) {
-  if (!MONO_SECRET) throw new Error('MONO_SECRET_KEY is not set');
+  if (!MONO_SECRET || !String(MONO_SECRET).trim()) {
+    console.error('[Mono] initiateAccountLinking: MONO_SECRET_KEY is not set or empty');
+    throw new Error('MONO_SECRET_KEY is not set');
+  }
   const { customer, redirectUrl, meta = {} } = opts;
   if (!customer || !customer.email) throw new Error('customer.name and customer.email are required');
 
@@ -67,8 +70,11 @@ async function initiateAccountLinking(opts) {
   };
 
   const res = await monoRequest('POST', path, body);
+  const link = res.link || res.url || res.authorisation_url;
+  console.log('[Mono] initiateAccountLinking response', { status: 'ok', resultKeys: Object.keys(res || {}), hasLink: !!link });
+  if (!link) console.warn('[Mono] initiate response missing link; sample:', JSON.stringify(res).slice(0, 400));
   return {
-    link: res.link || res.url || res.authorisation_url,
+    link,
     reference: body.meta.ref
   };
 }
