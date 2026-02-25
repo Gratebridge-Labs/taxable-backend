@@ -414,9 +414,20 @@ const RELIEF_TYPES = [
 ];
 
 /** Check if user has an active subscription (for 🔒 gating) */
-async function hasActiveSubscription(userId) {
+async function safeHasActiveSubscription(userId) {
   const sub = await Subscription.findOne({ user: userId, status: 'active' }).lean();
   return !!sub;
+}
+
+/** Safe version: never throws; returns false on DB/error so we can always show a reply */
+async function safeHasActiveSubscription(userId) {
+  if (!userId) return false;
+  try {
+    return await safeHasActiveSubscription(userId);
+  } catch (e) {
+    console.error('[WhatsApp] safeHasActiveSubscription error:', e.message);
+    return false;
+  }
 }
 
 /** Income source options for tax profile (order 1–6). */
@@ -672,48 +683,53 @@ const handleWebhook = async (req, res) => {
 
   // —— Incoming image or document: save and link to relief (user can send docs in chat) ——
   if (type === 'image' || type === 'document') {
-    const phoneForLookup = waIdToPhone(from);
-    const regUserForMedia = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('_id').lean();
-    if (regUserForMedia) {
-      const mediaId = type === 'image' ? message.image?.id : message.document?.id;
-      const originalFileName = type === 'document' ? (message.document?.filename || 'document') : (message.image?.caption ? `${message.image.caption}.jpg` : 'image.jpg');
-      if (mediaId) {
-        try {
-          const { buffer, mimeType } = await downloadMedia(mediaId);
-          const profile = await TaxableProfile.findOne({ user: regUserForMedia._id }).sort({ year: -1 }).select('_id year').lean();
-          if (!profile) {
-            await reply("Create a tax profile first (Reply *Create tax profile*), then add a relief. After that you can send documents here to attach to the relief.");
-            sendOk();
-            return;
+    try {
+      const phoneForLookup = waIdToPhone(from);
+      const regUserForMedia = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('_id').lean();
+      if (regUserForMedia) {
+        const mediaId = type === 'image' ? message.image?.id : message.document?.id;
+        const originalFileName = type === 'document' ? (message.document?.filename || 'document') : (message.image?.caption ? `${message.image.caption}.jpg` : 'image.jpg');
+        if (mediaId) {
+          try {
+            const { buffer, mimeType } = await downloadMedia(mediaId);
+            const profile = await TaxableProfile.findOne({ user: regUserForMedia._id }).sort({ year: -1 }).select('_id year').lean();
+            if (!profile) {
+              await reply("Create a tax profile first (Reply *Create tax profile*), then add a relief. After that you can send documents here to attach to the relief.");
+              sendOk();
+              return;
+            }
+            let sessionForMedia = await WhatsAppSession.findOne({ waId: from }).lean();
+            let deductionId = sessionForMedia?.taxProfileData?.lastDeductionId || null;
+            if (!deductionId) {
+              const lastDeduction = await Deduction.findOne({ profileId: profile._id, 'period.year': profile.year }).sort({ createdAt: -1 }).select('_id').lean();
+              deductionId = lastDeduction ? String(lastDeduction._id) : null;
+            }
+            const doc = await createDocumentFromBuffer(
+              regUserForMedia._id,
+              profile._id,
+              deductionId ? new mongoose.Types.ObjectId(deductionId) : null,
+              buffer,
+              originalFileName,
+              mimeType
+            );
+            if (deductionId) {
+              await reply("Document received ✅ Saved and linked to your relief. You can send another or reply *View added reliefs* / *Back*.");
+            } else {
+              await reply("Document received ✅ Saved. To attach it to a relief, add a relief first then send the document again, or link it from the dashboard.");
+            }
+          } catch (err) {
+            console.error('[WhatsApp] Document upload error:', err.message);
+            await reply("We couldn't save that file. Please try again or upload from the dashboard: https://" + DASHBOARD_URL);
           }
-          let sessionForMedia = await WhatsAppSession.findOne({ waId: from }).lean();
-          let deductionId = sessionForMedia?.taxProfileData?.lastDeductionId || null;
-          if (!deductionId) {
-            const lastDeduction = await Deduction.findOne({ profileId: profile._id, 'period.year': profile.year }).sort({ createdAt: -1 }).select('_id').lean();
-            deductionId = lastDeduction ? String(lastDeduction._id) : null;
-          }
-          const doc = await createDocumentFromBuffer(
-            regUserForMedia._id,
-            profile._id,
-            deductionId ? new mongoose.Types.ObjectId(deductionId) : null,
-            buffer,
-            originalFileName,
-            mimeType
-          );
-          if (deductionId) {
-            await reply("Document received ✅ Saved and linked to your relief. You can send another or reply *View added reliefs* / *Back*.");
-          } else {
-            await reply("Document received ✅ Saved. To attach it to a relief, add a relief first then send the document again, or link it from the dashboard.");
-          }
-        } catch (err) {
-          console.error('[WhatsApp] Document upload error:', err.message);
-          await reply("We couldn't save that file. Please try again or upload from the dashboard: https://" + DASHBOARD_URL);
+        } else {
+          await reply("We didn't receive the file. Please send the image or document again.");
         }
       } else {
-        await reply("We didn't receive the file. Please send the image or document again.");
+        await reply("Create an account and add a relief first; then you can send documents here to attach to your relief.");
       }
-    } else {
-      await reply("Create an account and add a relief first; then you can send documents here to attach to your relief.");
+    } catch (e) {
+      console.error('[WhatsApp] Media handler error:', e.message);
+      await reply("We couldn't process that. Please try again or upload from the dashboard: https://" + DASHBOARD_URL);
     }
     sendOk();
     return;
@@ -734,28 +750,40 @@ const handleWebhook = async (req, res) => {
 
     // Hi Taxable / Get started → PDF: entry (no account) or post-verification / logged-in menu (returning user)
     if (isGetStarted) {
-      const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
-      if (userForMenu) {
-        const hasProfile = await TaxableProfile.findOne({ user: userForMenu._id }).sort({ year: -1 }).select('_id year').lean();
-        const hasSub = await hasActiveSubscription(userForMenu._id);
-        const year = hasProfile?.year || new Date().getFullYear();
-        if (hasProfile) {
-          await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub));
+      try {
+        const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
+        if (userForMenu) {
+          const hasProfile = await TaxableProfile.findOne({ user: userForMenu._id }).sort({ year: -1 }).select('_id year').lean();
+          const hasSub = await safeHasActiveSubscription(userForMenu._id);
+          const year = hasProfile?.year || new Date().getFullYear();
+          if (hasProfile) {
+            await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub));
+          } else {
+            await reply(getPostVerificationWelcome(userForMenu.firstName));
+          }
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'done', updatedAt: new Date() } },
+            { upsert: true, new: true }
+          );
         } else {
-          await reply(getPostVerificationWelcome(userForMenu.firstName));
+          await reply(ENTRY_MESSAGE);
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'welcome', updatedAt: new Date() } },
+            { upsert: true, new: true }
+          );
         }
-        session = await WhatsAppSession.findOneAndUpdate(
-          { waId: from },
-          { $set: { step: 'done', updatedAt: new Date() } },
-          { upsert: true, new: true }
-        );
-      } else {
+      } catch (e) {
+        console.error('[WhatsApp] Get started error:', e.message);
         await reply(ENTRY_MESSAGE);
-        session = await WhatsAppSession.findOneAndUpdate(
-          { waId: from },
-          { $set: { step: 'welcome', updatedAt: new Date() } },
-          { upsert: true, new: true }
-        );
+        try {
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'welcome', updatedAt: new Date() } },
+            { upsert: true, new: true }
+          );
+        } catch (e2) {}
       }
       sendOk();
       return;
@@ -855,24 +883,29 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        const phone = waIdToPhone(from);
-        await User.findByIdAndUpdate(userDoc._id, { $set: { phone, updatedAt: new Date() } });
-        session.step = 'done';
-        session.registrationData = {
-          firstName: userDoc.firstName,
-          lastName: userDoc.lastName,
-          email: userDoc.email,
-          phone
-        };
-        session.pendingUserId = undefined;
-        await session.save();
-        const hasProfile = await TaxableProfile.findOne({ user: userDoc._id }).sort({ year: -1 }).select('_id year').lean();
-        const hasSub = await hasActiveSubscription(userDoc._id);
-        const year = hasProfile?.year || new Date().getFullYear();
-        if (hasProfile) {
-          await reply(getLoggedInMainMenu(userDoc.firstName, year, hasSub));
-        } else {
-          await reply(getPostVerificationWelcome(userDoc.firstName));
+        try {
+          const phone = waIdToPhone(from);
+          await User.findByIdAndUpdate(userDoc._id, { $set: { phone, updatedAt: new Date() } });
+          session.step = 'done';
+          session.registrationData = {
+            firstName: userDoc.firstName,
+            lastName: userDoc.lastName,
+            email: userDoc.email,
+            phone
+          };
+          session.pendingUserId = undefined;
+          await session.save();
+          const hasProfile = await TaxableProfile.findOne({ user: userDoc._id }).sort({ year: -1 }).select('_id year').lean();
+          const hasSub = await safeHasActiveSubscription(userDoc._id);
+          const year = hasProfile?.year || new Date().getFullYear();
+          if (hasProfile) {
+            await reply(getLoggedInMainMenu(userDoc.firstName, year, hasSub));
+          } else {
+            await reply(getPostVerificationWelcome(userDoc.firstName));
+          }
+        } catch (e) {
+          console.error('[WhatsApp] Login success save error:', e.message);
+          await reply("You're logged in, but we couldn't save your session. Say *Hi Taxable* to see your menu.");
         }
         sendOk();
         return;
@@ -1106,7 +1139,13 @@ const handleWebhook = async (req, res) => {
             session.step = 'tax_profile_income_info';
             session.taxProfileData = td;
             await session.save();
-            const monoLinkReuse = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
+            let monoLinkReuse;
+            try {
+              monoLinkReuse = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
+            } catch (e) {
+              console.error('[WhatsApp] reuse_ask Mono link error:', e.message);
+              monoLinkReuse = null;
+            }
             console.log('[Mono] reuse_ask → income step', { gotLink: !!monoLinkReuse?.link, waId: from });
             if (monoLinkReuse?.link) {
               await reply("Done — we've reused your details.\n\nLet's get your *financial data* in. Connect your bank with Mono (one-time):\n\n" + monoLinkReuse.link);
@@ -1192,7 +1231,13 @@ const handleWebhook = async (req, res) => {
         session.taxProfileData = td;
         session.step = 'tax_profile_income_info';
         await session.save();
-        const monoLinkState = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
+        let monoLinkState;
+        try {
+          monoLinkState = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
+        } catch (e) {
+          console.error('[WhatsApp] tax_profile_state Mono link error:', e.message);
+          monoLinkState = null;
+        }
         console.log('[Mono] tax_profile_state → income step', { gotLink: !!monoLinkState?.link, waId: from });
         if (monoLinkState?.link) {
           await reply(
@@ -1288,7 +1333,7 @@ const handleWebhook = async (req, res) => {
             await session.save();
             const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
             const year = hasProfile?.year || new Date().getFullYear();
-            const hasSub = await hasActiveSubscription(regUser._id);
+            const hasSub = await safeHasActiveSubscription(regUser._id);
             await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
           } else {
             await reply(result.message || "We couldn't file your tax right now. Please try again or contact support.");
@@ -1303,7 +1348,7 @@ const handleWebhook = async (req, res) => {
         await session.save();
         const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
         const year = hasProfile?.year || new Date().getFullYear();
-        const hasSub = await hasActiveSubscription(regUser._id);
+        const hasSub = await safeHasActiveSubscription(regUser._id);
         await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
       } else {
         await reply("Reply *CONFIRM* to file, or *Back* to review.");
@@ -1380,7 +1425,7 @@ const handleWebhook = async (req, res) => {
 
     // —— Locked actions: require active subscription (PDF 🔒) ——
     if (regUser && isSetUpTaxProfileIntent(text)) {
-      const hasSub = await hasActiveSubscription(regUser._id);
+      const hasSub = await safeHasActiveSubscription(regUser._id);
       if (!hasSub) {
         await reply(SUBSCRIPTION_REQUIRED);
         sendOk();
@@ -1402,7 +1447,7 @@ const handleWebhook = async (req, res) => {
 
     // —— View tax summary (PDF: income, reliefs, estimated tax, fee, next steps) ——
     if (regUser && isViewTaxSummaryIntent(text)) {
-      const hasSub = await hasActiveSubscription(regUser._id);
+      const hasSub = await safeHasActiveSubscription(regUser._id);
       if (!hasSub) {
         await reply(SUBSCRIPTION_REQUIRED);
         sendOk();
@@ -1439,7 +1484,7 @@ const handleWebhook = async (req, res) => {
 
     // —— Manage connected banks (PDF: list, add, remove) ——
     if (regUser && isManageConnectedBanksIntent(text)) {
-      const hasSub = await hasActiveSubscription(regUser._id);
+      const hasSub = await safeHasActiveSubscription(regUser._id);
       if (!hasSub) {
         await reply(SUBSCRIPTION_REQUIRED);
         sendOk();
@@ -1447,13 +1492,18 @@ const handleWebhook = async (req, res) => {
       }
       const links = await MonoLink.find({ user: regUser._id, status: 'linked' }).sort({ updatedAt: -1 }).lean();
       if (!links.length) {
-        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId').lean();
-        const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile?.profileId);
-        if (monoLink?.link) {
-          await reply(CONNECT_BANK_INTRO);
-          await reply(getConnectBankLink(monoLink.link));
-        } else {
-          await reply("You don't have any banks connected yet. Reply *Continue my filing* to get a link to connect your bank.");
+        try {
+          const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId').lean();
+          const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile?.profileId);
+          if (monoLink?.link) {
+            await reply(CONNECT_BANK_INTRO);
+            await reply(getConnectBankLink(monoLink.link));
+          } else {
+            await reply("You don't have any banks connected yet. Reply *Continue my filing* to get a link to connect your bank.");
+          }
+        } catch (e) {
+          console.error('[WhatsApp] Manage banks link error:', e.message);
+          await reply("We couldn't load the bank link right now. Please try again in a moment or reply *Continue my filing*.");
         }
         sendOk();
         return;
@@ -1476,7 +1526,7 @@ const handleWebhook = async (req, res) => {
           { waId: from },
           { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
         );
-        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await hasActiveSubscription(regUser._id));
+        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
         await reply(menu);
         sendOk();
         return;
@@ -1547,7 +1597,7 @@ const handleWebhook = async (req, res) => {
           { waId: from },
           { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
         );
-        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await hasActiveSubscription(regUser._id));
+        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
         await reply(menu);
         sendOk();
         return;
@@ -1582,12 +1632,17 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
-      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId').lean();
-      const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile?.profileId);
-      if (monoLink?.link) {
-        await reply(CONNECT_ANOTHER_BANK);
-        await reply(getConnectBankLink(monoLink.link));
-      } else {
+      try {
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId').lean();
+        const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile?.profileId);
+        if (monoLink?.link) {
+          await reply(CONNECT_ANOTHER_BANK);
+          await reply(getConnectBankLink(monoLink.link));
+        } else {
+          await reply("We couldn't generate a new link right now. Please try again in a moment.");
+        }
+      } catch (e) {
+        console.error('[WhatsApp] Add bank link error:', e.message);
         await reply("We couldn't generate a new link right now. Please try again in a moment.");
       }
       sendOk();
@@ -1596,7 +1651,7 @@ const handleWebhook = async (req, res) => {
 
     // —— Add reliefs (PDF: relief menu → amount → saved; documents via dashboard) ——
     if (regUser && isAddReliefsIntent(text)) {
-      const hasSub = await hasActiveSubscription(regUser._id);
+      const hasSub = await safeHasActiveSubscription(regUser._id);
       if (!hasSub) {
         await reply(SUBSCRIPTION_REQUIRED);
         sendOk();
@@ -1643,7 +1698,7 @@ const handleWebhook = async (req, res) => {
           { waId: from },
           { $set: { step: 'done', 'taxProfileData.reliefProfileId': undefined, 'taxProfileData.reliefYear': undefined, 'taxProfileData.selectedReliefType': undefined, updatedAt: new Date() } }
         );
-        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await hasActiveSubscription(regUser._id));
+        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
         await reply(menu);
         sendOk();
         return;
@@ -1722,7 +1777,7 @@ const handleWebhook = async (req, res) => {
 
     // —— Proceed to file (PDF: CONFIRM step) ——
     if (regUser && isProceedToFileIntent(text)) {
-      const hasSub = await hasActiveSubscription(regUser._id);
+      const hasSub = await safeHasActiveSubscription(regUser._id);
       if (!hasSub) {
         await reply(SUBSCRIPTION_REQUIRED);
         sendOk();
@@ -1746,7 +1801,7 @@ const handleWebhook = async (req, res) => {
     }
 
     if (regUser && isContinueMyFilingIntent(text)) {
-      const hasSub = await hasActiveSubscription(regUser._id);
+      const hasSub = await safeHasActiveSubscription(regUser._id);
       if (!hasSub) {
         await reply(SUBSCRIPTION_REQUIRED);
         sendOk();
@@ -1780,7 +1835,13 @@ const handleWebhook = async (req, res) => {
         },
         { upsert: true, new: true }
       );
-      const monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile.profileId);
+      let monoLink;
+      try {
+        monoLink = await getMonoConnectLinkForUser(regUser._id, latestProfile.profileId);
+      } catch (e) {
+        console.error('[WhatsApp] Continue my filing Mono link error:', e.message);
+        monoLink = null;
+      }
       console.log('[Mono] Continue my filing → income step', { gotLink: !!monoLink?.link, waId: from });
       if (monoLink?.link) {
         await reply(
@@ -1848,7 +1909,13 @@ const handleWebhook = async (req, res) => {
           await reply("Your bank is linked ✅ We're still syncing the latest numbers. Say *Check my PAYE estimate* if you've already added income, or try again in a moment.");
         }
       } else {
-        const monoLinkGet = await getMonoConnectLinkForUser(regUser._id, null);
+        let monoLinkGet;
+        try {
+          monoLinkGet = await getMonoConnectLinkForUser(regUser._id, null);
+        } catch (e) {
+          console.error('[WhatsApp] Get financial data Mono link error:', e.message);
+          monoLinkGet = null;
+        }
         if (monoLinkGet?.link) {
           await reply("Let's get your *financial data* in. Connect your bank (one-time) and we'll pull your income:\n\n" + monoLinkGet.link);
           await reply("After connecting, say *Get my financial data* again to see your summary.");
@@ -1893,7 +1960,7 @@ const handleWebhook = async (req, res) => {
 
     if (regUser && isMenuOrHiIntent(text)) {
       const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year').lean();
-      const hasSub = await hasActiveSubscription(regUser._id);
+      const hasSub = await safeHasActiveSubscription(regUser._id);
       const year = hasProfile?.year || new Date().getFullYear();
       if (hasProfile) {
         await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
@@ -1921,6 +1988,11 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
+    if (!session) {
+      await reply(ENTRY_MESSAGE);
+      sendOk();
+      return;
+    }
     const step = session.step;
     const data = session.registrationData || {};
 
@@ -2112,32 +2184,39 @@ const handleWebhook = async (req, res) => {
         break;
       }
       case 'done': {
-        const phoneForDone = waIdToPhone(from);
-        const userDone = await User.findOne({ $or: [{ phone: phoneForDone }, { phone: phoneForDone.replace(/^0/, '234') }] }).select('_id firstName').lean();
-        if (userDone) {
-          const hasProfileDone = await TaxableProfile.findOne({ user: userDone._id }).sort({ year: -1 }).select('_id year').lean();
-          const hasSubDone = await hasActiveSubscription(userDone._id);
-          const yearDone = hasProfileDone?.year || new Date().getFullYear();
-          if (hasProfileDone) {
-            await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone));
+        try {
+          const phoneForDone = waIdToPhone(from);
+          const userDone = await User.findOne({ $or: [{ phone: phoneForDone }, { phone: phoneForDone.replace(/^0/, '234') }] }).select('_id firstName').lean();
+          if (userDone) {
+            const hasProfileDone = await TaxableProfile.findOne({ user: userDone._id }).sort({ year: -1 }).select('_id year').lean();
+            const hasSubDone = await safeHasActiveSubscription(userDone._id);
+            const yearDone = hasProfileDone?.year || new Date().getFullYear();
+            if (hasProfileDone) {
+              await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone));
+            } else {
+              await reply(getPostVerificationWelcome(userDone.firstName));
+            }
           } else {
-            await reply(getPostVerificationWelcome(userDone.firstName));
+            await reply(ENTRY_MESSAGE);
           }
-        } else {
+        } catch (e) {
+          console.error('[WhatsApp] case done error:', e.message);
           await reply(ENTRY_MESSAGE);
         }
         break;
       }
       default:
-        await reply("Say *Hi Taxable* or *Get started* to create your account — we can't wait to meet you! 🎉");
+        await reply("I didn't quite get that. Reply *Hi Taxable* or *menu* for options — we're here to help! 💬");
     }
     sendOk();
   } catch (err) {
-    console.error('WhatsApp webhook error:', err);
+    console.error('[WhatsApp] webhook error:', err.message || err);
     try {
       await sendTextMessage(from, "Oops! Something went wrong. Try again or say *Hi Taxable* to start fresh — we're here to help! 💬");
-    } catch (e) {}
-    sendOk();
+    } catch (e) {
+      console.error('[WhatsApp] failed to send error reply:', e.message);
+    }
+    if (!res.headersSent) res.status(200).send('OK');
   }
 };
 
