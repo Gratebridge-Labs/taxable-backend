@@ -70,7 +70,8 @@ async function initiateAccountLinking(opts) {
   };
 
   const res = await monoRequest('POST', path, body);
-  const link = res.link || res.url || res.authorisation_url;
+  // Mono v2 API returns the link in data.mono_url; fallbacks for other shapes
+  const link = (res.data && res.data.mono_url) || res.link || res.url || res.authorisation_url;
   console.log('[Mono] initiateAccountLinking response', { status: 'ok', resultKeys: Object.keys(res || {}), hasLink: !!link });
   if (!link) console.warn('[Mono] initiate response missing link; sample:', JSON.stringify(res).slice(0, 400));
   return {
