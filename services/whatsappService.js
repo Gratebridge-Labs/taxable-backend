@@ -143,6 +143,57 @@ function sendTextMessage(to, body) {
 }
 
 /**
+ * Send typing indicator (bubble) so the user sees we're preparing a response.
+ * Marks the message as read and shows typing for up to 25s or until we send a reply.
+ * messageId: from webhook payload (message.id).
+ */
+function sendTypingIndicator(messageId) {
+  return new Promise((resolve, reject) => {
+    const token = process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+    if (!token || !phoneNumberId) return reject(new Error('WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID must be set'));
+    if (!messageId) return reject(new Error('messageId required for typing indicator'));
+
+    const payload = JSON.stringify({
+      messaging_product: 'whatsapp',
+      status: 'read',
+      message_id: String(messageId),
+      typing_indicator: { type: 'text' }
+    });
+
+    const options = {
+      hostname: BASE_URL,
+      path: `/${API_VERSION}/${phoneNumberId}/messages`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    };
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try { resolve(JSON.parse(data || '{}')); } catch { resolve({}); }
+        } else {
+          try {
+            const errBody = JSON.parse(data || '{}');
+            reject(new Error(errBody.error?.message || `WhatsApp API ${res.statusCode}`));
+          } catch {
+            reject(new Error(`WhatsApp API error: ${res.statusCode}`));
+          }
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+/**
  * Send an image by URL (e.g. YouTube thumbnail) so it shows as a preview in WhatsApp.
  * caption is optional; max 1024 chars.
  */
@@ -200,6 +251,7 @@ function sendImage(to, imageUrl, caption) {
 module.exports = {
   sendTextMessage,
   sendImage,
+  sendTypingIndicator,
   getMediaUrl,
   downloadMedia
 };

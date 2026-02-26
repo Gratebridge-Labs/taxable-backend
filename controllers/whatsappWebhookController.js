@@ -8,7 +8,7 @@ const MonoLink = require('../models/MonoLink');
 const Deduction = require('../models/Deduction');
 const Document = require('../models/Document');
 const Subscription = require('../models/Subscription');
-const { sendTextMessage, sendImage } = require('../services/whatsappService');
+const { sendTextMessage, sendImage, sendTypingIndicator } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
 const { initiateAccountLinking, getAccountIncome } = require('../services/monoService');
 const { estimateTaxFromAnnualIncome } = require('../utils/taxCalculator');
@@ -246,10 +246,11 @@ function isCreateAccountIntent(text) {
   const t = text.trim().toLowerCase();
   return (
     /create\s*my\s*account/i.test(t) ||
-    /create\s*account/i.test(t) ||
+    /create\s*(an\s*)?account/i.test(t) ||
     /sign\s*up/i.test(t) ||
     /i\s*want\s*to\s*(create|sign\s*up)/i.test(t) ||
-    t === 'create my account'
+    t === 'create my account' ||
+    t === 'create an account'
   );
 }
 
@@ -740,6 +741,11 @@ const handleWebhook = async (req, res) => {
   const type = message.type;
   let text = '';
   if (type === 'text' && message.text) text = (message.text.body || '').trim();
+
+  /** Show typing bubble (loading) while we prepare a response */
+  if (message.id) {
+    await sendTypingIndicator(message.id).catch((e) => console.error('[WhatsApp] Typing indicator error:', e.message));
+  }
 
   /** Send reply and return promise so we can await it before ending the request (required on serverless) */
   const reply = (msg) => {
