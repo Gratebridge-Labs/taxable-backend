@@ -24,6 +24,21 @@ const {
   CREATE_ACCOUNT_USE_WHATSAPP_NUMBER,
   CREATE_ACCOUNT_EMAIL,
   CREATE_ACCOUNT_PASSWORD,
+  CREATE_ACCOUNT_CONFIRM,
+  CREATE_ACCOUNT_NOT_NOW,
+  CREATE_ACCOUNT_FULL_NAME,
+  CREATE_ACCOUNT_FULL_NAME_INVALID,
+  getCreateAccountEmailPrompt,
+  CREATE_ACCOUNT_EMAIL_INVALID,
+  CREATE_ACCOUNT_EMAIL_EXISTS,
+  getCreateAccountPhoneConfirmPrompt,
+  CREATE_ACCOUNT_PHONE_INPUT,
+  CREATE_ACCOUNT_PASSWORD_NEW,
+  CREATE_ACCOUNT_PASSWORD_SAVED,
+  getAccountCreatedFinalMessage,
+  CREATE_ACCOUNT_PICK_NUMBER,
+  CREATE_ACCOUNT_MENU_MID_FLOW,
+  CREATE_ACCOUNT_STOPPED,
   getPostVerificationWelcome,
   getTaxProfileIntro,
   TAX_PROFILE_ASK_NIN,
@@ -882,18 +897,18 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // No session or welcome or welcome_choice: first welcome (1/2), create account, login, etc.
-    if (!session || session.step === 'welcome' || session.step === 'welcome_choice' || session.step === 'create_account_ready') {
-      // After first welcome: 1 → create account, 2 → login
+    // No session or welcome / welcome_choice / create_account_confirm / create_account_paused / create_account_ready
+    if (!session || session.step === 'welcome' || session.step === 'welcome_choice' || session.step === 'create_account_confirm' || session.step === 'create_account_paused' || session.step === 'create_account_ready') {
+      // After first welcome: 1 → create account (MESSAGE 2), 2 → login
       if (session?.step === 'welcome_choice') {
         const choice = text.trim().toLowerCase();
         if (choice === '1' || isCreateAccountIntent(text)) {
           session = await WhatsAppSession.findOneAndUpdate(
             { waId: from },
-            { $set: { step: 'create_account_ready', registrationData: {}, updatedAt: new Date() } },
+            { $set: { step: 'create_account_confirm', registrationData: {}, updatedAt: new Date() } },
             { upsert: true, new: true }
           );
-          await reply(CREATE_ACCOUNT_INTRO);
+          await reply(CREATE_ACCOUNT_CONFIRM);
           sendOk();
           return;
         }
@@ -908,6 +923,43 @@ const handleWebhook = async (req, res) => {
           return;
         }
         await reply("Please reply with *1* or *2* to continue.\n\n1️⃣ I'm new — create my account\n2️⃣ I already have an account");
+        sendOk();
+        return;
+      }
+      // Paused signup: any message → show Ready again
+      if (session?.step === 'create_account_paused') {
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'create_account_confirm', updatedAt: new Date() } },
+          { new: true }
+        );
+        await reply(CREATE_ACCOUNT_CONFIRM);
+        sendOk();
+        return;
+      }
+      // Create account confirm: 1 Yes let's go → full_name, 2 Not right now → paused
+      if (session?.step === 'create_account_confirm') {
+        const c = text.trim().toLowerCase();
+        if (c === '1' || c === 'yes' || c === 'y' || /let'?s\s*go/i.test(c)) {
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'full_name', updatedAt: new Date() } },
+            { new: true }
+          );
+          await reply(CREATE_ACCOUNT_FULL_NAME);
+          sendOk();
+          return;
+        }
+        if (c === '2' || c === 'no' || c === 'n' || /not\s*right\s*now/i.test(c)) {
+          await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'create_account_paused', updatedAt: new Date() } }
+          );
+          await reply(CREATE_ACCOUNT_NOT_NOW);
+          sendOk();
+          return;
+        }
+        await reply(CREATE_ACCOUNT_PICK_NUMBER);
         sendOk();
         return;
       }
@@ -2225,7 +2277,77 @@ const handleWebhook = async (req, res) => {
     const step = session.step;
     const data = session.registrationData || {};
 
+    const REGISTRATION_STEPS = ['full_name', 'email', 'email_exists', 'phone_confirm', 'phone_input', 'password', 'otp'];
+    if (REGISTRATION_STEPS.includes(step) && /^stop\.?$/i.test(text.trim())) {
+      await WhatsAppSession.findOneAndUpdate(
+        { waId: from },
+        { $set: { step: 'create_account_paused', updatedAt: new Date() } }
+      );
+      await reply(CREATE_ACCOUNT_STOPPED);
+      sendOk();
+      return;
+    }
+    if (REGISTRATION_STEPS.includes(step) && isMenuOrHiIntent(text)) {
+      await WhatsAppSession.findOneAndUpdate(
+        { waId: from },
+        { $set: { step: 'registration_menu_choice', 'registrationData.returnStep': step, updatedAt: new Date() } }
+      );
+      await reply(CREATE_ACCOUNT_MENU_MID_FLOW);
+      sendOk();
+      return;
+    }
+    if (step === 'registration_menu_choice') {
+      const c = text.trim().toLowerCase();
+      const returnStep = session.registrationData?.returnStep || 'full_name';
+      if (c === '1') {
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: returnStep, 'registrationData.returnStep': undefined, updatedAt: new Date() } },
+          { new: true }
+        );
+        const rd = session.registrationData || {};
+        if (returnStep === 'full_name') await reply(CREATE_ACCOUNT_FULL_NAME);
+        else if (returnStep === 'email') await reply(getCreateAccountEmailPrompt(rd.firstName));
+        else if (returnStep === 'email_exists') await reply(CREATE_ACCOUNT_EMAIL_EXISTS);
+        else if (returnStep === 'phone_confirm') await reply(getCreateAccountPhoneConfirmPrompt(rd.firstName, waIdToPhone(from)));
+        else if (returnStep === 'phone_input') await reply(CREATE_ACCOUNT_PHONE_INPUT);
+        else if (returnStep === 'password') await reply(CREATE_ACCOUNT_PASSWORD_NEW);
+        else if (returnStep === 'otp') await reply(`${rd.firstName || 'There'}, send us the *6-digit code* from your email, or reply *resend* if you didn't get it. 😊`);
+        else await reply(CREATE_ACCOUNT_FULL_NAME);
+        sendOk();
+        return;
+      }
+      if (c === '2') {
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'welcome_choice', registrationData: {}, updatedAt: new Date() } }
+        );
+        await reply(FIRST_WELCOME_MESSAGE);
+        sendOk();
+        return;
+      }
+      await reply(CREATE_ACCOUNT_PICK_NUMBER);
+      sendOk();
+      return;
+    }
+
     switch (step) {
+      case 'full_name': {
+        const full = text.trim();
+        if (!full || /^\d+$/.test(full.replace(/\s/g, ''))) {
+          await reply(CREATE_ACCOUNT_FULL_NAME_INVALID);
+          sendOk();
+          return;
+        }
+        const parts = full.split(/\s+/).filter(Boolean);
+        data.firstName = parts[0] || full;
+        data.lastName = parts.length > 1 ? parts.slice(1).join(' ') : parts[0] || '';
+        session.registrationData = data;
+        session.step = 'email';
+        await session.save();
+        await reply(getCreateAccountEmailPrompt(data.firstName));
+        break;
+      }
       case 'first_name': {
         if (!isValidName(text)) {
           await reply("We'd love to get your name right — just letters, 2–50 characters. Try again? 😊");
@@ -2254,16 +2376,53 @@ const handleWebhook = async (req, res) => {
       }
       case 'email': {
         if (!isValidEmail(text)) {
-          await reply(`${data.firstName || 'There'}, that doesn't look like a valid email (e.g. name@example.com). Give it another go? 📧`);
+          await reply(CREATE_ACCOUNT_EMAIL_INVALID);
           sendOk();
           return;
         }
-        data.email = text.trim().toLowerCase();
+        const emailLower = text.trim().toLowerCase();
+        const existingUser = await User.findOne({ email: emailLower }).select('_id').lean();
+        if (existingUser) {
+          session.registrationData = { ...data, email: emailLower };
+          session.step = 'email_exists';
+          await session.save();
+          await reply(CREATE_ACCOUNT_EMAIL_EXISTS);
+          sendOk();
+          return;
+        }
+        data.email = emailLower;
         session.registrationData = data;
         session.step = 'phone_confirm';
         await session.save();
-        await reply(CREATE_ACCOUNT_USE_WHATSAPP_NUMBER);
+        await reply(getCreateAccountPhoneConfirmPrompt(data.firstName, waIdToPhone(from)));
         break;
+      }
+      case 'email_exists': {
+        const e = text.trim().toLowerCase();
+        if (e === '1') {
+          session.step = 'login_email';
+          session.registrationData = {};
+          await session.save();
+          await reply("What's the *email address* for your Taxable account?");
+          sendOk();
+          return;
+        }
+        if (e === '2') {
+          session.step = 'email';
+          session.registrationData = { ...data, email: undefined };
+          await session.save();
+          await reply(getCreateAccountEmailPrompt(data.firstName));
+          sendOk();
+          return;
+        }
+        if (e === '3') {
+          await reply("You can reach us at support@gettaxable.com or reply *Talk to support* anytime." + BACK_TO_MENU_FOOTER);
+          sendOk();
+          return;
+        }
+        await reply(CREATE_ACCOUNT_PICK_NUMBER);
+        sendOk();
+        return;
       }
       case 'phone': {
         // Legacy: session had step 'phone' (old flow). Treat as phone_confirm and ask yes/no.
@@ -2331,14 +2490,14 @@ const handleWebhook = async (req, res) => {
           });
           session.pendingUserId = user._id;
           await session.save();
-          await reply("Got it! We've saved your password securely — we never show or repeat it in chat. 🔒");
-          await reply(`${data.firstName}, account created! 🎉 We've sent a 6-digit code to ${data.email}. Reply with the *code* to verify. Didn't get it? Just reply *resend* and we'll send it again.`);
+          await reply(CREATE_ACCOUNT_PASSWORD_SAVED);
+          await reply(`${data.firstName}, we've sent a 6-digit code to ${data.email}. Reply with the *code* to verify. Didn't get it? Just reply *resend* and we'll send it again.`);
         } catch (err) {
           if (err.code === 'EMAIL_EXISTS') {
-            await reply("This email is already registered. Use a different email or log in on the Taxable app — we'd love to have you back! 😊");
-            session.step = 'email';
-            session.registrationData = { ...data, email: undefined };
+            session.step = 'email_exists';
+            session.registrationData = { ...data, email: data.email };
             await session.save();
+            await reply(CREATE_ACCOUNT_EMAIL_EXISTS);
           } else if (err.code === 'EMAIL_SEND_FAILED') {
             await reply('We couldn’t send the verification email. Please check your email address and try again later.');
             session.step = 'email';
@@ -2406,13 +2565,51 @@ const handleWebhook = async (req, res) => {
         await otpRecord.save();
         user.emailVerified = true;
         await user.save();
-        session.step = 'done';
+        session.step = 'account_created_choice';
         session.pendingUserId = undefined;
         await session.save();
-        await reply(`✅ You're in, ${data.firstName}! Your email is verified. Your account is ready. Welcome to Taxable! 🎉`);
-        await sendWatchVideoPreview();
-        await reply(getPostVerificationWelcome(data.firstName));
+        await reply(`✅ You're in, ${data.firstName}! Your email is verified. Your account is ready. 🎉`);
+        await reply(getAccountCreatedFinalMessage(data.firstName));
         break;
+      }
+      case 'account_created_choice': {
+        const c = text.trim().toLowerCase();
+        const firstName = data.firstName || '';
+        if (c === '1') {
+          session.step = 'tax_profile_intro';
+          session.taxProfileData = session.taxProfileData || {};
+          session.taxProfileData.year = new Date().getFullYear();
+          await session.save();
+          await reply(getTaxProfileIntro(firstName, session.taxProfileData.year));
+          await reply("Reply *I'm ready* when you want to start." + BACK_TO_MENU_FOOTER);
+          sendOk();
+          return;
+        }
+        if (c === '2') {
+          session.step = 'done';
+          await session.save();
+          await sendWatchVideoPreview();
+          await reply(getPostVerificationWelcome(firstName));
+          sendOk();
+          return;
+        }
+        if (c === '3') {
+          session.step = 'done';
+          await session.save();
+          await reply(SUBSCRIPTION_REQUIRED);
+          sendOk();
+          return;
+        }
+        if (c === '4') {
+          session.step = 'done';
+          await session.save();
+          await reply(getPostVerificationWelcome(firstName));
+          sendOk();
+          return;
+        }
+        await reply(CREATE_ACCOUNT_PICK_NUMBER);
+        sendOk();
+        return;
       }
       case 'done': {
         try {

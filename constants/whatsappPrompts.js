@@ -107,7 +107,83 @@ Ready to move forward?
 
 • *Back to main menu* — return to your options above`;
 
-// —— ACCOUNT CREATION ——
+// —— ACCOUNT CREATION (new user flow) ——
+/** MESSAGE 2 — They pick 1 (New User Confirmation) */
+const CREATE_ACCOUNT_CONFIRM = `Awesome! Let's get you set up. 🎉
+
+It takes less than 3 minutes and you only need to do this once.
+
+Ready?
+1️⃣ Yes, let's go
+2️⃣ Not right now`;
+
+const CREATE_ACCOUNT_NOT_NOW = `No problem! Whenever you're ready, just send a message and we'll pick up right here. 👋`;
+
+/** STEP 1 — Full Name */
+const CREATE_ACCOUNT_FULL_NAME = `Great! Let's start with the basics.
+
+What's your full name? (as written in your government IDs)
+
+✏️ Type and send your full name below.`;
+
+const CREATE_ACCOUNT_FULL_NAME_INVALID = `Hmm, that doesn't look like a name. 😅
+Please type your full name — for example: *Chidi Okafor*`;
+
+/** STEP 2 — Email (used with firstName) */
+function getCreateAccountEmailPrompt(firstName) {
+  return `Nice to meet you, ${firstName || 'there'}! 👋
+
+What's your email address?
+We'll use this to send you important updates and account information.
+
+✏️ Type your email and send.`;
+}
+const CREATE_ACCOUNT_EMAIL_INVALID = `That email doesn't look right. Please check and try again.
+Example: yourname@gmail.com`;
+const CREATE_ACCOUNT_EMAIL_EXISTS = `It looks like this email already has a Taxable account.
+1️⃣ Log in instead
+2️⃣ Use a different email
+3️⃣ Talk to support`;
+
+/** STEP 3 — Phone (used with firstName, suggestedNumber) */
+function getCreateAccountPhoneConfirmPrompt(firstName, suggestedNumber) {
+  return `Almost there${firstName ? `, ${firstName}` : ''}!
+
+Is *${suggestedNumber || 'this number'}* the best number to reach you on?
+
+1️⃣ Yes, use this number
+2️⃣ No, I have a different number`;
+}
+const CREATE_ACCOUNT_PHONE_INPUT = `No problem. What phone number should we use for your account?
+✏️ Type your number below (e.g. 08012345678)`;
+
+/** STEP 4 — Password (typed) */
+const CREATE_ACCOUNT_PASSWORD_NEW = `Now let's secure your account. 🔒
+You'll need a password to log in on the Taxable website.
+
+✏️ Type your password below`;
+
+const CREATE_ACCOUNT_PASSWORD_SAVED = `✅ Password saved! Your account is secure.`;
+
+/** ACCOUNT CREATED — Final message (used with firstName) */
+function getAccountCreatedFinalMessage(firstName) {
+  return `🎉 Welcome to Taxable, ${firstName || 'there'}!
+
+Your account is all set. Here's what people usually do first:
+1️⃣ Set up my tax profile
+2️⃣ See how Taxable works (short videos)
+3️⃣ Subscribe to a plan
+4️⃣ Go to the main menu`;
+}
+
+/** Scenarios */
+const CREATE_ACCOUNT_PICK_NUMBER = `Please reply with one of the numbers above. 😊`;
+const CREATE_ACCOUNT_MENU_MID_FLOW = `You're in the middle of setting up your account.
+1️⃣ Continue setup
+2️⃣ Exit to Main Menu (progress saved)`;
+const CREATE_ACCOUNT_STOPPED = `Got it — we've paused your account setup. Your progress is saved. Come back anytime to continue. 👋`;
+
+// —— Legacy (still used where needed) ——
 const CREATE_ACCOUNT_INTRO = `Amazing 🙌
 
 I'm glad you're getting started.
@@ -341,11 +417,26 @@ module.exports = {
   ENTRY_MESSAGE,
   CURIOUS_MODE_REPLY,
   CREATE_ACCOUNT_INTRO,
+  CREATE_ACCOUNT_CONFIRM,
+  CREATE_ACCOUNT_NOT_NOW,
+  CREATE_ACCOUNT_FULL_NAME,
+  CREATE_ACCOUNT_FULL_NAME_INVALID,
+  getCreateAccountEmailPrompt,
+  CREATE_ACCOUNT_EMAIL_INVALID,
+  CREATE_ACCOUNT_EMAIL_EXISTS,
+  getCreateAccountPhoneConfirmPrompt,
+  CREATE_ACCOUNT_PHONE_INPUT,
   CREATE_ACCOUNT_FIRST_NAME,
   CREATE_ACCOUNT_LAST_NAME,
   CREATE_ACCOUNT_USE_WHATSAPP_NUMBER,
   CREATE_ACCOUNT_EMAIL,
   CREATE_ACCOUNT_PASSWORD,
+  CREATE_ACCOUNT_PASSWORD_NEW,
+  CREATE_ACCOUNT_PASSWORD_SAVED,
+  getAccountCreatedFinalMessage,
+  CREATE_ACCOUNT_PICK_NUMBER,
+  CREATE_ACCOUNT_MENU_MID_FLOW,
+  CREATE_ACCOUNT_STOPPED,
   getPostVerificationWelcome,
   SUBSCRIPTION_REQUIRED,
   SUBSCRIPTION_WHY_IT_MATTERS,
