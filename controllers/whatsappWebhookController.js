@@ -15,6 +15,7 @@ const { estimateTaxFromAnnualIncome } = require('../utils/taxCalculator');
 const { createSubscriptionLinkForUser, verifyPendingSubscriptionForUser } = require('./paystackController');
 const { sendTaxProfileCreatedEmail } = require('../utils/emailService');
 const {
+  FIRST_WELCOME_MESSAGE,
   ENTRY_MESSAGE,
   CURIOUS_MODE_REPLY,
   CREATE_ACCOUNT_INTRO,
@@ -859,22 +860,20 @@ const handleWebhook = async (req, res) => {
             { upsert: true, new: true }
           );
         } else {
-          await sendWatchVideoPreview();
-          await reply(ENTRY_MESSAGE);
+          await reply(FIRST_WELCOME_MESSAGE);
           session = await WhatsAppSession.findOneAndUpdate(
             { waId: from },
-            { $set: { step: 'welcome', updatedAt: new Date() } },
+            { $set: { step: 'welcome_choice', updatedAt: new Date() } },
             { upsert: true, new: true }
           );
         }
       } catch (e) {
         console.error('[WhatsApp] Get started error:', e.message);
-        await sendWatchVideoPreview();
-        await reply(ENTRY_MESSAGE);
+        await reply(FIRST_WELCOME_MESSAGE);
         try {
           session = await WhatsAppSession.findOneAndUpdate(
             { waId: from },
-            { $set: { step: 'welcome', updatedAt: new Date() } },
+            { $set: { step: 'welcome_choice', updatedAt: new Date() } },
             { upsert: true, new: true }
           );
         } catch (e2) {}
@@ -883,8 +882,35 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // No session or welcome: PDF entry menu, Create account (intro → Ready), Curious mode, Login, FAQ/Talk to someone
-    if (!session || session.step === 'welcome' || session.step === 'create_account_ready') {
+    // No session or welcome or welcome_choice: first welcome (1/2), create account, login, etc.
+    if (!session || session.step === 'welcome' || session.step === 'welcome_choice' || session.step === 'create_account_ready') {
+      // After first welcome: 1 → create account, 2 → login
+      if (session?.step === 'welcome_choice') {
+        const choice = text.trim().toLowerCase();
+        if (choice === '1' || isCreateAccountIntent(text)) {
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'create_account_ready', registrationData: {}, updatedAt: new Date() } },
+            { upsert: true, new: true }
+          );
+          await reply(CREATE_ACCOUNT_INTRO);
+          sendOk();
+          return;
+        }
+        if (choice === '2' || isLoginIntent(text)) {
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'login_email', registrationData: {}, updatedAt: new Date() } },
+            { upsert: true, new: true }
+          );
+          await reply("What's the *email address* for your Taxable account?");
+          sendOk();
+          return;
+        }
+        await reply("Please reply with *1* or *2* to continue.\n\n1️⃣ I'm new — create my account\n2️⃣ I already have an account");
+        sendOk();
+        return;
+      }
       if (session?.step === 'create_account_ready' && isImReadyIntent(text)) {
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
@@ -906,9 +932,8 @@ const handleWebhook = async (req, res) => {
         return;
       }
       if (isMenuOrHiIntent(text)) {
-        await sendWatchVideoPreview();
-        await reply(ENTRY_MESSAGE);
-        if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
+        await reply(FIRST_WELCOME_MESSAGE);
+        if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome_choice', updatedAt: new Date() } }, { upsert: true, new: true });
         sendOk();
         return;
       }
@@ -940,9 +965,8 @@ const handleWebhook = async (req, res) => {
         return;
       }
       if (!session || session.step === 'welcome') {
-        await sendWatchVideoPreview();
-        await reply(ENTRY_MESSAGE);
-        if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome', updatedAt: new Date() } }, { upsert: true, new: true });
+        await reply(FIRST_WELCOME_MESSAGE);
+        if (!session) session = await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome_choice', updatedAt: new Date() } }, { upsert: true, new: true });
         sendOk();
         return;
       }
@@ -2193,8 +2217,8 @@ const handleWebhook = async (req, res) => {
     }
 
     if (!session) {
-      await sendWatchVideoPreview();
-      await reply(ENTRY_MESSAGE);
+      await reply(FIRST_WELCOME_MESSAGE);
+      await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome_choice', updatedAt: new Date() } }, { upsert: true, new: true });
       sendOk();
       return;
     }
@@ -2405,13 +2429,13 @@ const handleWebhook = async (req, res) => {
               await reply(getPostVerificationWelcome(userDone.firstName));
             }
           } else {
-            await sendWatchVideoPreview();
-            await reply(ENTRY_MESSAGE);
+            await reply(FIRST_WELCOME_MESSAGE);
+            await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome_choice', updatedAt: new Date() } }, { upsert: true, new: true });
           }
         } catch (e) {
           console.error('[WhatsApp] case done error:', e.message);
-          await sendWatchVideoPreview();
-          await reply(ENTRY_MESSAGE);
+          await reply(FIRST_WELCOME_MESSAGE);
+          await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome_choice', updatedAt: new Date() } }, { upsert: true, new: true });
         }
         break;
       }

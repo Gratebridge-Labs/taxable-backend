@@ -41,7 +41,17 @@ const BACK_TO_MENU_FOOTER = `
 
 • *Back to menu* — return to your options`;
 
-// —— ENTRY (logged out user) ——
+// —— FIRST WELCOME (brand new user — any first message) ——
+const FIRST_WELCOME_MESSAGE = `👋 Hey! Welcome to Taxable.
+Managing your taxes in Nigeria just got a lot easier — and I'm here to help you every step of the way.
+
+Are you new here or do you already have an account?
+1️⃣ I'm new — create my account
+2️⃣ I already have an account
+
+Reply with 1 or 2 to continue.`;
+
+// —— ENTRY (legacy / fallback) ——
 function getEntryMessage() {
   return `Hi 👋
 
@@ -327,6 +337,7 @@ const FILE_TAX_SUBMITTED = `Submitted ✅
 I'll update you once it's accepted, and you'll be able to download your filing receipt here.${BACK_TO_MENU_FOOTER}`;
 
 module.exports = {
+  FIRST_WELCOME_MESSAGE,
   ENTRY_MESSAGE,
   CURIOUS_MODE_REPLY,
   CREATE_ACCOUNT_INTRO,
