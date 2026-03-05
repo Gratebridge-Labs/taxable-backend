@@ -96,12 +96,45 @@ const taxableProfileSchema = new mongoose.Schema({
   residency183Days: { type: Boolean, required: false },
   /** Pays rent (eligible for 20% rent relief, max N500k) */
   paysRent: { type: Boolean, required: false },
+  /** Monthly rent amount in Naira (from WhatsApp flow) */
+  rentMonthlyAmount: {
+    type: Number,
+    min: [0, 'Rent amount cannot be negative'],
+    required: false
+  },
   /** Pays for health insurance */
   hasHealthInsurance: { type: Boolean, required: false },
+  /** Monthly health insurance contribution in Naira */
+  healthInsuranceMonthlyAmount: {
+    type: Number,
+    min: [0, 'Health insurance amount cannot be negative'],
+    required: false
+  },
   /** Contributes to a pension plan */
   hasPension: { type: Boolean, required: false },
+  /** Monthly pension contribution in Naira */
+  pensionMonthlyAmount: {
+    type: Number,
+    min: [0, 'Pension amount cannot be negative'],
+    required: false
+  },
   /** Pays a mortgage */
   paysMortgage: { type: Boolean, required: false },
+  /** Monthly mortgage repayment in Naira */
+  mortgageMonthlyAmount: {
+    type: Number,
+    min: [0, 'Mortgage amount cannot be negative'],
+    required: false
+  },
+  /** How the user prefers to log income/expenses: monthly vs annual */
+  filingPreference: {
+    type: String,
+    enum: {
+      values: ['monthly', 'annual'],
+      message: 'Filing preference must be monthly or annual'
+    },
+    required: false
+  },
   /** Date of birth (for individuals) */
   dob: { type: Date, required: false },
   /** Address */
