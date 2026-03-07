@@ -695,6 +695,26 @@ function getTaxProfileSummary() {
   );
 }
 
+/** STEP 7 — Filing preference message. For 2025 (past year) only annual is offered. */
+function getFilingPreferenceMessage(year) {
+  if (year === 2025) {
+    return (
+      'STEP 7 — Filing Preference\n\n' +
+      'For tax year *2025*, the year has already passed — so we only support *annual* documentation. You\'ll enter everything for the full year when you file.\n\n' +
+      '1️⃣ Continue with Annual'
+    );
+  }
+  return (
+    'STEP 7 — Filing Preference\n\n' +
+    'Almost done! One important choice before we finish. 💡\n\n' +
+    '*How would you like to document your income and expenses?*\n\n' +
+    '1️⃣ *Monthly* — I\'ll log my records each month as I go (recommended ✅)\n' +
+    '   Best for: staying on top of your taxes all year, no year-end panic\n\n' +
+    '2️⃣ *Annually* — I\'ll enter everything at the end of the year\n' +
+    '   Best for: people with simple, predictable income'
+  );
+}
+
 /** One message for "beginner" intent: simple explanation (assistant tone) */
 function getBeginnerExplanation(firstName) {
   const g = getTimeBasedGreeting();
@@ -1687,18 +1707,9 @@ const handleWebhook = async (req, res) => {
           td.paysMortgage = false;
           td.mortgageMonthlyAmount = undefined;
           session.taxProfileData = td;
-          // Skip straight to filing preference
           session.step = 'tax_profile_filing_preference';
           await session.save();
-          await reply(
-            'STEP 7 — Filing Preference\n\n' +
-            'Almost done! One important choice before we finish. 💡\n\n' +
-            '*How would you like to document your income and expenses?*\n\n' +
-            '1️⃣ *Monthly* — I\'ll log my records each month as I go (recommended ✅)\n' +
-            '   Best for: staying on top of your taxes all year, no year-end panic\n\n' +
-            '2️⃣ *Annually* — I\'ll enter everything at the end of the year\n' +
-            '   Best for: people with simple, predictable income'
-          );
+          await reply(getFilingPreferenceMessage(td.year));
           sendOk();
           return;
         }
@@ -1729,15 +1740,7 @@ const handleWebhook = async (req, res) => {
         session.taxProfileData = td;
         session.step = 'tax_profile_filing_preference';
         await session.save();
-        await reply(
-          'STEP 7 — Filing Preference\n\n' +
-          'Almost done! One important choice before we finish. 💡\n\n' +
-          '*How would you like to document your income and expenses?*\n\n' +
-          '1️⃣ *Monthly* — I\'ll log my records each month as I go (recommended ✅)\n' +
-          '   Best for: staying on top of your taxes all year, no year-end panic\n\n' +
-          '2️⃣ *Annually* — I\'ll enter everything at the end of the year\n' +
-          '   Best for: people with simple, predictable income'
-        );
+        await reply(getFilingPreferenceMessage(td.year));
         sendOk();
         return;
       }
@@ -1828,15 +1831,7 @@ const handleWebhook = async (req, res) => {
         if (type === 'mortgage') {
           session.step = 'tax_profile_filing_preference';
           await session.save();
-          await reply(
-            'STEP 7 — Filing Preference\n\n' +
-            'Almost done! One important choice before we finish. 💡\n\n' +
-            '*How would you like to document your income and expenses?*\n\n' +
-            '1️⃣ *Monthly* — I\'ll log my records each month as I go (recommended ✅)\n' +
-            '   Best for: staying on top of your taxes all year, no year-end panic\n\n' +
-            '2️⃣ *Annually* — I\'ll enter everything at the end of the year\n' +
-            '   Best for: people with simple, predictable income'
-          );
+          await reply(getFilingPreferenceMessage(td.year));
           sendOk();
           return;
         }
@@ -1844,7 +1839,23 @@ const handleWebhook = async (req, res) => {
 
       if (session.step === 'tax_profile_filing_preference') {
         const choice = String(text || '').trim();
-        if (choice === '1') {
+        const is2025OnlyAnnual = td.year === 2025;
+        if (is2025OnlyAnnual) {
+          if (choice !== '1') {
+            await reply(
+              'For tax year 2025, the year has already passed — we only support *annual* documentation. Reply *1* to continue with Annual.'
+            );
+            sendOk();
+            return;
+          }
+          td.filingPreference = 'annual';
+          session.taxProfileData = td;
+          await session.save();
+          await reply(
+            'For 2025 we\'ll capture everything for the full year when you file. We will send a reminder on the 7th of December for you to prepare to file your annual tax.\n\n' +
+            'Just know you can switch to monthly tracking for future years anytime. 😊'
+          );
+        } else if (choice === '1') {
           td.filingPreference = 'monthly';
           session.taxProfileData = td;
           await session.save();
@@ -1905,6 +1916,7 @@ const handleWebhook = async (req, res) => {
             paysMortgage,
             mortgageMonthlyAmount: td.mortgageMonthlyAmount,
             filingPreference: td.filingPreference,
+            state: td.state || undefined,
             adminMetadata: {
               ...(td.nonResidentNeedsExpertReview ? { nonResidentNeedsExpertReview: true } : {}),
               ...(td.nonResidentChoseToContinue ? { nonResidentChoseToContinue: true } : {})
@@ -2041,6 +2053,35 @@ const handleWebhook = async (req, res) => {
         }
         td.city = city;
         session.taxProfileData = td;
+        const alreadyHaveState = !!(td.state && String(td.state).trim());
+        if (alreadyHaveState) {
+          session.step = 'tax_profile_income_info';
+          await session.save();
+          if (currentProfile && !currentProfile.state) {
+            currentProfile.state = td.state;
+            await currentProfile.save();
+          }
+          let monoLinkState;
+          try {
+            monoLinkState = await getMonoConnectLinkForUser(userForTax._id, currentProfile?.profileId);
+          } catch (e) {
+            console.error('[WhatsApp] tax_profile_city→income Mono link error:', e.message);
+            monoLinkState = null;
+          }
+          console.log('[Mono] tax_profile_city → income (state already set)', { waId: from });
+          if (monoLinkState?.link) {
+            await reply(
+              "Let's get your *financial data* in.\n\n" +
+              "Connect your bank securely with Mono (one-time) and we'll pull your income automatically:\n\n" +
+              monoLinkState.link
+            );
+            await reply("After you've connected, reply *done* here. Or type your income details in one message if you prefer not to connect.");
+          } else {
+            await reply("Thanks. Next: share your *income* info (e.g. employment salary, business income, or a short description). Reply in one message.");
+          }
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_state';
         await session.save();
         await reply("What's your *state*?");
