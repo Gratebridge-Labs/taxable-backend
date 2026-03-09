@@ -39,6 +39,7 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'login_password',
       // Tax profile setup (FLOW 3)
       'tax_profile_intro',
+      'tax_profile_draft_choice',
       'tax_profile_intro_choice',
       'tax_profile_intro_explain',
       'tax_profile_year',
@@ -68,6 +69,9 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'tax_profile_summary',
       'tax_profile_summary_confirm',
       'tax_profile_edit_choice',
+      'tax_profile_subscription',
+      'tax_profile_subscription_details',
+      'tax_profile_subscription_later',
       // Filing, banks & reliefs
       'filing_confirm',
       'manage_banks_remove',
@@ -105,7 +109,9 @@ const whatsAppSessionSchema = new mongoose.Schema({
     filingPreference: { type: String, trim: true }, // 'monthly' | 'annual'
     _pendingConfirmAmountType: { type: String, trim: true },
     _pendingConfirmAmountValue: { type: Number },
+    editReturnToSummary: { type: Boolean },
     currentProfileId: { type: String, trim: true },
+    _draftProfileId: { type: String, trim: true },
     dob: { type: String, trim: true },
     street: { type: String, trim: true },
     city: { type: String, trim: true },

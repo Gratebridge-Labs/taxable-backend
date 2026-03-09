@@ -296,6 +296,18 @@ You now have full access to:
 
 Let's continue 👇${BACK_TO_MENU_FOOTER}`;
 
+/** PDF: After payment confirmed (e.g. from Tax Profile flow) — "You're in, [First Name]! Your tax profile is now active..." */
+function getPaymentConfirmedAfterProfile(firstName) {
+  return `🎉 You're in, ${firstName || 'there'}!
+
+Your tax profile is now active. Here's what to do next:
+
+1️⃣ Log this month's income & expenses
+2️⃣ Connect my bank account
+3️⃣ Watch how Taxable works (2 mins)
+4️⃣ Go to Main Menu`;
+}
+
 // —— User said Done but payment not found / not confirmed ——
 const PAYMENT_NOT_CONFIRMED_YET = `I'm still waiting for confirmation.
 If you've completed payment, give it a few seconds and reply *Check again*.
@@ -443,6 +455,7 @@ module.exports = {
   getPaymentLinkMessage,
   getPaymentLinkMessageYearly,
   PAYMENT_CONFIRMED,
+  getPaymentConfirmedAfterProfile,
   PAYMENT_NOT_CONFIRMED_YET,
   PAYMENT_NOT_COMPLETED_RESEND,
   getTaxProfileIntro,

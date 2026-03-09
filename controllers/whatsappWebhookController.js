@@ -47,6 +47,7 @@ const {
   getPaymentLinkMessage,
   getPaymentLinkMessageYearly,
   PAYMENT_CONFIRMED,
+  getPaymentConfirmedAfterProfile,
   PAYMENT_NOT_CONFIRMED_YET,
   getLoggedInMainMenu,
   FILE_TAX_CONFIRM,
@@ -695,6 +696,56 @@ function getTaxProfileSummary() {
   );
 }
 
+/** STEP 8 — Profile summary message (PDF: Tax Year, NIN masked last 3, income sources, tax authority, deductibles, filing preference, estimated tax). */
+async function getTaxProfileSummaryForStep8(firstName, profile, td, breakdown) {
+  const year = profile?.year || td?.year || new Date().getFullYear();
+  const nin = (profile?.primaryNIN || td?.nin || '').toString().trim();
+  const ninDisplay = nin.length >= 3 ? `****${nin.slice(-3)}` : '—';
+  const incomeList = Array.isArray(profile?.primaryIncomeSources) && profile.primaryIncomeSources.length
+    ? profile.primaryIncomeSources.join(', ')
+    : (Array.isArray(td?.primaryIncomeSources) && td.primaryIncomeSources.length ? td.primaryIncomeSources.join(', ') : '—');
+  const state = profile?.state || td?.state || '—';
+  const stateIRS = state !== '—' ? `${state} Internal Revenue Service` : '—';
+  const fmt = (n) => (n != null && Number(n) >= 0 ? `₦${Number(n).toLocaleString()}` : '—');
+  const rent = profile?.paysRent || td?.paysRent ? fmt(profile?.rentMonthlyAmount ?? td?.rentMonthlyAmount) : '—';
+  const health = profile?.hasHealthInsurance || td?.hasHealthInsurance ? fmt(profile?.healthInsuranceMonthlyAmount ?? td?.healthInsuranceMonthlyAmount) : '—';
+  const pension = profile?.hasPension || td?.hasPension ? fmt(profile?.pensionMonthlyAmount ?? td?.pensionMonthlyAmount) : '—';
+  const mortgage = profile?.paysMortgage || td?.paysMortgage ? fmt(profile?.mortgageMonthlyAmount ?? td?.mortgageMonthlyAmount) : '—';
+  const filingPref = profile?.filingPreference || td?.filingPreference || '—';
+  const filingLabel = filingPref === 'monthly' ? 'Monthly' : filingPref === 'annual' ? 'Annual' : filingPref;
+
+  const s = breakdown?.summary || {};
+  const estIncome = s.totalIncome ?? 0;
+  const estDeductions = s.totalDeductions ?? 0;
+  const chargeable = s.chargeableIncome ?? (estIncome - estDeductions);
+  const annualTax = s.finalTaxPayable ?? s.taxCalculated ?? 0;
+  const monthlyTax = annualTax > 0 ? Math.round(annualTax / 12) : 0;
+
+  let msg = `Here's your tax profile summary, ${firstName || 'there'} 👇\n\n`;
+  msg += '━━━━━━━━━━━━━━━\n';
+  msg += `📅 *Tax Year:* ${year}\n`;
+  msg += `🪪 *Tax ID (NIN):* ${ninDisplay}\n`;
+  msg += `💼 *Income Sources:* ${incomeList}\n`;
+  msg += `📍 *Tax Authority:* ${stateIRS}\n`;
+  msg += `🏠 *Rent:* ${rent}/month\n`;
+  msg += `🏥 *Health Insurance:* ${health}/month\n`;
+  msg += `🏦 *Pension:* ${pension}/month\n`;
+  msg += `🏡 *Mortgage:* ${mortgage}/month\n`;
+  msg += `📆 *Filing Preference:* ${filingLabel}\n`;
+  msg += '━━━━━━━━━━━━━━━\n\n';
+  msg += "Based on what you've shared, here's your estimated tax position:\n";
+  msg += `📊 *Estimated Annual Income:* ${fmt(estIncome)}\n`;
+  msg += `🔽 *Total Deductibles & Reliefs:* ${fmt(estDeductions)}\n`;
+  msg += `📉 *Estimated Taxable Income:* ${fmt(chargeable)}\n`;
+  msg += `🧾 *Estimated Annual Tax (PIT):* ${fmt(annualTax)}\n`;
+  msg += `📆 *Estimated Monthly Tax:* ${fmt(monthlyTax)}\n\n`;
+  msg += '⚠️ These are estimates. Your final tax is confirmed at filing and may vary.\n\n';
+  msg += 'Is everything correct?\n';
+  msg += '1️⃣ Yes, looks good\n';
+  msg += '2️⃣ No, I want to make a change';
+  return msg;
+}
+
 /** STEP 7 — Filing preference message. For 2025 (past year) only annual is offered. */
 function getFilingPreferenceMessage(year) {
   if (year === 2025) {
@@ -1111,6 +1162,7 @@ const handleWebhook = async (req, res) => {
     // intro_choice → intro_explain? → year → NIN → income(+other, confirm) → residency(+nonresident choice) → state → deductibles (rent/health/pension/mortgage + amounts) → filing preference → create profile → reuse_ask → dob → street → city → state → income_info → deductibles free-text
     const taxProfileSteps = [
       'tax_profile_intro',
+      'tax_profile_draft_choice',
       'tax_profile_intro_choice',
       'tax_profile_intro_explain',
       'tax_profile_year',
@@ -1139,7 +1191,10 @@ const handleWebhook = async (req, res) => {
       'tax_profile_filing_preference',
       'tax_profile_summary',
       'tax_profile_summary_confirm',
-      'tax_profile_edit_choice'
+      'tax_profile_edit_choice',
+      'tax_profile_subscription',
+      'tax_profile_subscription_details',
+      'tax_profile_subscription_later'
     ];
     if (session && taxProfileSteps.includes(session.step)) {
       const phoneForTax = waIdToPhone(from);
@@ -1177,6 +1232,67 @@ const handleWebhook = async (req, res) => {
 
       // Treat amounts above this as "implausibly high" and confirm
       const PLAUSIBLE_MONTHLY_MAX = 5000000;
+
+      if (session.step === 'tax_profile_draft_choice') {
+        const choice = String(text || '').trim();
+        if (choice === '1') {
+          const draftId = td._draftProfileId;
+          const draftProfile = draftId ? await TaxableProfile.findByProfileIdOrId(draftId, userForTax._id) : null;
+          if (!draftProfile || draftProfile.status !== 'draft') {
+            session.step = 'tax_profile_intro_choice';
+            session.taxProfileData = { year: new Date().getFullYear() };
+            await session.save();
+            await reply('That draft is no longer available. Starting a fresh tax profile setup.\n\nReady to set it up?\n1️⃣ Yes, let\'s go\n2️⃣ What is a tax profile?\n0️⃣ Back to Main Menu');
+            sendOk();
+            return;
+          }
+          const tdRestore = {
+            currentProfileId: draftProfile.profileId,
+            year: draftProfile.year,
+            nin: draftProfile.primaryNIN,
+            primaryIncomeSources: draftProfile.primaryIncomeSources,
+            state: draftProfile.state,
+            paysRent: draftProfile.paysRent,
+            rentMonthlyAmount: draftProfile.rentMonthlyAmount,
+            hasHealthInsurance: draftProfile.hasHealthInsurance,
+            healthInsuranceMonthlyAmount: draftProfile.healthInsuranceMonthlyAmount,
+            hasPension: draftProfile.hasPension,
+            pensionMonthlyAmount: draftProfile.pensionMonthlyAmount,
+            paysMortgage: draftProfile.paysMortgage,
+            mortgageMonthlyAmount: draftProfile.mortgageMonthlyAmount,
+            filingPreference: draftProfile.filingPreference,
+            residency183Days: draftProfile.residency183Days
+          };
+          session.taxProfileData = tdRestore;
+          session.step = 'tax_profile_summary_confirm';
+          await session.save();
+          let breakdown = null;
+          try { breakdown = await generateCompleteBreakdown(draftProfile._id, draftProfile.year); } catch (e) {}
+          const summaryMsg = await getTaxProfileSummaryForStep8(userForTax.firstName, draftProfile, tdRestore, breakdown);
+          await reply(summaryMsg);
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          session.step = 'tax_profile_intro_choice';
+          session.taxProfileData = { year: new Date().getFullYear() };
+          await session.save();
+          await reply(
+            '📋 *Tax Profile Setup*\n\n' +
+            'This is where everything begins. Your tax profile helps us calculate what you owe, track your income across the year, and make filing stress-free when the time comes.\n\n' +
+            'It takes about 3–5 minutes to complete.\n\n' +
+            'Ready to set it up?\n' +
+            '1️⃣ Yes, let\'s go\n' +
+            '2️⃣ What is a tax profile?\n' +
+            '0️⃣ Back to Main Menu'
+          );
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1 or 2.');
+        sendOk();
+        return;
+      }
 
       if (session.step === 'tax_profile_intro') {
         // Message 1 — Introduction
@@ -1277,6 +1393,11 @@ const handleWebhook = async (req, res) => {
         }
         td.year = y;
         session.taxProfileData = td;
+        if (td.editReturnToSummary && currentProfile) {
+          await returnToSummaryAndSend();
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_nin';
         await session.save();
         await reply(
@@ -1299,6 +1420,11 @@ const handleWebhook = async (req, res) => {
         }
         td.nin = nin;
         session.taxProfileData = td;
+        if (td.editReturnToSummary && currentProfile) {
+          await returnToSummaryAndSend();
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_income';
         await session.save();
         const incomeList = INCOME_SOURCE_OPTIONS.map((label, i) => `${i + 1}. ${label}`).join('\n');
@@ -1382,8 +1508,12 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        // Proceed to Tax Residency
         session.taxProfileData = td;
+        if (td.editReturnToSummary && currentProfile) {
+          await returnToSummaryAndSend();
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_residency';
         await session.save();
         await reply(
@@ -1402,6 +1532,11 @@ const handleWebhook = async (req, res) => {
         if (choice === '1') {
           td.residency183Days = true;
           session.taxProfileData = td;
+          if (td.editReturnToSummary && currentProfile) {
+            await returnToSummaryAndSend();
+            sendOk();
+            return;
+          }
           session.step = 'tax_profile_state';
           await session.save();
           await reply(
@@ -1415,6 +1550,11 @@ const handleWebhook = async (req, res) => {
         if (choice === '2') {
           td.residency183Days = false;
           session.taxProfileData = td;
+          if (td.editReturnToSummary && currentProfile) {
+            await returnToSummaryAndSend();
+            sendOk();
+            return;
+          }
           session.step = 'tax_profile_residency_nonresident_choice';
           await session.save();
           await reply(
@@ -1469,6 +1609,11 @@ const handleWebhook = async (req, res) => {
         }
         td.state = stateInput;
         session.taxProfileData = td;
+        if (td.editReturnToSummary && currentProfile) {
+          await returnToSummaryAndSend();
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_rent';
         await session.save();
         await reply(`Got it — *${stateInput}* ✅\n\nYour tax authority: *${stateInput} Internal Revenue Service*`);
@@ -1503,6 +1648,11 @@ const handleWebhook = async (req, res) => {
           td.paysRent = false;
           td.rentMonthlyAmount = undefined;
           session.taxProfileData = td;
+          if (td.editReturnToSummary && currentProfile) {
+            await returnToSummaryAndSend();
+            sendOk();
+            return;
+          }
           session.step = 'tax_profile_health';
           await session.save();
           await reply(
@@ -1540,6 +1690,11 @@ const handleWebhook = async (req, res) => {
         }
         td.rentMonthlyAmount = amount;
         session.taxProfileData = td;
+        if (td.editReturnToSummary && currentProfile) {
+          await returnToSummaryAndSend();
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_health';
         await session.save();
         await reply(
@@ -1571,6 +1726,11 @@ const handleWebhook = async (req, res) => {
           td.hasHealthInsurance = false;
           td.healthInsuranceMonthlyAmount = undefined;
           session.taxProfileData = td;
+          if (td.editReturnToSummary && currentProfile) {
+            await returnToSummaryAndSend();
+            sendOk();
+            return;
+          }
           session.step = 'tax_profile_pension';
           await session.save();
           await reply(
@@ -1609,6 +1769,11 @@ const handleWebhook = async (req, res) => {
         }
         td.healthInsuranceMonthlyAmount = amount;
         session.taxProfileData = td;
+        if (td.editReturnToSummary && currentProfile) {
+          await returnToSummaryAndSend();
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_pension';
         await session.save();
         await reply(
@@ -1641,6 +1806,11 @@ const handleWebhook = async (req, res) => {
           td.hasPension = false;
           td.pensionMonthlyAmount = undefined;
           session.taxProfileData = td;
+          if (td.editReturnToSummary && currentProfile) {
+            await returnToSummaryAndSend();
+            sendOk();
+            return;
+          }
           session.step = 'tax_profile_mortgage';
           await session.save();
           await reply(
@@ -1677,6 +1847,11 @@ const handleWebhook = async (req, res) => {
         }
         td.pensionMonthlyAmount = amount;
         session.taxProfileData = td;
+        if (td.editReturnToSummary && currentProfile) {
+          await returnToSummaryAndSend();
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_mortgage';
         await session.save();
         await reply(
@@ -1738,6 +1913,11 @@ const handleWebhook = async (req, res) => {
         }
         td.mortgageMonthlyAmount = amount;
         session.taxProfileData = td;
+        if (td.editReturnToSummary && currentProfile) {
+          await returnToSummaryAndSend();
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_filing_preference';
         await session.save();
         await reply(getFilingPreferenceMessage(td.year));
@@ -1829,6 +2009,13 @@ const handleWebhook = async (req, res) => {
           return;
         }
         if (type === 'mortgage') {
+          td.mortgageMonthlyAmount = value;
+          session.taxProfileData = td;
+          if (td.editReturnToSummary && currentProfile) {
+            await returnToSummaryAndSend();
+            sendOk();
+            return;
+          }
           session.step = 'tax_profile_filing_preference';
           await session.save();
           await reply(getFilingPreferenceMessage(td.year));
@@ -1839,6 +2026,25 @@ const handleWebhook = async (req, res) => {
 
       if (session.step === 'tax_profile_filing_preference') {
         const choice = String(text || '').trim();
+        if (td.editReturnToSummary && currentProfile) {
+          if (choice === '1') {
+            td.filingPreference = 'monthly';
+            session.taxProfileData = td;
+            await returnToSummaryAndSend();
+            sendOk();
+            return;
+          }
+          if (choice === '2') {
+            td.filingPreference = 'annual';
+            session.taxProfileData = td;
+            await returnToSummaryAndSend();
+            sendOk();
+            return;
+          }
+          await reply('Please reply with 1 (Monthly) or 2 (Annually).');
+          sendOk();
+          return;
+        }
         const is2025OnlyAnnual = td.year === 2025;
         if (is2025OnlyAnnual) {
           if (choice !== '1') {
@@ -1936,26 +2142,287 @@ const handleWebhook = async (req, res) => {
         }
         td.currentProfileId = createdProfile.profileId;
         session.taxProfileData = td;
-        const previousProfileWithDetails = await TaxableProfile.findOne({
-          user: userForTax._id,
-          _id: { $ne: createdProfile._id },
-          $or: [{ dob: { $exists: true, $ne: null } }, { street: { $exists: true, $ne: '', $ne: null } }]
-        }).sort({ year: -1 }).select('year dob street city state').lean();
-        if (previousProfileWithDetails && (previousProfileWithDetails.dob || previousProfileWithDetails.street)) {
-          session.step = 'tax_profile_reuse_ask';
-          await session.save();
-          await reply(`Your tax profile for *${year}* is created ✅\n\nDo you want to *reuse* the details (date of birth, address) from your ${previousProfileWithDetails.year} profile? Reply *Yes* or *No*.`);
-        } else {
-          session.step = 'tax_profile_dob';
-          await session.save();
-          await reply(`Your tax profile for *${year}* is created ✅\n\nNext: what's your *date of birth*? (e.g. 15-Jan-1990 or 1990-01-15)`);
+        session.step = 'tax_profile_summary_confirm';
+        await session.save();
+        let breakdown = null;
+        try {
+          breakdown = await generateCompleteBreakdown(createdProfile._id, year);
+        } catch (e) {
+          console.error('[WhatsApp] Step 8 breakdown error:', e.message);
         }
+        const summaryMsg = await getTaxProfileSummaryForStep8(userForTax.firstName, createdProfile, td, breakdown);
+        await reply(summaryMsg);
         sendOk();
         return;
       }
 
       const pid = td.currentProfileId;
       const currentProfile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+
+      const returnToSummaryAndSend = async () => {
+        if (!currentProfile) return;
+        if (td.year !== undefined) currentProfile.year = td.year;
+        if (td.nin) currentProfile.primaryNIN = td.nin;
+        if (td.primaryIncomeSources?.length) currentProfile.primaryIncomeSources = td.primaryIncomeSources;
+        if (td.residency183Days !== undefined) currentProfile.residency183Days = td.residency183Days;
+        if (td.state) currentProfile.state = td.state;
+        if (td.paysRent !== undefined) currentProfile.paysRent = td.paysRent;
+        if (td.rentMonthlyAmount !== undefined) currentProfile.rentMonthlyAmount = td.rentMonthlyAmount;
+        if (td.hasHealthInsurance !== undefined) currentProfile.hasHealthInsurance = td.hasHealthInsurance;
+        if (td.healthInsuranceMonthlyAmount !== undefined) currentProfile.healthInsuranceMonthlyAmount = td.healthInsuranceMonthlyAmount;
+        if (td.hasPension !== undefined) currentProfile.hasPension = td.hasPension;
+        if (td.pensionMonthlyAmount !== undefined) currentProfile.pensionMonthlyAmount = td.pensionMonthlyAmount;
+        if (td.paysMortgage !== undefined) currentProfile.paysMortgage = td.paysMortgage;
+        if (td.mortgageMonthlyAmount !== undefined) currentProfile.mortgageMonthlyAmount = td.mortgageMonthlyAmount;
+        if (td.filingPreference) currentProfile.filingPreference = td.filingPreference;
+        await currentProfile.save();
+        td.editReturnToSummary = false;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_summary_confirm';
+        await session.save();
+        let b = null;
+        try { b = await generateCompleteBreakdown(currentProfile._id, currentProfile.year); } catch (e) {}
+        const msg = await getTaxProfileSummaryForStep8(userForTax.firstName, currentProfile, td, b);
+        await reply(msg);
+      };
+
+      if (session.step === 'tax_profile_summary_confirm') {
+        const choice = String(text || '').trim();
+        if (choice === '1') {
+          session.step = 'tax_profile_subscription';
+          session.taxProfileData = td;
+          await session.save();
+          const isMonthly = (td.filingPreference || currentProfile?.filingPreference) === 'monthly';
+          if (isMonthly) {
+            await reply(
+              'Your tax profile is ready to save. 🎉\n\n' +
+              "To keep your profile, track your records monthly, and file your taxes — you'll need a Taxable plan.\n\n" +
+              "Here's the good news: *your first month is completely free.* No payment needed today.\n\n" +
+              '💳 *Monthly Plan*\n' +
+              '₦4,000/month — cancel anytime\n' +
+              '✅ Monthly income & expense tracking\n' +
+              '✅ Real-time tax position\n' +
+              '✅ Year-end filing included\n' +
+              '✅ Bank account integration\n' +
+              '✅ Tax expert support\n\n' +
+              '1️⃣ Start my free month — save my profile\n' +
+              '2️⃣ See more plan details\n' +
+              '3️⃣ I\'ll subscribe later (profile won\'t be saved after trial ends)'
+            );
+          } else {
+            await reply(
+              'Your tax profile is ready to save. 🎉\n\n' +
+              "To keep your profile and file your taxes — you'll need a Taxable plan.\n\n" +
+              '💳 *Annual Plan*\n' +
+              '₦30,000/year — one payment, full year access\n' +
+              '✅ Full year tax documentation\n' +
+              '✅ Accurate PIT calculation\n' +
+              '✅ Year-end filing included\n' +
+              '✅ Bank account integration\n' +
+              '✅ Tax expert support\n\n' +
+              '1️⃣ Subscribe and save my profile\n' +
+              '2️⃣ See more plan details\n' +
+              '3️⃣ I\'ll subscribe later (profile won\'t be saved after one month)'
+            );
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          session.step = 'tax_profile_edit_choice';
+          session.taxProfileData = td;
+          await session.save();
+          await reply(
+            'Which part would you like to update?\n\n' +
+            '1️⃣ Tax Year\n' +
+            '2️⃣ NIN / Tax ID\n' +
+            '3️⃣ Income Sources\n' +
+            '4️⃣ Tax Residency\n' +
+            '5️⃣ State of Residence\n' +
+            '6️⃣ Deductibles & Reliefs\n' +
+            '7️⃣ Filing Preference'
+          );
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1 or 2.');
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_edit_choice') {
+        const choice = String(text || '').trim();
+        const stepMap = {
+          '1': 'tax_profile_year',
+          '2': 'tax_profile_nin',
+          '3': 'tax_profile_income',
+          '4': 'tax_profile_residency',
+          '5': 'tax_profile_state',
+          '6': 'tax_profile_rent',
+          '7': 'tax_profile_filing_preference'
+        };
+        const nextStep = stepMap[choice];
+        if (!nextStep) {
+          await reply('Please reply with a number from 1 to 7.');
+          sendOk();
+          return;
+        }
+        td.editReturnToSummary = true;
+        session.taxProfileData = td;
+        session.step = nextStep;
+        await session.save();
+        if (nextStep === 'tax_profile_year') {
+          await reply('Which tax year are you filing for?\n\n1️⃣ 2025 (January – December 2025)\n2️⃣ 2026 (January – December 2026)');
+        } else if (nextStep === 'tax_profile_nin') {
+          await reply('What is your *NIN* (National Identification Number)? Type your 11-digit NIN and send.');
+        } else if (nextStep === 'tax_profile_income') {
+          const incomeList = INCOME_SOURCE_OPTIONS.map((label, i) => `${i + 1}. ${label}`).join('\n');
+          await reply('How do you earn your income? Select all that apply — send numbers separated by commas.\nExample: 1, 3\n\n' + incomeList);
+        } else if (nextStep === 'tax_profile_residency') {
+          await reply('Did you live in Nigeria for *183 days or more* during this tax year?\n\n1️⃣ Yes — I lived in Nigeria for 183+ days\n2️⃣ No — I spent significant time outside Nigeria');
+        } else if (nextStep === 'tax_profile_state') {
+          await reply('Which state do you currently live in?');
+        } else if (nextStep === 'tax_profile_rent') {
+          await reply('6A — Rent\nDo you pay rent?\n\n1️⃣ Yes\n2️⃣ No');
+        } else if (nextStep === 'tax_profile_filing_preference') {
+          await reply(getFilingPreferenceMessage(td.year));
+        }
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_subscription') {
+        const choice = String(text || '').trim();
+        if (choice === '3') {
+          session.step = 'tax_profile_subscription_later';
+          session.taxProfileData = td;
+          await session.save();
+          await reply(
+            "Got it — your profile details have been saved as a draft.\n\n" +
+            "You can come back anytime to subscribe and activate it.\n" +
+            "Just know that until you subscribe, your profile isn't active and we can't track or file your taxes.\n\n" +
+            '1️⃣ Back to Main Menu'
+          );
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          session.step = 'tax_profile_subscription_details';
+          session.taxProfileData = td;
+          await session.save();
+          const isMonthly = (td.filingPreference || currentProfile?.filingPreference) === 'monthly';
+          if (isMonthly) {
+            await reply(
+              '💳 *Taxable Monthly Plan — ₦4,000/month*\n\n' +
+              "Here's everything that's included:\n" +
+              '- Log income & expenses every month\n' +
+              '- See your tax position in real time\n' +
+              '- Auto-track via bank integration\n' +
+              '- File your PIT at year end\n' +
+              '- Access to tax expert support\n' +
+              '- Cancel anytime — no lock-in\n\n' +
+              '*First month is free.* Your card is only charged from month 2.\n\n' +
+              '1️⃣ Start my free month\n' +
+              '2️⃣ Go back'
+            );
+          } else {
+            await reply(
+              '💳 *Taxable Annual Plan — ₦30,000/year*\n\n' +
+              "Here's everything that's included:\n" +
+              '- One-time full year documentation\n' +
+              '- Accurate PIT calculation\n' +
+              '- File your taxes at year end\n' +
+              '- Bank account integration\n' +
+              '- Access to tax expert support\n\n' +
+              'One payment. No monthly charges. No surprises.\n\n' +
+              '1️⃣ Subscribe now\n' +
+              '2️⃣ Go back'
+            );
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '1') {
+          const isMonthly = (td.filingPreference || currentProfile?.filingPreference) === 'monthly';
+          try {
+            const { authorization_url } = await createSubscriptionLinkForUser(userForTax._id, isMonthly ? 'monthly' : 'yearly');
+            if (authorization_url) {
+              await reply(
+                'Almost there! Tap the secure link below to complete your payment 👇\n\n' +
+                `🔗 ${authorization_url}\n\n` +
+                'Come back and send *DONE* once payment is complete.'
+              );
+              session.step = 'done';
+              session.taxProfileData = {};
+              await session.save();
+            } else {
+              await reply("We couldn't generate a payment link right now. Please try *Subscribe / Manage Plan* from the main menu or talk to support.");
+            }
+          } catch (e) {
+            console.error('[WhatsApp] Subscription payment link error:', e.message);
+            await reply("We couldn't generate a payment link right now. Please try again from the main menu or talk to support.");
+          }
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1, 2, or 3.');
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_subscription_details') {
+        const choice = String(text || '').trim();
+        if (choice === '2') {
+          session.step = 'tax_profile_subscription';
+          session.taxProfileData = td;
+          await session.save();
+          const isMonthly = (td.filingPreference || currentProfile?.filingPreference) === 'monthly';
+          if (isMonthly) {
+            await reply('Your tax profile is ready to save. 🎉\n\n1️⃣ Start my free month — save my profile\n2️⃣ See more plan details\n3️⃣ I\'ll subscribe later (profile won\'t be saved after trial ends)');
+          } else {
+            await reply('Your tax profile is ready to save. 🎉\n\n1️⃣ Subscribe and save my profile\n2️⃣ See more plan details\n3️⃣ I\'ll subscribe later (profile won\'t be saved after one month)');
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '1') {
+          const isMonthly = (td.filingPreference || currentProfile?.filingPreference) === 'monthly';
+          try {
+            const { authorization_url } = await createSubscriptionLinkForUser(userForTax._id, isMonthly ? 'monthly' : 'yearly');
+            if (authorization_url) {
+              await reply('Almost there! Tap the secure link below to complete your payment 👇\n\n🔗 ' + authorization_url + '\n\nCome back and send *DONE* once payment is complete.');
+              session.step = 'done';
+              session.taxProfileData = {};
+              await session.save();
+            } else {
+              await reply("We couldn't generate a payment link. Try from main menu or talk to support.");
+            }
+          } catch (e) {
+            console.error('[WhatsApp] Subscription link error:', e.message);
+            await reply("We couldn't generate a payment link. Try again or talk to support.");
+          }
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1 or 2.');
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_subscription_later') {
+        const choice = String(text || '').trim();
+        if (choice === '1') {
+          session.step = 'done';
+          session.taxProfileData = {};
+          await session.save();
+          const menu = await getLoggedInMainMenu(userForTax.firstName, td.year || new Date().getFullYear(), false);
+          await reply(menu);
+        } else {
+          await reply('Reply 1 to go back to Main Menu.');
+        }
+        sendOk();
+        return;
+      }
 
       if (session.step === 'tax_profile_reuse_ask') {
         const val = yesNo(text);
@@ -2240,7 +2707,7 @@ const handleWebhook = async (req, res) => {
       try {
         const result = await verifyPendingSubscriptionForUser(regUser._id);
         if (result.verified) {
-          await reply(PAYMENT_CONFIRMED);
+          await reply(getPaymentConfirmedAfterProfile(regUser.firstName));
           const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).select('_id').lean();
           const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
           const year = latestProfile?.year || new Date().getFullYear();
@@ -2351,7 +2818,19 @@ const handleWebhook = async (req, res) => {
     }
 
     if (regUser && isSetUpTaxProfileIntent(text)) {
-      // FLOW 3 — Tax Profile Setup: allow users to go through base profile setup even without an active subscription.
+      // PDF edge case: unfinished draft profile — "You have an unfinished tax profile from [date]. 1 Continue where I left off 2 Start fresh"
+      const draftProfile = await TaxableProfile.findOne({ user: regUser._id, status: 'draft' }).sort({ updatedAt: -1 }).select('profileId year primaryNIN primaryIncomeSources state paysRent rentMonthlyAmount hasHealthInsurance healthInsuranceMonthlyAmount hasPension pensionMonthlyAmount paysMortgage mortgageMonthlyAmount filingPreference residency183Days createdAt').lean();
+      if (draftProfile) {
+        const draftDate = draftProfile.createdAt ? new Date(draftProfile.createdAt).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) : 'a previous session';
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'tax_profile_draft_choice', taxProfileData: { _draftProfileId: draftProfile.profileId, year: draftProfile.year }, updatedAt: new Date() } },
+          { upsert: true, new: true }
+        );
+        await reply(`You have an unfinished tax profile from ${draftDate}.\n\n1️⃣ Continue where I left off\n2️⃣ Start fresh`);
+        sendOk();
+        return;
+      }
       const existingProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
       const initialYear = existingProfile?.year || new Date().getFullYear();
       const taxProfileDataInitial = { year: initialYear };
