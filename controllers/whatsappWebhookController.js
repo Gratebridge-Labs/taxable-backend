@@ -3751,12 +3751,19 @@ const handleWebhook = async (req, res) => {
         const c = text.trim().toLowerCase();
         const firstName = data.firstName || '';
         if (c === '1') {
-          session.step = 'tax_profile_intro';
+          session.step = 'tax_profile_intro_choice';
           session.taxProfileData = session.taxProfileData || {};
-          session.taxProfileData.year = new Date().getFullYear();
+          session.taxProfileData.year = session.taxProfileData.year || new Date().getFullYear();
           await session.save();
-          await reply(getTaxProfileIntro(firstName, session.taxProfileData.year));
-          await reply("Reply *I'm ready* when you want to start." + BACK_TO_MENU_FOOTER);
+          await reply(
+            '📋 *Tax Profile Setup*\n\n' +
+            'This is where everything begins. Your tax profile helps us calculate what you owe, track your income across the year, and make filing stress-free when the time comes.\n\n' +
+            'It takes about 3–5 minutes to complete.\n\n' +
+            'Ready to set it up?\n' +
+            '1️⃣ Yes, let\'s go\n' +
+            '2️⃣ What is a tax profile?\n' +
+            '0️⃣ Back to Main Menu'
+          );
           sendOk();
           return;
         }
