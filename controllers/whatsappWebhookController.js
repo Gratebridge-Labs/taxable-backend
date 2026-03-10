@@ -2058,7 +2058,7 @@ const handleWebhook = async (req, res) => {
           session.taxProfileData = td;
           await session.save();
           await reply(
-            'For 2025 we\'ll capture everything for the full year when you file. We will send a reminder on the 7th of December for you to prepare to file your annual tax.\n\n' +
+            'For 2025 we\'ll capture everything for the full year when you file. You can file your 2025 return now — the deadline is *31 March 2026*. We\'re here to help you file whenever you\'re ready.\n\n' +
             'Just know you can switch to monthly tracking for future years anytime. 😊'
           );
         } else if (choice === '1') {
