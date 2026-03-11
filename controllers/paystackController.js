@@ -1,5 +1,8 @@
+const mongoose = require('mongoose');
 const Subscription = require('../models/Subscription');
 const User = require('../models/User');
+const TaxableProfile = require('../models/TaxableProfile');
+const FilingPayment = require('../models/FilingPayment');
 const { initializeTransaction, verifyTransaction, verifyWebhookSignature } = require('../services/paystackService');
 const { sendSubscriptionActiveEmail } = require('../utils/emailService');
 
@@ -58,6 +61,55 @@ async function createSubscriptionLinkForUser(userId, plan = 'monthly', callback_
     authorization_url: result.authorization_url,
     reference: result.reference,
     planName: planNameFinal
+  };
+}
+
+/** One-time filing payments: accountant review ₦30,000, filing fee ₦25,000 (2025). */
+const FILING_PAYMENT_AMOUNTS = {
+  accountant_review: 3000000,   // ₦30,000 in kobo
+  filing_fee: 2500000           // ₦25,000 in kobo
+};
+
+/**
+ * Create a one-time payment link for accountant review (₦30k) or filing fee (₦25k).
+ * Used by WhatsApp annual flow. Webhook updates profile.filingStatus.
+ */
+async function createFilingPaymentLink(userId, profileId, type = 'accountant_review') {
+  if (!['accountant_review', 'filing_fee'].includes(type)) throw new Error('Invalid filing payment type');
+  const user = await User.findById(userId).select('email firstName').lean();
+  if (!user?.email) throw new Error('User email not found');
+  const amountKobo = FILING_PAYMENT_AMOUNTS[type];
+  const ref = `filing_${new mongoose.Types.ObjectId()}_${Date.now()}`;
+  const doc = await FilingPayment.create({
+    user: userId,
+    profileId,
+    type,
+    amountKobo,
+    paystackReference: ref,
+    status: 'pending'
+  });
+  const baseUrl = process.env.APP_URL || process.env.PAYSTACK_CALLBACK_URL || 'https://dashboard.gettaxable.com';
+  const result = await initializeTransaction({
+    email: user.email,
+    amount: amountKobo,
+    callback_url: `${baseUrl}/payment/success`,
+    metadata: {
+      user_id: String(userId),
+      profile_id: String(profileId),
+      payment_type: type,
+      filing_payment_id: String(doc._id)
+    },
+    reference: ref
+  });
+  if (result.reference && result.reference !== ref) {
+    doc.paystackReference = result.reference;
+    await doc.save();
+  }
+  return {
+    authorization_url: result.authorization_url,
+    reference: result.reference || ref,
+    type,
+    amountNaira: amountKobo / 100
   };
 }
 
@@ -133,7 +185,21 @@ const handleWebhook = async (req, res) => {
         }
         console.log('[Paystack webhook] Subscription activated:', subscription._id, 'user:', subscription.user);
       } else {
-        console.log('[Paystack webhook] charge.success reference not found or already processed:', reference);
+        const filingPayment = await FilingPayment.findOne({ paystackReference: reference, status: 'pending' });
+        if (filingPayment) {
+          await FilingPayment.updateOne(
+            { _id: filingPayment._id },
+            { status: 'completed', updatedAt: new Date() }
+          );
+          const newStatus = filingPayment.type === 'accountant_review' ? 'pending_accountant_review' : 'in_review_for_filing';
+          await TaxableProfile.updateOne(
+            { _id: filingPayment.profileId },
+            { $set: { filingStatus: newStatus, updatedAt: new Date() } }
+          );
+          console.log('[Paystack webhook] FilingPayment completed:', filingPayment._id, 'type:', filingPayment.type, 'profile:', filingPayment.profileId);
+        } else {
+          console.log('[Paystack webhook] charge.success reference not found or already processed:', reference);
+        }
       }
     }
 
@@ -239,9 +305,11 @@ const verifyPaymentDone = async (req, res) => {
 module.exports = {
   createPaymentLink,
   createSubscriptionLinkForUser,
+  createFilingPaymentLink,
   handleWebhook,
   getSubscriptionStatus,
   verifyPaymentDone,
   verifyPendingSubscriptionForUser,
-  DEFAULT_PLANS
+  DEFAULT_PLANS,
+  FILING_PAYMENT_AMOUNTS
 };

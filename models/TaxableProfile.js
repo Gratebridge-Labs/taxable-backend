@@ -173,6 +173,12 @@ const taxableProfileSchema = new mongoose.Schema({
   filedAt: {
     type: Date
   },
+  /** For annual flow: pending_upload | pending_accountant_review | accountant_reviewed | in_review_for_filing | filed */
+  filingStatus: {
+    type: String,
+    enum: ['pending_upload', 'pending_accountant_review', 'accountant_reviewed', 'in_review_for_filing', 'filed'],
+    default: null
+  },
   adminNotes: {
     type: String,
     trim: true,

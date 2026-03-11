@@ -13,7 +13,7 @@ const { sendTextMessage, sendImage, sendTypingIndicator } = require('../services
 const { registerUser, resendOTP } = require('../services/registrationService');
 const { initiateAccountLinking, getAccountIncome } = require('../services/monoService');
 const { estimateTaxFromAnnualIncome, calculateRentRelief } = require('../utils/taxCalculator');
-const { createSubscriptionLinkForUser, verifyPendingSubscriptionForUser } = require('./paystackController');
+const { createSubscriptionLinkForUser, createFilingPaymentLink, verifyPendingSubscriptionForUser } = require('./paystackController');
 const { sendTaxProfileCreatedEmail } = require('../utils/emailService');
 const {
   FIRST_WELCOME_MESSAGE,
@@ -1009,11 +1009,12 @@ const handleWebhook = async (req, res) => {
       try {
         const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
         if (userForMenu) {
-          const hasProfile = await TaxableProfile.findOne({ user: userForMenu._id }).sort({ year: -1 }).select('_id year').lean();
+          const hasProfile = await TaxableProfile.findOne({ user: userForMenu._id }).sort({ year: -1 }).select('_id year filingStatus').lean();
           const hasSub = await safeHasActiveSubscription(userForMenu._id);
           const year = hasProfile?.year || new Date().getFullYear();
+          const menuOpts = hasProfile?.filingStatus && ['in_review_for_filing', 'filed'].includes(hasProfile.filingStatus) ? { filedForYear: year } : {};
           if (hasProfile) {
-            await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub));
+            await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub, menuOpts));
           } else {
             await sendWatchVideoPreview();
             await reply(getPostVerificationWelcome(userForMenu.firstName));
@@ -1269,6 +1270,7 @@ const handleWebhook = async (req, res) => {
       'tax_profile_summary',
       'tax_profile_summary_confirm',
       'tax_profile_edit_choice',
+      'tax_profile_final_steps',
       'tax_profile_subscription',
       'tax_profile_subscription_details',
       'tax_profile_subscription_later'
@@ -1294,9 +1296,9 @@ const handleWebhook = async (req, res) => {
         return null;
       };
 
-      // Helper: parse integer amount in Naira; returns { ok, value, errorType }
+      // Helper: parse integer amount in Naira; accepts commas, spaces, ₦. Returns { ok, value, errorType }
       const parseAmount = (raw) => {
-        const t = String(raw || '').trim();
+        const t = String(raw || '').replace(/[,₦\s]/g, '').trim();
         if (!/^[0-9]+$/.test(t)) {
           return { ok: false, errorType: 'not_numeric' };
         }
@@ -1807,7 +1809,7 @@ const handleWebhook = async (req, res) => {
       if (session.step === 'tax_profile_rent_amount') {
         const parsed = parseAmount(text);
         if (!parsed.ok) {
-          await reply('Please enter numbers only — no commas, letters, or symbols. Example: 85000');
+          await reply('Please enter a valid amount in Naira (e.g. 85000 or 85,000).');
           sendOk();
           return;
         }
@@ -1886,7 +1888,7 @@ const handleWebhook = async (req, res) => {
       if (session.step === 'tax_profile_health_amount') {
         const parsed = parseAmount(text);
         if (!parsed.ok) {
-          await reply('Please enter numbers only — no commas, letters, or symbols. Example: 85000');
+          await reply('Please enter a valid amount in Naira (e.g. 85000 or 85,000).');
           sendOk();
           return;
         }
@@ -1964,7 +1966,7 @@ const handleWebhook = async (req, res) => {
       if (session.step === 'tax_profile_pension_amount') {
         const parsed = parseAmount(text);
         if (!parsed.ok) {
-          await reply('Please enter numbers only — no commas, letters, or symbols. Example: 85000');
+          await reply('Please enter a valid amount in Naira (e.g. 85000 or 85,000).');
           sendOk();
           return;
         }
@@ -2030,7 +2032,7 @@ const handleWebhook = async (req, res) => {
       if (session.step === 'tax_profile_mortgage_amount') {
         const parsed = parseAmount(text);
         if (!parsed.ok) {
-          await reply('Please enter numbers only — no commas, letters, or symbols. Example: 85000');
+          await reply('Please enter a valid amount in Naira (e.g. 85000 or 85,000).');
           sendOk();
           return;
         }
@@ -2330,6 +2332,26 @@ const handleWebhook = async (req, res) => {
       if (session.step === 'tax_profile_summary_confirm') {
         const choice = String(text || '').trim();
         if (choice === '1') {
+          const isAnnual = (td.filingPreference || currentProfile?.filingPreference) === 'annual' || td.year === 2025;
+          if (isAnnual && currentProfile) {
+            await TaxableProfile.updateOne(
+              { _id: currentProfile._id },
+              { $set: { status: 'active', filingStatus: 'pending_upload', updatedAt: new Date() } }
+            );
+            session.step = 'tax_profile_final_steps';
+            session.taxProfileData = td;
+            await session.save();
+            const yearLabel = td.year || currentProfile.year || new Date().getFullYear();
+            await reply(
+              'Next steps to file your ' + yearLabel + ' taxes:\n\n' +
+              '1️⃣ *Upload documents* — We\'ll send you a link to upload bank statements and relief documents.\n\n' +
+              '2️⃣ *Book an accountant to review* (Recommended) — ₦30,000. An expert reviews your documents so you\'re good to go with FIRS and avoid issues.\n\n' +
+              '3️⃣ *I\'m ready to file* — Pay ₦25,000 to file your ' + yearLabel + ' return. Choose this if you\'re sure of your data.\n\n' +
+              'Reply with 1, 2, or 3.'
+            );
+            sendOk();
+            return;
+          }
           session.step = 'tax_profile_subscription';
           session.taxProfileData = td;
           await session.save();
@@ -2431,6 +2453,73 @@ const handleWebhook = async (req, res) => {
         } else if (nextStep === 'tax_profile_filing_preference') {
           await reply(getFilingPreferenceMessage(td.year));
         }
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_final_steps') {
+        const choice = String(text || '').trim();
+        const yearLabel = td.year || currentProfile?.year || new Date().getFullYear();
+        if (choice === '1') {
+          try {
+            const { uploadUrl } = await createUploadSessionForUser(userForTax._id, currentProfile._id, yearLabel);
+            await reply(
+              '📎 Use this link to upload your documents (bank statements and relief documents):\n\n' + uploadUrl + '\n\n' +
+              'What next?\n\n' +
+              '2️⃣ Book an accountant to review (₦30,000 — recommended)\n' +
+              '3️⃣ I\'m ready to file (₦25,000)\n\n' +
+              'Reply with 2 or 3.'
+            );
+          } catch (e) {
+            console.error('[WhatsApp] createUploadSession in final_steps:', e.message);
+            await reply("We couldn't generate the upload link right now. Reply 2 or 3 to continue, or try again later.");
+          }
+          session.taxProfileData = td;
+          await session.save();
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          try {
+            const { authorization_url } = await createFilingPaymentLink(userForTax._id, currentProfile._id, 'accountant_review');
+            await reply(
+              'Almost there! Tap the link below to pay ₦30,000 for your accountant review:\n\n' + authorization_url + '\n\n' +
+              'After payment, your status will be *Pending accountant review*. We\'ll update you when the review is done — then you can file.\n\n' +
+              'Reply *menu* when you\'re done.'
+            );
+            session.step = 'done';
+            session.taxProfileData = {};
+            await session.save();
+            const menu = await getLoggedInMainMenu(userForTax.firstName, yearLabel, false, {});
+            await reply(menu);
+          } catch (e) {
+            console.error('[WhatsApp] createFilingPaymentLink accountant:', e.message);
+            await reply("We couldn't generate the payment link. Please try again or say *menu* for options.");
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '3') {
+          try {
+            const { authorization_url } = await createFilingPaymentLink(userForTax._id, currentProfile._id, 'filing_fee');
+            await reply(
+              'Almost there! Tap the link below to pay ₦25,000 to file your ' + yearLabel + ' taxes:\n\n' + authorization_url + '\n\n' +
+              'After payment, your return will be *In review for filing*. We\'ll update you when it\'s submitted.\n\n' +
+              'Reply *menu* when you\'re done.'
+            );
+            session.step = 'done';
+            session.taxProfileData = {};
+            await session.save();
+            const menu = await getLoggedInMainMenu(userForTax.firstName, yearLabel, false, { filedForYear: yearLabel });
+            await reply(menu);
+          } catch (e) {
+            console.error('[WhatsApp] createFilingPaymentLink filing:', e.message);
+            await reply("We couldn't generate the payment link. Please try again or say *menu* for options.");
+          }
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1, 2, or 3.');
         sendOk();
         return;
       }
@@ -3285,7 +3374,7 @@ const handleWebhook = async (req, res) => {
           { $set: { step: 'relief_amount', 'taxProfileData.selectedReliefType': relief.key, updatedAt: new Date() } }
         );
         const hint = relief.key === 'rent_relief' ? ' (we\'ll apply 20% relief, max ₦500,000)' : '';
-        await reply(`Enter the *amount* in Naira for ${relief.label}${hint}. Example: 50000${BACK_TO_MENU_FOOTER}`);
+        await reply(`Enter the *amount* in Naira for ${relief.label}${hint}.\n\nExample: 50000 or 50,000${BACK_TO_MENU_FOOTER}`);
         sendOk();
         return;
       }

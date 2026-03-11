@@ -370,7 +370,11 @@ const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 • No — continue${BACK_TO_MENU_FOOTER}`;
 
 // —— LOGGED-IN MAIN MENU (has profile; slim copy: intro + individuals deadline only, then menu) ——
-function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false) {
+// options: { filedForYear?: number } — when set, show "You have filed for X taxes. Set up another year?"
+function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false, options = {}) {
+  const filedLine = options && options.filedForYear
+    ? `You have filed for *${options.filedForYear}* taxes. Do you want to set up another year's tax profile?\n\n`
+    : '';
   const menuBlock = hasActiveSubscription
     ? `Here's what you can do today 👇
 
@@ -409,7 +413,7 @@ ${TAXABLE_INTRO_LINE}
 
 ${FILING_DEADLINE_INDIVIDUAL}
 
-${menuBlock}`;
+${filedLine}${menuBlock}`;
 }
 
 // —— FILING ——
