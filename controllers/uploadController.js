@@ -22,7 +22,7 @@ const { API_BASE_URL } = require('../config/constants');
 const UPLOADS_BASE = (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) ? os.tmpdir() : process.cwd();
 const UPLOADS_DIR = path.join(UPLOADS_BASE, 'uploads', 'documents');
 
-const UPLOAD_PAGE_BASE = process.env.UPLOAD_PAGE_BASE || 'https://gettaxable.com';
+const UPLOAD_PAGE_BASE = process.env.UPLOAD_PAGE_BASE || 'https://dashboard.gettaxable.com';
 
 // Multer: store in uploads/documents/{userId}, unique filename
 const storage = multer.diskStorage({

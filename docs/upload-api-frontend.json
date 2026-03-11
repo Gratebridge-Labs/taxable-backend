@@ -1,6 +1,6 @@
 {
   "baseUrl": "https://api.gettaxable.com/api",
-  "uploadPageBaseUrl": "https://gettaxable.com",
+  "uploadPageBaseUrl": "https://dashboard.gettaxable.com",
   "endpoints": [
     {
       "name": "Create upload session",
@@ -183,7 +183,8 @@
   "types": {
     "Bank": {
       "id": "string - use for selectedBanks and bankId when uploading",
-      "name": "string - display name"
+      "name": "string - display name",
+      "logo": "string | null - URL to SVG logo (from https://nigerianbanklogos.xyz) or null"
     },
     "UploadedFile": {
       "documentId": "string - Mongo _id",
@@ -203,10 +204,13 @@
   },
   "bankIds": [
     "access", "citibank", "ecobank", "fidelity", "firstbank", "fcmb",
-    "globus", "gtbank", "heritage", "keystone", "kuda", "polaris",
+    "globus", "gtbank", "heritage", "jaiz", "keystone", "kuda", "polaris",
     "providus", "stanbic", "standard_chartered", "sterling", "suntrust",
-    "union", "uba", "unity", "wema", "zenith"
+    "union", "uba", "unity", "wema", "zenith",
+    "abbey_mortgage", "livingtrust", "npf_microfinance", "aso_savings"
   ],
+  "logoSource": "https://nigerianbanklogos.xyz/",
+  "logoApiDocs": "https://nigerianbanklogos.xyz/docs"
   "deductionTypes": [
     "nhf", "nhis", "pension", "life_insurance", "mortgage_interest",
     "rent_relief", "transport_allowance", "other"
