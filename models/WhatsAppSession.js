@@ -67,6 +67,7 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'tax_profile_deductibles',
       'tax_profile_filing_preference',
       'tax_profile_summary',
+      'tax_profile_income_amount',
       'tax_profile_summary_confirm',
       'tax_profile_edit_choice',
       'tax_profile_subscription',
@@ -97,6 +98,9 @@ const whatsAppSessionSchema = new mongoose.Schema({
     nin: { type: String, trim: true },
     primaryIncomeSources: [String],
     otherIncomeDescription: { type: String, trim: true },
+    /** Amounts per income source (same order as primaryIncomeSources), in Naira annual */
+    incomeAmounts: [Number],
+    incomeAmountIndex: { type: Number },
     residency183Days: { type: Boolean },
     paysRent: { type: Boolean },
     rentMonthlyAmount: { type: Number },

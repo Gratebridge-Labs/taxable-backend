@@ -7,6 +7,7 @@ const TaxUpdate = require('../models/TaxUpdate');
 const MonoLink = require('../models/MonoLink');
 const Deduction = require('../models/Deduction');
 const Document = require('../models/Document');
+const IncomeSource = require('../models/IncomeSource');
 const Subscription = require('../models/Subscription');
 const { sendTextMessage, sendImage, sendTypingIndicator } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
@@ -545,6 +546,46 @@ function parseIncomeSourceReply(text) {
   return unique.map(n => INCOME_SOURCE_OPTIONS[n - 1]);
 }
 
+/** Map profile primaryIncomeSources label to IncomeSource.incomeType */
+const INCOME_SOURCE_LABEL_TO_TYPE = {
+  'Salary / Employment': 'employment',
+  'Business/Self-employment': 'business',
+  'Freelance/Consulting': 'business',
+  'Investment income': 'investment',
+  'Rental income': 'rental',
+  'Digital Assets/Crypto': 'other',
+  'Other': 'other'
+};
+
+/**
+ * Create or replace IncomeSource records for a profile from (sources, amounts).
+ * Deletes existing IncomeSource for profileId+year, then creates one per (source, amount).
+ */
+async function syncIncomeSourcesFromAmounts(profileId, year, primaryIncomeSources, incomeAmounts, otherIncomeDescription) {
+  if (!profileId || !Array.isArray(primaryIncomeSources) || primaryIncomeSources.length === 0 || !Array.isArray(incomeAmounts) || incomeAmounts.length !== primaryIncomeSources.length) return;
+  await IncomeSource.deleteMany({ profileId, 'period.year': year });
+  const startOfYear = new Date(year, 0, 1);
+  const endOfYear = new Date(year, 11, 31);
+  for (let i = 0; i < primaryIncomeSources.length; i++) {
+    const label = primaryIncomeSources[i];
+    const amount = Number(incomeAmounts[i]) || 0;
+    if (amount <= 0) continue;
+    const incomeType = INCOME_SOURCE_LABEL_TO_TYPE[label] || 'other';
+    const payload = {
+      profileId,
+      incomeType,
+      period: { startDate: startOfYear, endDate: endOfYear, year },
+      totalAmount: amount
+    };
+    if (incomeType === 'employment') payload.employment = { annualGrossSalary: amount };
+    else if (incomeType === 'business') payload.business = { annualRevenue: amount };
+    else if (incomeType === 'rental') payload.rental = { properties: [{ annualRentalIncome: amount }] };
+    else if (incomeType === 'investment') payload.investment = { incomeItems: [{ incomeType: 'other', amount }] };
+    else payload.other = { amount, description: label === 'Other' ? (otherIncomeDescription || 'Other income') : label };
+    await IncomeSource.create(payload);
+  }
+}
+
 /** Time-based greeting: Good morning / afternoon / evening */
 function getTimeBasedGreeting() {
   const hour = new Date().getHours();
@@ -775,11 +816,6 @@ async function getTaxProfileSummaryForStep8(firstName, profile, td, breakdown) {
   msg += `📉 *Estimated Taxable Income:* ${chargeable != null ? fmt(chargeable) : '—'}\n`;
   msg += `🧾 *Estimated Annual Tax (PIT):* ${annualTax != null ? fmt(annualTax) : '—'}\n`;
   msg += `📆 *Estimated Monthly Tax:* ${monthlyTax != null ? fmt(monthlyTax) : '—'}\n\n`;
-  if (!hasBreakdownData) {
-    msg += '💡 *Add your income* (connect your bank or log it) to see your full tax estimate.\n\n';
-    msg += '📐 *PIT formula:* First ₦800,000 tax-free; then 15% / 18% / 21% / 23% / 25% on (Income − Deductibles). Rent relief: 20% of annual rent (max ₦500,000).\n\n';
-  }
-  msg += '⚠️ These are estimates. Your final tax is confirmed at filing and may vary.\n\n';
   msg += 'Is everything correct?\n';
   msg += '1️⃣ Yes, looks good\n';
   msg += '2️⃣ No, I want to make a change';
@@ -1554,6 +1590,63 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
+        // Ask for amount per income source (same order as primaryIncomeSources)
+        td.incomeAmounts = [];
+        td.incomeAmountIndex = 0;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_income_amount';
+        await session.save();
+        const sources = td.primaryIncomeSources || [];
+        const yearForPrompt = td.year || new Date().getFullYear();
+        const firstLabel = sources[0];
+        await reply(
+          `STEP 3B — Income amounts\n\n` +
+          `How much did you earn from *${firstLabel}* in ${yearForPrompt}?\n\n` +
+          `Enter the amount in Naira (annual total).\nExample: 5000000 or 3,000,000`
+        );
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_income_amount') {
+        const amountRaw = String(text || '').replace(/[,₦\s]/g, '');
+        const amount = parseFloat(amountRaw, 10);
+        if (isNaN(amount) || amount < 0) {
+          await reply('Please enter a valid amount in Naira (e.g. 5000000 or 3,000,000).');
+          sendOk();
+          return;
+        }
+        const sources = td.primaryIncomeSources || [];
+        const idx = td.incomeAmountIndex ?? 0;
+        if (!Array.isArray(td.incomeAmounts)) td.incomeAmounts = [];
+        td.incomeAmounts.push(Math.round(amount));
+        td.incomeAmountIndex = idx + 1;
+        session.taxProfileData = td;
+        if (idx + 1 < sources.length) {
+          await session.save();
+          const nextLabel = sources[idx + 1];
+          const yearForPrompt = td.year || new Date().getFullYear();
+          await reply(
+            `Got it — ₦${Number(amount).toLocaleString()} for ${sources[idx]}.\n\n` +
+            `How much did you earn from *${nextLabel}* in ${yearForPrompt}?\n\n` +
+            `Enter the amount in Naira (annual total).`
+          );
+          sendOk();
+          return;
+        }
+        await session.save();
+        if (td.editReturnToSummary && currentProfile) {
+          currentProfile.primaryIncomeSources = sources;
+          await currentProfile.save();
+          try {
+            await syncIncomeSourcesFromAmounts(currentProfile._id, currentProfile.year, sources, td.incomeAmounts, td.otherIncomeDescription);
+          } catch (e) {
+            console.error('[WhatsApp] syncIncomeSources on edit:', e.message);
+          }
+          await returnToSummaryAndSend();
+          sendOk();
+          return;
+        }
         session.step = 'tax_profile_residency';
         await session.save();
         await reply(
@@ -2180,6 +2273,13 @@ const handleWebhook = async (req, res) => {
         } catch (e) {
           console.error('[WhatsApp] Tax profile created email failed:', e.message);
         }
+        if (Array.isArray(td.incomeAmounts) && td.incomeAmounts.length === primaryIncomeSources.length) {
+          try {
+            await syncIncomeSourcesFromAmounts(createdProfile._id, year, primaryIncomeSources, td.incomeAmounts, td.otherIncomeDescription);
+          } catch (e) {
+            console.error('[WhatsApp] syncIncomeSources on create:', e.message);
+          }
+        }
         td.currentProfileId = createdProfile.profileId;
         session.taxProfileData = td;
         session.step = 'tax_profile_summary_confirm';
@@ -2316,6 +2416,9 @@ const handleWebhook = async (req, res) => {
         } else if (nextStep === 'tax_profile_nin') {
           await reply('What is your *NIN* (National Identification Number)? Type your 11-digit NIN and send.');
         } else if (nextStep === 'tax_profile_income') {
+          td.incomeAmounts = undefined;
+          td.incomeAmountIndex = undefined;
+          session.taxProfileData = td;
           const incomeList = INCOME_SOURCE_OPTIONS.map((label, i) => `${i + 1}. ${label}`).join('\n');
           await reply('How do you earn your income? Select all that apply — send numbers separated by commas.\nExample: 1, 3\n\n' + incomeList);
         } else if (nextStep === 'tax_profile_residency') {
@@ -2914,7 +3017,7 @@ const handleWebhook = async (req, res) => {
         const taxPayable = s.finalTaxPayable ?? s.taxCalculated ?? 0;
         const feePlaceholder = 5000;
         const totalToday = taxPayable + feePlaceholder;
-        let msg = `Here's your *${latestProfile.year}* tax summary (based on your connected banks + reliefs):\n\n`;
+        let msg = `Here's your *${latestProfile.year}* tax summary (based on your income and reliefs):\n\n`;
         msg += `*Income snapshot*\n• Total income detected: ₦${Number(totalIncome).toLocaleString()}\n• Period: Jan–Dec ${latestProfile.year} (or current-to-date)\n\n`;
         msg += `*Reliefs applied*\n• Total reliefs & deductions: ₦${Number(totalDeductions).toLocaleString()}\n\n`;
         msg += `*Estimated tax due*\n• Estimated PAYE/Tax payable: ₦${Number(taxPayable).toLocaleString()}\n\n`;
@@ -3459,7 +3562,7 @@ const handleWebhook = async (req, res) => {
         }
       }
       if (annualIncome <= 0) {
-        await reply("We don't have your income on file yet. Reply *Get my financial data* to connect your bank, or *Continue my filing* to add income manually. Then I can give you a PAYE estimate." + BACK_TO_MENU_FOOTER);
+        await reply("We don't have your income on file yet. Set up your tax profile and enter your income by source (reply *Continue my filing* or *Tax profile*), then I can give you a PAYE estimate." + BACK_TO_MENU_FOOTER);
         sendOk();
         return;
       }
