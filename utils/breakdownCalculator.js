@@ -135,12 +135,33 @@ async function generateTaxBreakdown(profileId, year) {
 }
 
 /**
- * Generate complete breakdown (all components)
+ * Generate complete breakdown (all components).
+ * When we have income and/or deductions, tax is computed on the fly so the user
+ * always sees estimated tax (chargeable income, PIT, monthly) without needing a stored TaxCalculation.
  */
 async function generateCompleteBreakdown(profileId, year) {
   const incomeBreakdown = await generateIncomeBreakdown(profileId, year);
   const deductionBreakdown = await generateDeductionBreakdown(profileId, year);
   const taxBreakdown = await generateTaxBreakdown(profileId, year);
+
+  const totalIncome = incomeBreakdown.totalIncome;
+  const totalDeductions = deductionBreakdown.totalDeductions;
+
+  // Compute PIT from income and deductions so we can show tax even when no TaxCalculation is stored
+  let chargeableIncome = taxBreakdown?.chargeableIncome ?? null;
+  let taxCalculated = taxBreakdown?.totalTax ?? null;
+  let finalTaxPayable = taxBreakdown?.finalTaxLiability ?? null;
+  let isRefund = taxBreakdown?.isRefund ?? false;
+
+  if (chargeableIncome == null || taxCalculated == null || finalTaxPayable == null) {
+    const incomeSourcesForCalc = incomeBreakdown.sources.map(s => ({ totalAmount: s.amount, incomeType: s.type }));
+    const deductionsForCalc = deductionBreakdown.deductions.map(d => ({ amount: d.amount, deductionType: d.type }));
+    const computed = calculateIndividualTaxComplete(incomeSourcesForCalc, deductionsForCalc, 0, 0);
+    chargeableIncome = computed.chargeableIncome;
+    taxCalculated = computed.taxCalculation?.totalTax ?? 0;
+    finalTaxPayable = computed.finalTaxLiability;
+    isRefund = computed.isRefund || false;
+  }
 
   return {
     profileId,
@@ -149,12 +170,12 @@ async function generateCompleteBreakdown(profileId, year) {
     deductionBreakdown,
     taxBreakdown,
     summary: {
-      totalIncome: incomeBreakdown.totalIncome,
-      totalDeductions: deductionBreakdown.totalDeductions,
-      chargeableIncome: taxBreakdown?.chargeableIncome || 0,
-      taxCalculated: taxBreakdown?.totalTax || 0,
-      finalTaxPayable: taxBreakdown?.finalTaxLiability || 0,
-      isRefund: taxBreakdown?.isRefund || false
+      totalIncome,
+      totalDeductions,
+      chargeableIncome: chargeableIncome ?? 0,
+      taxCalculated: taxCalculated ?? 0,
+      finalTaxPayable: finalTaxPayable ?? 0,
+      isRefund
     }
   };
 }
