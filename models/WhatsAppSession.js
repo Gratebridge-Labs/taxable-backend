@@ -70,6 +70,7 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'tax_profile_income_amount',
       'tax_profile_summary_confirm',
       'tax_profile_edit_choice',
+      'tax_profile_final_steps',
       'tax_profile_subscription',
       'tax_profile_subscription_details',
       'tax_profile_subscription_later',
