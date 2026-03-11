@@ -2300,7 +2300,11 @@ const handleWebhook = async (req, res) => {
       }
 
       const pid = td.currentProfileId;
-      const currentProfile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+      let currentProfile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+      // If we're at summary confirm but profile lookup failed (e.g. session from before currentProfileId), use latest profile for user+year
+      if (!currentProfile && td.year != null) {
+        currentProfile = await TaxableProfile.findOne({ user: userForTax._id, year: td.year }).sort({ createdAt: -1 }).limit(1).exec();
+      }
 
       const returnToSummaryAndSend = async () => {
         if (!currentProfile) return;
@@ -2334,23 +2338,30 @@ const handleWebhook = async (req, res) => {
         if (choice === '1') {
           const isAnnual = (td.filingPreference || currentProfile?.filingPreference) === 'annual' || td.year === 2025;
           if (isAnnual && currentProfile) {
-            await TaxableProfile.updateOne(
-              { _id: currentProfile._id },
-              { $set: { status: 'active', filingStatus: 'pending_upload', updatedAt: new Date() } }
-            );
-            session.step = 'tax_profile_final_steps';
-            session.taxProfileData = td;
-            await session.save();
-            const yearLabel = td.year || currentProfile.year || new Date().getFullYear();
-            await reply(
-              'Next steps to file your ' + yearLabel + ' taxes:\n\n' +
-              '1️⃣ *Upload documents* — We\'ll send you a link to upload bank statements and relief documents.\n\n' +
-              '2️⃣ *Book an accountant to review* (Recommended) — ₦30,000. An expert reviews your documents so you\'re good to go with FIRS and avoid issues.\n\n' +
-              '3️⃣ *I\'m ready to file* — Pay ₦25,000 to file your ' + yearLabel + ' return. Choose this if you\'re sure of your data.\n\n' +
-              'Reply with 1, 2, or 3.'
-            );
-            sendOk();
-            return;
+            try {
+              await TaxableProfile.updateOne(
+                { _id: currentProfile._id },
+                { $set: { status: 'active', filingStatus: 'pending_upload', updatedAt: new Date() } }
+              );
+              session.step = 'tax_profile_final_steps';
+              session.taxProfileData = td;
+              await session.save();
+              const yearLabel = td.year || currentProfile.year || new Date().getFullYear();
+              await reply(
+                'Next steps to file your ' + yearLabel + ' taxes:\n\n' +
+                '1️⃣ *Upload documents* — We\'ll send you a link to upload bank statements and relief documents.\n\n' +
+                '2️⃣ *Book an accountant to review* (Recommended) — ₦30,000. An expert reviews your documents so you\'re good to go with FIRS and avoid issues.\n\n' +
+                '3️⃣ *I\'m ready to file* — Pay ₦25,000 to file your ' + yearLabel + ' return. Choose this if you\'re sure of your data.\n\n' +
+                'Reply with 1, 2, or 3.'
+              );
+              sendOk();
+              return;
+            } catch (err) {
+              console.error('[WhatsApp] summary_confirm annual final-steps error:', err.message || err, err.stack);
+              await reply("We hit a small hiccup saving your choice. Please try replying *1* again, or say *Hi Taxable* to start fresh — we're here to help! 💬" + BACK_TO_MENU_FOOTER);
+              sendOk();
+              return;
+            }
           }
           session.step = 'tax_profile_subscription';
           session.taxProfileData = td;
