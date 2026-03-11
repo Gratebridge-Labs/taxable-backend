@@ -128,7 +128,9 @@ const whatsAppSessionSchema = new mongoose.Schema({
     reliefYear: { type: Number },
     selectedReliefType: { type: String, trim: true },
     /** After adding a relief, store last created deduction id so next image/document can link to it */
-    lastDeductionId: { type: String, trim: true }
+    lastDeductionId: { type: String, trim: true },
+    /** true after user got upload link in tax_profile_final_steps (must do upload before 2 or 3) */
+    finalStepsUploadLinkSent: { type: Boolean }
   },
   /** After user is created, we may need to verify OTP */
   pendingUserId: {

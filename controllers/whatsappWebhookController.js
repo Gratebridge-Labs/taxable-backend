@@ -2357,10 +2357,12 @@ const handleWebhook = async (req, res) => {
             const yearLabel = td.year || currentProfile.year || new Date().getFullYear();
             await reply(
               'Next steps to file your ' + yearLabel + ' taxes:\n\n' +
-              '1️⃣ *Upload documents* — We\'ll send you a link to upload bank statements and relief documents.\n\n' +
-              '2️⃣ *Book an accountant to review* (Recommended) — ₦30,000. An expert reviews your documents so you\'re good to go with FIRS and avoid issues.\n\n' +
-              '3️⃣ *I\'m ready to file* — Pay ₦25,000 to file your ' + yearLabel + ' return. Choose this if you\'re sure of your data.\n\n' +
-              'Reply with 1, 2, or 3.'
+              '*First:* Upload your documents (bank statements and relief documents). You must do this before you can book an accountant or file.\n\n' +
+              '1️⃣ *Get my upload link* — We\'ll send you a link to upload. Do this first.\n\n' +
+              'After you\'ve uploaded your documents, you can:\n' +
+              '2️⃣ *Book an accountant to review* (Recommended) — ₦30,000\n' +
+              '3️⃣ *I\'m ready to file* — Pay ₦25,000 to file your ' + yearLabel + ' return\n\n' +
+              'Reply with *1* to get your upload link.'
             );
             sendOk();
             return;
@@ -2473,24 +2475,35 @@ const handleWebhook = async (req, res) => {
       if (session.step === 'tax_profile_final_steps') {
         const choice = String(text || '').trim();
         const yearLabel = td.year || currentProfile?.year || new Date().getFullYear();
+        const uploadLinkSent = td.finalStepsUploadLinkSent === true;
         if (choice === '1') {
           try {
             const { uploadUrl } = await createUploadSessionForUser(userForTax._id, currentProfile._id, yearLabel);
+            td.finalStepsUploadLinkSent = true;
+            session.taxProfileData = td;
+            await session.save();
             await reply(
               '📎 Use this link to upload your documents (bank statements and relief documents):\n\n' + uploadUrl + '\n\n' +
-              'What next?\n\n' +
-              '2️⃣ Book an accountant to review (₦30,000 — recommended)\n' +
-              '3️⃣ I\'m ready to file (₦25,000)\n\n' +
-              'Reply with 2 or 3.'
+              'After you\'ve uploaded your documents, you can:\n\n' +
+              '2️⃣ *Book an accountant to review* (₦30,000 — recommended)\n' +
+              '3️⃣ *I\'m ready to file* (₦25,000)\n\n' +
+              'Reply with 2 or 3 when you\'re done uploading.'
             );
           } catch (e) {
             console.error('[WhatsApp] createUploadSession in final_steps:', e.message);
-            await reply("We couldn't generate the upload link right now. Reply 2 or 3 to continue, or try again later.");
+            await reply("We couldn't generate the upload link right now. Please try again in a moment.");
           }
-          session.taxProfileData = td;
-          await session.save();
           sendOk();
           return;
+        }
+        if (choice === '2' || choice === '3') {
+          if (!uploadLinkSent) {
+            await reply(
+              'Please upload your documents first. Reply *1* to get your upload link — then you can book an accountant or file.'
+            );
+            sendOk();
+            return;
+          }
         }
         if (choice === '2') {
           try {
@@ -2532,7 +2545,11 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        await reply('Please reply with 1, 2, or 3.');
+        await reply(
+          uploadLinkSent
+            ? 'Please reply with 2 or 3 (accountant review or ready to file).'
+            : 'Please reply with *1* to get your upload link first.'
+        );
         sendOk();
         return;
       }
