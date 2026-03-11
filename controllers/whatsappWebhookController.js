@@ -63,6 +63,7 @@ const { generateCompleteBreakdown } = require('../utils/breakdownCalculator');
 const { performFileTax } = require('./profileController');
 const { downloadMedia } = require('../services/whatsappService');
 const { createDocumentFromBuffer } = require('./documentController');
+const { createUploadSessionForUser } = require('./uploadController');
 
 const DASHBOARD_URL = 'dashboard.gettaxable.com';
 const APP_URL = process.env.APP_URL || 'https://dashboard.gettaxable.com';
@@ -442,6 +443,14 @@ function isAddReliefsIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
   return /^relief\.?$/i.test(t) || /add\s*reliefs/i.test(t) || /reliefs?\s*&\s*upload\s*documents?/i.test(t) || /upload\s*documents?/i.test(t) && /relief/i.test(t) || t === 'add reliefs' || t === 'add reliefs & upload documents';
+}
+
+/** User wants to go to the upload page (e.g. "I want to upload documents") — not the add-reliefs flow. */
+function isUploadDocumentsIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim().toLowerCase();
+  if (/add\s*reliefs/i.test(t)) return false; // "Add reliefs & upload documents" → relief flow
+  return /(?:i\s*want\s+to\s+)?upload\s*(?:my\s+)?documents?/i.test(t) || /upload\s*documents?/i.test(t);
 }
 
 const RELIEF_TYPES = [
@@ -3082,6 +3091,29 @@ const handleWebhook = async (req, res) => {
       } catch (e) {
         console.error('[WhatsApp] Add bank link error:', e.message);
         await reply("We couldn't generate a new link right now. Please try again in a moment.");
+      }
+      sendOk();
+      return;
+    }
+
+    // —— Upload documents (link to gettaxable.com/uploads) ——
+    if (regUser && isUploadDocumentsIntent(text)) {
+      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id profileId year').lean();
+      if (!latestProfile) {
+        await reply("You don't have a tax profile yet. Reply *Create tax profile* first, then you can upload documents.");
+        sendOk();
+        return;
+      }
+      try {
+        const { uploadUrl } = await createUploadSessionForUser(regUser._id, latestProfile._id, latestProfile.year);
+        await reply(
+          `📎 Use this link to upload your documents (bank statements and relief documents):\n\n${uploadUrl}\n\n` +
+          "You can select your banks and upload statements, and add supporting documents for your reliefs. The link is valid for 7 days." +
+          BACK_TO_MENU_FOOTER
+        );
+      } catch (err) {
+        console.error('[WhatsApp] createUploadSession error:', err.message);
+        await reply("We couldn't create an upload link right now. Please try again in a moment or use the dashboard: https://" + DASHBOARD_URL + BACK_TO_MENU_FOOTER);
       }
       sendOk();
       return;

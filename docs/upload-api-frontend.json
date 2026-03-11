@@ -1,0 +1,214 @@
+{
+  "baseUrl": "https://api.gettaxable.com/api",
+  "uploadPageBaseUrl": "https://gettaxable.com",
+  "endpoints": [
+    {
+      "name": "Create upload session",
+      "method": "POST",
+      "path": "/uploads",
+      "auth": true,
+      "authHeader": "Authorization: Bearer <jwt>",
+      "description": "Creates an upload session. Returns uploadId and uploadUrl for the uploads page.",
+      "request": {
+        "contentType": "application/json",
+        "body": {
+          "profileId": "string (optional) - Tax profile's profileId string",
+          "year": "number (optional) - Tax year e.g. 2025",
+          "type": "string (optional) - 'bank_statements' | 'relief_documents' | 'general', default: 'general'"
+        }
+      },
+      "response": {
+        "success": {
+          "status": 201,
+          "body": {
+            "success": true,
+            "data": {
+              "uploadId": "string",
+              "uploadUrl": "string (e.g. https://gettaxable.com/uploads/<uploadId>)"
+            }
+          }
+        },
+        "error": {
+          "status": 401,
+          "body": { "success": false, "message": "Unauthorized" }
+        }
+      }
+    },
+    {
+      "name": "Get upload session",
+      "method": "GET",
+      "path": "/uploads/:uploadId",
+      "auth": false,
+      "description": "Load session for the uploads page. No auth; link is secret. Returns session, banks list, and relief document status when profile exists.",
+      "request": {
+        "pathParams": {
+          "uploadId": "string - from uploadUrl or create response"
+        }
+      },
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "data": {
+              "uploadId": "string",
+              "status": "string - 'pending' | 'completed'",
+              "type": "string",
+              "year": "number | null",
+              "profileId": "string | null - Mongo _id of profile",
+              "selectedBanks": "string[] - bank ids user selected",
+              "files": "UploadedFile[]",
+              "reliefDocumentStatus": "ReliefDocumentStatusItem[] | null",
+              "banks": "Bank[]"
+            }
+          }
+        },
+        "error": {
+          "404": { "success": false, "message": "Upload session not found" },
+          "410": { "success": false, "message": "Upload session has expired" }
+        }
+      }
+    },
+    {
+      "name": "Update selected banks",
+      "method": "PATCH",
+      "path": "/uploads/:uploadId",
+      "auth": false,
+      "description": "Update which banks the user selected (for bank statement uploads).",
+      "request": {
+        "contentType": "application/json",
+        "pathParams": { "uploadId": "string" },
+        "body": {
+          "selectedBanks": "string[] - array of bank ids e.g. ['gtbank', 'uba']"
+        }
+      },
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "data": { "selectedBanks": "string[]" }
+          }
+        }
+      }
+    },
+    {
+      "name": "Upload file",
+      "method": "POST",
+      "path": "/upload",
+      "auth": false,
+      "description": "Multipart file upload. Pass uploadId in query for reliable behaviour. Returns URL to the stored file.",
+      "request": {
+        "contentType": "multipart/form-data",
+        "query": {
+          "uploadId": "string (required)",
+          "kind": "string - 'bank_statement' | 'relief', default: 'bank_statement'",
+          "bankId": "string (optional) - bank id when kind is bank_statement",
+          "deductionId": "string (optional) - Mongo _id of deduction when kind is relief"
+        },
+        "bodyFields": {
+          "file": "File (required) - field name must be 'file'",
+          "uploadId": "string (optional, can use query instead)",
+          "kind": "string (optional)",
+          "bankId": "string (optional)",
+          "deductionId": "string (optional)"
+        },
+        "allowedFileTypes": "PDF, JPG, JPEG, PNG, GIF, WEBP",
+        "maxFileSizeBytes": 20971520
+      },
+      "response": {
+        "success": {
+          "status": 201,
+          "body": {
+            "success": true,
+            "data": {
+              "url": "string - e.g. https://api.gettaxable.com/api/documents/serve/<documentId>",
+              "documentId": "string - Mongo _id of Document"
+            }
+          }
+        },
+        "error": {
+          "400": { "success": false, "message": "uploadId is required | No file uploaded | ..." },
+          "404": { "success": false, "message": "Upload session not found" },
+          "410": { "success": false, "message": "Upload session has expired" }
+        }
+      }
+    },
+    {
+      "name": "Relief document status",
+      "method": "GET",
+      "path": "/uploads/relief-document-status",
+      "auth": true,
+      "authHeader": "Authorization: Bearer <jwt>",
+      "description": "Which reliefs the user has declared and whether each has a supporting document. For dashboard / logged-in UI.",
+      "request": {
+        "query": {
+          "profileId": "string (required) - Mongo _id of TaxableProfile",
+          "year": "number (optional) - tax year, defaults to profile year"
+        }
+      },
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "data": "ReliefDocumentStatusItem[]"
+          }
+        },
+        "error": {
+          "400": { "success": false, "message": "profileId is required" },
+          "401": { "success": false, "message": "Unauthorized" },
+          "404": { "success": false, "message": "Profile not found" }
+        }
+      }
+    },
+    {
+      "name": "List banks",
+      "method": "GET",
+      "path": "/uploads/banks",
+      "auth": false,
+      "description": "List of Nigerian banks for multi-select in the upload UI.",
+      "request": {},
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "data": "Bank[]"
+          }
+        }
+      }
+    }
+  ],
+  "types": {
+    "Bank": {
+      "id": "string - use for selectedBanks and bankId when uploading",
+      "name": "string - display name"
+    },
+    "UploadedFile": {
+      "documentId": "string - Mongo _id",
+      "fileUrl": "string",
+      "kind": "string - 'bank_statement' | 'relief'",
+      "bankId": "string | undefined",
+      "deductionId": "string | undefined",
+      "uploadedAt": "string - ISO date"
+    },
+    "ReliefDocumentStatusItem": {
+      "deductionId": "string - Mongo _id",
+      "deductionType": "string - e.g. 'rent_relief', 'pension', 'nhis'",
+      "label": "string - e.g. 'Rent Relief', 'Pension'",
+      "amount": "number",
+      "hasSupportingDocument": "boolean"
+    }
+  },
+  "bankIds": [
+    "access", "citibank", "ecobank", "fidelity", "firstbank", "fcmb",
+    "globus", "gtbank", "heritage", "keystone", "kuda", "polaris",
+    "providus", "stanbic", "standard_chartered", "sterling", "suntrust",
+    "union", "uba", "unity", "wema", "zenith"
+  ],
+  "deductionTypes": [
+    "nhf", "nhis", "pension", "life_insurance", "mortgage_interest",
+    "rent_relief", "transport_allowance", "other"
+  ]
+}
