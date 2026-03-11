@@ -11,7 +11,7 @@ const Subscription = require('../models/Subscription');
 const { sendTextMessage, sendImage, sendTypingIndicator } = require('../services/whatsappService');
 const { registerUser, resendOTP } = require('../services/registrationService');
 const { initiateAccountLinking, getAccountIncome } = require('../services/monoService');
-const { estimateTaxFromAnnualIncome } = require('../utils/taxCalculator');
+const { estimateTaxFromAnnualIncome, calculateRentRelief } = require('../utils/taxCalculator');
 const { createSubscriptionLinkForUser, verifyPendingSubscriptionForUser } = require('./paystackController');
 const { sendTaxProfileCreatedEmail } = require('../utils/emailService');
 const {
@@ -696,6 +696,26 @@ function getTaxProfileSummary() {
   );
 }
 
+/** Estimate annual deductibles from profile/td (for summary when no IncomeSource/Deduction data yet). */
+function estimateDeductiblesFromProfile(profile, td) {
+  let total = 0;
+  const rentMonthly = profile?.rentMonthlyAmount ?? td?.rentMonthlyAmount ?? 0;
+  if ((profile?.paysRent || td?.paysRent) && rentMonthly > 0) {
+    const annualRent = rentMonthly * 12;
+    total += calculateRentRelief(annualRent); // 20% of annual rent, max ₦500,000
+  }
+  if (profile?.hasPension || td?.hasPension) {
+    total += (profile?.pensionMonthlyAmount ?? td?.pensionMonthlyAmount ?? 0) * 12;
+  }
+  if (profile?.hasHealthInsurance || td?.hasHealthInsurance) {
+    total += (profile?.healthInsuranceMonthlyAmount ?? td?.healthInsuranceMonthlyAmount ?? 0) * 12;
+  }
+  if (profile?.paysMortgage || td?.paysMortgage) {
+    total += (profile?.mortgageMonthlyAmount ?? td?.mortgageMonthlyAmount ?? 0) * 12;
+  }
+  return total;
+}
+
 /** STEP 8 — Profile summary message (PDF: Tax Year, NIN masked last 3, income sources, tax authority, deductibles, filing preference, estimated tax). */
 async function getTaxProfileSummaryForStep8(firstName, profile, td, breakdown) {
   const year = profile?.year || td?.year || new Date().getFullYear();
@@ -715,11 +735,18 @@ async function getTaxProfileSummaryForStep8(firstName, profile, td, breakdown) {
   const filingLabel = filingPref === 'monthly' ? 'Monthly' : filingPref === 'annual' ? 'Annual' : filingPref;
 
   const s = breakdown?.summary || {};
-  const estIncome = s.totalIncome ?? 0;
-  const estDeductions = s.totalDeductions ?? 0;
-  const chargeable = s.chargeableIncome ?? (estIncome - estDeductions);
-  const annualTax = s.finalTaxPayable ?? s.taxCalculated ?? 0;
-  const monthlyTax = annualTax > 0 ? Math.round(annualTax / 12) : 0;
+  let estIncome = s.totalIncome ?? 0;
+  let estDeductions = s.totalDeductions ?? 0;
+  let chargeable = s.chargeableIncome ?? (estIncome - estDeductions);
+  let annualTax = s.finalTaxPayable ?? s.taxCalculated ?? 0;
+  const hasBreakdownData = estIncome > 0 || estDeductions > 0;
+
+  if (!hasBreakdownData) {
+    estDeductions = estimateDeductiblesFromProfile(profile, td);
+    chargeable = null;
+    annualTax = null;
+  }
+  const monthlyTax = annualTax != null && annualTax > 0 ? Math.round(annualTax / 12) : null;
 
   let msg = `Here's your tax profile summary, ${firstName || 'there'} 👇\n\n`;
   msg += '━━━━━━━━━━━━━━━\n';
@@ -734,11 +761,15 @@ async function getTaxProfileSummaryForStep8(firstName, profile, td, breakdown) {
   msg += `📆 *Filing Preference:* ${filingLabel}\n`;
   msg += '━━━━━━━━━━━━━━━\n\n';
   msg += "Based on what you've shared, here's your estimated tax position:\n";
-  msg += `📊 *Estimated Annual Income:* ${fmt(estIncome)}\n`;
+  msg += `📊 *Estimated Annual Income:* ${hasBreakdownData ? fmt(estIncome) : '—'}\n`;
   msg += `🔽 *Total Deductibles & Reliefs:* ${fmt(estDeductions)}\n`;
-  msg += `📉 *Estimated Taxable Income:* ${fmt(chargeable)}\n`;
-  msg += `🧾 *Estimated Annual Tax (PIT):* ${fmt(annualTax)}\n`;
-  msg += `📆 *Estimated Monthly Tax:* ${fmt(monthlyTax)}\n\n`;
+  msg += `📉 *Estimated Taxable Income:* ${chargeable != null ? fmt(chargeable) : '—'}\n`;
+  msg += `🧾 *Estimated Annual Tax (PIT):* ${annualTax != null ? fmt(annualTax) : '—'}\n`;
+  msg += `📆 *Estimated Monthly Tax:* ${monthlyTax != null ? fmt(monthlyTax) : '—'}\n\n`;
+  if (!hasBreakdownData) {
+    msg += '💡 *Add your income* (connect your bank or log it) to see your full tax estimate.\n\n';
+    msg += '📐 *PIT formula:* First ₦800,000 tax-free; then 15% / 18% / 21% / 23% / 25% on (Income − Deductibles). Rent relief: 20% of annual rent (max ₦500,000).\n\n';
+  }
   msg += '⚠️ These are estimates. Your final tax is confirmed at filing and may vary.\n\n';
   msg += 'Is everything correct?\n';
   msg += '1️⃣ Yes, looks good\n';
