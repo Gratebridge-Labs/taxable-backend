@@ -1246,6 +1246,7 @@ const handleWebhook = async (req, res) => {
       'tax_profile_income',
       'tax_profile_income_other_desc',
       'tax_profile_income_confirm',
+      'tax_profile_income_amount',
       'tax_profile_residency',
       'tax_profile_residency_nonresident_choice',
       'tax_profile_state',
