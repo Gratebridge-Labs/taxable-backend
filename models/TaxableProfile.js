@@ -96,7 +96,13 @@ const taxableProfileSchema = new mongoose.Schema({
   residency183Days: { type: Boolean, required: false },
   /** Pays rent (eligible for 20% rent relief, max N500k) */
   paysRent: { type: Boolean, required: false },
-  /** Monthly rent amount in Naira (from WhatsApp flow) */
+  /** Annual rent amount in Naira (from WhatsApp flow). Prefer over rentMonthlyAmount. */
+  rentAnnualAmount: {
+    type: Number,
+    min: [0, 'Rent amount cannot be negative'],
+    required: false
+  },
+  /** @deprecated Use rentAnnualAmount. Kept for backward compatibility. */
   rentMonthlyAmount: {
     type: Number,
     min: [0, 'Rent amount cannot be negative'],
@@ -104,7 +110,13 @@ const taxableProfileSchema = new mongoose.Schema({
   },
   /** Pays for health insurance */
   hasHealthInsurance: { type: Boolean, required: false },
-  /** Monthly health insurance contribution in Naira */
+  /** Annual health insurance contribution in Naira. Prefer over healthInsuranceMonthlyAmount. */
+  healthInsuranceAnnualAmount: {
+    type: Number,
+    min: [0, 'Health insurance amount cannot be negative'],
+    required: false
+  },
+  /** @deprecated Use healthInsuranceAnnualAmount. Kept for backward compatibility. */
   healthInsuranceMonthlyAmount: {
     type: Number,
     min: [0, 'Health insurance amount cannot be negative'],
@@ -112,7 +124,13 @@ const taxableProfileSchema = new mongoose.Schema({
   },
   /** Contributes to a pension plan */
   hasPension: { type: Boolean, required: false },
-  /** Monthly pension contribution in Naira */
+  /** Annual pension contribution in Naira. Prefer over pensionMonthlyAmount. */
+  pensionAnnualAmount: {
+    type: Number,
+    min: [0, 'Pension amount cannot be negative'],
+    required: false
+  },
+  /** @deprecated Use pensionAnnualAmount. Kept for backward compatibility. */
   pensionMonthlyAmount: {
     type: Number,
     min: [0, 'Pension amount cannot be negative'],
@@ -120,7 +138,13 @@ const taxableProfileSchema = new mongoose.Schema({
   },
   /** Pays a mortgage */
   paysMortgage: { type: Boolean, required: false },
-  /** Monthly mortgage repayment in Naira */
+  /** Annual mortgage interest/repayment in Naira. Prefer over mortgageMonthlyAmount. */
+  mortgageAnnualAmount: {
+    type: Number,
+    min: [0, 'Mortgage amount cannot be negative'],
+    required: false
+  },
+  /** @deprecated Use mortgageAnnualAmount. Kept for backward compatibility. */
   mortgageMonthlyAmount: {
     type: Number,
     min: [0, 'Mortgage amount cannot be negative'],

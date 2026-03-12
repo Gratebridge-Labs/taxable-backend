@@ -104,12 +104,17 @@ const whatsAppSessionSchema = new mongoose.Schema({
     incomeAmountIndex: { type: Number },
     residency183Days: { type: Boolean },
     paysRent: { type: Boolean },
+    /** Annual amounts (preferred). Backward compat: rentMonthlyAmount etc. */
+    rentAnnualAmount: { type: Number },
     rentMonthlyAmount: { type: Number },
     hasHealthInsurance: { type: Boolean },
+    healthInsuranceAnnualAmount: { type: Number },
     healthInsuranceMonthlyAmount: { type: Number },
     hasPension: { type: Boolean },
+    pensionAnnualAmount: { type: Number },
     pensionMonthlyAmount: { type: Number },
     paysMortgage: { type: Boolean },
+    mortgageAnnualAmount: { type: Number },
     mortgageMonthlyAmount: { type: Number },
     filingPreference: { type: String, trim: true }, // 'monthly' | 'annual'
     _pendingConfirmAmountType: { type: String, trim: true },

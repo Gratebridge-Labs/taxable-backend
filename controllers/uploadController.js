@@ -250,12 +250,82 @@ const resolveUploadForUpload = async (req, res, next) => {
 };
 
 /**
+ * Ensure Deduction records exist for profile-level reliefs (paysRent, hasHealthInsurance, hasPension, paysMortgage)
+ * so upload session can show reliefDocumentStatus and user can upload supporting docs. Uses profile amounts as annual.
+ */
+async function ensureProfileReliefDeductions(profileId, year) {
+  const profile = await TaxableProfile.findById(profileId)
+    .select('year paysRent rentMonthlyAmount rentAnnualAmount hasHealthInsurance healthInsuranceMonthlyAmount healthInsuranceAnnualAmount hasPension pensionMonthlyAmount pensionAnnualAmount paysMortgage mortgageMonthlyAmount mortgageAnnualAmount')
+    .lean();
+  if (!profile) return;
+  const y = year || profile.year;
+  const period = { year: y, startDate: new Date(y, 0, 1), endDate: new Date(y, 11, 31) };
+
+  const rentAnnual = profile.rentAnnualAmount ?? profile.rentMonthlyAmount ?? 0;
+  const healthAnnual = profile.healthInsuranceAnnualAmount ?? profile.healthInsuranceMonthlyAmount ?? 0;
+  const pensionAnnual = profile.pensionAnnualAmount ?? profile.pensionMonthlyAmount ?? 0;
+  const mortgageAnnual = profile.mortgageAnnualAmount ?? profile.mortgageMonthlyAmount ?? 0;
+
+  if (profile.paysRent && rentAnnual > 0) {
+    const exists = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'rent_relief' }).select('_id').lean();
+    if (!exists) {
+      await Deduction.create({
+        profileId,
+        deductionType: 'rent_relief',
+        period,
+        amount: 0,
+        rentRelief: { annualRent: rentAnnual }
+      });
+    }
+  }
+  if (profile.hasHealthInsurance && healthAnnual > 0) {
+    const exists = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'nhis' }).select('_id').lean();
+    if (!exists) {
+      await Deduction.create({
+        profileId,
+        deductionType: 'nhis',
+        period,
+        amount: healthAnnual,
+        nhis: { contribution: healthAnnual }
+      });
+    }
+  }
+  if (profile.hasPension && pensionAnnual > 0) {
+    const exists = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'pension' }).select('_id').lean();
+    if (!exists) {
+      await Deduction.create({
+        profileId,
+        deductionType: 'pension',
+        period,
+        amount: pensionAnnual,
+        pension: { contribution: pensionAnnual }
+      });
+    }
+  }
+  if (profile.paysMortgage && mortgageAnnual > 0) {
+    const exists = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'mortgage_interest' }).select('_id').lean();
+    if (!exists) {
+      await Deduction.create({
+        profileId,
+        deductionType: 'mortgage_interest',
+        period,
+        amount: mortgageAnnual,
+        mortgageInterest: { interestPaid: mortgageAnnual }
+      });
+    }
+  }
+}
+
+/**
  * Get relief document status for a profile: which reliefs user has declared and whether each has supporting docs.
  * Used by GET /api/uploads/:uploadId and by GET /api/profiles/:profileId/relief-document-status.
+ * Ensures Deduction records exist from profile relief fields so WhatsApp-only users get status.
  */
 async function getReliefDocumentStatusForProfile(profileId, year) {
   const profile = await TaxableProfile.findById(profileId).lean();
   if (!profile) return null;
+
+  await ensureProfileReliefDeductions(profileId, year || profile.year);
 
   const deductions = await Deduction.find({ profileId, 'period.year': year || profile.year }).lean();
   const deductionIds = deductions.map(d => d._id);

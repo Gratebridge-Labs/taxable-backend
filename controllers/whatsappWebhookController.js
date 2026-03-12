@@ -746,22 +746,30 @@ function getTaxProfileSummary() {
   );
 }
 
-/** Estimate annual deductibles from profile/td (for summary when no IncomeSource/Deduction data yet). */
+/** Get annual amount from profile/td (prefer annual field, fallback to monthly * 12 for backward compat). */
+function getAnnualAmount(profile, td, annualKey, monthlyKey) {
+  const annual = profile?.[annualKey] ?? td?.[annualKey];
+  if (annual != null && Number(annual) >= 0) return Number(annual);
+  const monthly = profile?.[monthlyKey] ?? td?.[monthlyKey];
+  if (monthly != null && Number(monthly) >= 0) return Number(monthly) * 12;
+  return 0;
+}
+
+/** Estimate annual deductibles from profile/td (for summary when no IncomeSource/Deduction data yet). Amounts stored as annual. */
 function estimateDeductiblesFromProfile(profile, td) {
   let total = 0;
-  const rentMonthly = profile?.rentMonthlyAmount ?? td?.rentMonthlyAmount ?? 0;
-  if ((profile?.paysRent || td?.paysRent) && rentMonthly > 0) {
-    const annualRent = rentMonthly * 12;
-    total += calculateRentRelief(annualRent); // 20% of annual rent, max ₦500,000
+  const rentAnnual = getAnnualAmount(profile, td, 'rentAnnualAmount', 'rentMonthlyAmount');
+  if ((profile?.paysRent || td?.paysRent) && rentAnnual > 0) {
+    total += calculateRentRelief(rentAnnual); // 20% of annual rent, max ₦500,000
   }
   if (profile?.hasPension || td?.hasPension) {
-    total += (profile?.pensionMonthlyAmount ?? td?.pensionMonthlyAmount ?? 0) * 12;
+    total += getAnnualAmount(profile, td, 'pensionAnnualAmount', 'pensionMonthlyAmount');
   }
   if (profile?.hasHealthInsurance || td?.hasHealthInsurance) {
-    total += (profile?.healthInsuranceMonthlyAmount ?? td?.healthInsuranceMonthlyAmount ?? 0) * 12;
+    total += getAnnualAmount(profile, td, 'healthInsuranceAnnualAmount', 'healthInsuranceMonthlyAmount');
   }
   if (profile?.paysMortgage || td?.paysMortgage) {
-    total += (profile?.mortgageMonthlyAmount ?? td?.mortgageMonthlyAmount ?? 0) * 12;
+    total += getAnnualAmount(profile, td, 'mortgageAnnualAmount', 'mortgageMonthlyAmount');
   }
   return total;
 }
@@ -777,10 +785,14 @@ async function getTaxProfileSummaryForStep8(firstName, profile, td, breakdown) {
   const state = profile?.state || td?.state || '—';
   const stateIRS = state !== '—' ? `${state} Internal Revenue Service` : '—';
   const fmt = (n) => (n != null && Number(n) >= 0 ? `₦${Number(n).toLocaleString()}` : '—');
-  const rent = profile?.paysRent || td?.paysRent ? fmt(profile?.rentMonthlyAmount ?? td?.rentMonthlyAmount) : '—';
-  const health = profile?.hasHealthInsurance || td?.hasHealthInsurance ? fmt(profile?.healthInsuranceMonthlyAmount ?? td?.healthInsuranceMonthlyAmount) : '—';
-  const pension = profile?.hasPension || td?.hasPension ? fmt(profile?.pensionMonthlyAmount ?? td?.pensionMonthlyAmount) : '—';
-  const mortgage = profile?.paysMortgage || td?.paysMortgage ? fmt(profile?.mortgageMonthlyAmount ?? td?.mortgageMonthlyAmount) : '—';
+  const rentVal = getAnnualAmount(profile, td, 'rentAnnualAmount', 'rentMonthlyAmount');
+  const rent = profile?.paysRent || td?.paysRent ? fmt(rentVal) : '—';
+  const healthVal = getAnnualAmount(profile, td, 'healthInsuranceAnnualAmount', 'healthInsuranceMonthlyAmount');
+  const health = profile?.hasHealthInsurance || td?.hasHealthInsurance ? fmt(healthVal) : '—';
+  const pensionVal = getAnnualAmount(profile, td, 'pensionAnnualAmount', 'pensionMonthlyAmount');
+  const pension = profile?.hasPension || td?.hasPension ? fmt(pensionVal) : '—';
+  const mortgageVal = getAnnualAmount(profile, td, 'mortgageAnnualAmount', 'mortgageMonthlyAmount');
+  const mortgage = profile?.paysMortgage || td?.paysMortgage ? fmt(mortgageVal) : '—';
   const filingPref = profile?.filingPreference || td?.filingPreference || '—';
   const filingLabel = filingPref === 'monthly' ? 'Monthly' : filingPref === 'annual' ? 'Annual' : filingPref;
 
@@ -1332,12 +1344,16 @@ const handleWebhook = async (req, res) => {
             primaryIncomeSources: draftProfile.primaryIncomeSources,
             state: draftProfile.state,
             paysRent: draftProfile.paysRent,
+            rentAnnualAmount: draftProfile.rentAnnualAmount ?? draftProfile.rentMonthlyAmount,
             rentMonthlyAmount: draftProfile.rentMonthlyAmount,
             hasHealthInsurance: draftProfile.hasHealthInsurance,
+            healthInsuranceAnnualAmount: draftProfile.healthInsuranceAnnualAmount ?? draftProfile.healthInsuranceMonthlyAmount,
             healthInsuranceMonthlyAmount: draftProfile.healthInsuranceMonthlyAmount,
             hasPension: draftProfile.hasPension,
+            pensionAnnualAmount: draftProfile.pensionAnnualAmount ?? draftProfile.pensionMonthlyAmount,
             pensionMonthlyAmount: draftProfile.pensionMonthlyAmount,
             paysMortgage: draftProfile.paysMortgage,
+            mortgageAnnualAmount: draftProfile.mortgageAnnualAmount ?? draftProfile.mortgageMonthlyAmount,
             mortgageMonthlyAmount: draftProfile.mortgageMonthlyAmount,
             filingPreference: draftProfile.filingPreference,
             residency183Days: draftProfile.residency183Days
@@ -1782,6 +1798,7 @@ const handleWebhook = async (req, res) => {
         }
         if (choice === '2') {
           td.paysRent = false;
+          td.rentAnnualAmount = undefined;
           td.rentMonthlyAmount = undefined;
           session.taxProfileData = td;
           if (td.editReturnToSummary && currentProfile) {
@@ -1824,6 +1841,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
+        td.rentAnnualAmount = amount;
         td.rentMonthlyAmount = amount;
         session.taxProfileData = td;
         if (td.editReturnToSummary && currentProfile) {
@@ -1860,6 +1878,7 @@ const handleWebhook = async (req, res) => {
         }
         if (choice === '2') {
           td.hasHealthInsurance = false;
+          td.healthInsuranceAnnualAmount = undefined;
           td.healthInsuranceMonthlyAmount = undefined;
           session.taxProfileData = td;
           if (td.editReturnToSummary && currentProfile) {
@@ -1903,6 +1922,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
+        td.healthInsuranceAnnualAmount = amount;
         td.healthInsuranceMonthlyAmount = amount;
         session.taxProfileData = td;
         if (td.editReturnToSummary && currentProfile) {
@@ -1940,6 +1960,7 @@ const handleWebhook = async (req, res) => {
         }
         if (choice === '4') {
           td.hasPension = false;
+          td.pensionAnnualAmount = undefined;
           td.pensionMonthlyAmount = undefined;
           session.taxProfileData = td;
           if (td.editReturnToSummary && currentProfile) {
@@ -1981,6 +2002,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
+        td.pensionAnnualAmount = amount;
         td.pensionMonthlyAmount = amount;
         session.taxProfileData = td;
         if (td.editReturnToSummary && currentProfile) {
@@ -2016,6 +2038,7 @@ const handleWebhook = async (req, res) => {
         }
         if (choice === '2') {
           td.paysMortgage = false;
+          td.mortgageAnnualAmount = undefined;
           td.mortgageMonthlyAmount = undefined;
           session.taxProfileData = td;
           session.step = 'tax_profile_filing_preference';
@@ -2047,6 +2070,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
+        td.mortgageAnnualAmount = amount;
         td.mortgageMonthlyAmount = amount;
         session.taxProfileData = td;
         if (td.editReturnToSummary && currentProfile) {
@@ -2097,10 +2121,10 @@ const handleWebhook = async (req, res) => {
           return;
         }
         // Confirm and move forward based on which amount we were confirming
-        if (type === 'rent') td.rentMonthlyAmount = value;
-        if (type === 'health') td.healthInsuranceMonthlyAmount = value;
-        if (type === 'pension') td.pensionMonthlyAmount = value;
-        if (type === 'mortgage') td.mortgageMonthlyAmount = value;
+        if (type === 'rent') { td.rentAnnualAmount = value; td.rentMonthlyAmount = value; }
+        if (type === 'health') { td.healthInsuranceAnnualAmount = value; td.healthInsuranceMonthlyAmount = value; }
+        if (type === 'pension') { td.pensionAnnualAmount = value; td.pensionMonthlyAmount = value; }
+        if (type === 'mortgage') { td.mortgageAnnualAmount = value; td.mortgageMonthlyAmount = value; }
         td._pendingConfirmAmountType = undefined;
         td._pendingConfirmAmountValue = undefined;
         session.taxProfileData = td;
@@ -2145,6 +2169,7 @@ const handleWebhook = async (req, res) => {
           return;
         }
         if (type === 'mortgage') {
+          td.mortgageAnnualAmount = value;
           td.mortgageMonthlyAmount = value;
           session.taxProfileData = td;
           if (td.editReturnToSummary && currentProfile) {
@@ -2250,12 +2275,16 @@ const handleWebhook = async (req, res) => {
             primaryIncomeSources: primaryIncomeSources.length ? primaryIncomeSources : undefined,
             residency183Days,
             paysRent,
+            rentAnnualAmount: td.rentAnnualAmount ?? td.rentMonthlyAmount,
             rentMonthlyAmount: td.rentMonthlyAmount,
             hasHealthInsurance,
+            healthInsuranceAnnualAmount: td.healthInsuranceAnnualAmount ?? td.healthInsuranceMonthlyAmount,
             healthInsuranceMonthlyAmount: td.healthInsuranceMonthlyAmount,
             hasPension,
+            pensionAnnualAmount: td.pensionAnnualAmount ?? td.pensionMonthlyAmount,
             pensionMonthlyAmount: td.pensionMonthlyAmount,
             paysMortgage,
+            mortgageAnnualAmount: td.mortgageAnnualAmount ?? td.mortgageMonthlyAmount,
             mortgageMonthlyAmount: td.mortgageMonthlyAmount,
             filingPreference: td.filingPreference,
             state: td.state || undefined,
@@ -2314,12 +2343,16 @@ const handleWebhook = async (req, res) => {
         if (td.residency183Days !== undefined) currentProfile.residency183Days = td.residency183Days;
         if (td.state) currentProfile.state = td.state;
         if (td.paysRent !== undefined) currentProfile.paysRent = td.paysRent;
+        if (td.rentAnnualAmount !== undefined) currentProfile.rentAnnualAmount = td.rentAnnualAmount;
         if (td.rentMonthlyAmount !== undefined) currentProfile.rentMonthlyAmount = td.rentMonthlyAmount;
         if (td.hasHealthInsurance !== undefined) currentProfile.hasHealthInsurance = td.hasHealthInsurance;
+        if (td.healthInsuranceAnnualAmount !== undefined) currentProfile.healthInsuranceAnnualAmount = td.healthInsuranceAnnualAmount;
         if (td.healthInsuranceMonthlyAmount !== undefined) currentProfile.healthInsuranceMonthlyAmount = td.healthInsuranceMonthlyAmount;
         if (td.hasPension !== undefined) currentProfile.hasPension = td.hasPension;
+        if (td.pensionAnnualAmount !== undefined) currentProfile.pensionAnnualAmount = td.pensionAnnualAmount;
         if (td.pensionMonthlyAmount !== undefined) currentProfile.pensionMonthlyAmount = td.pensionMonthlyAmount;
         if (td.paysMortgage !== undefined) currentProfile.paysMortgage = td.paysMortgage;
+        if (td.mortgageAnnualAmount !== undefined) currentProfile.mortgageAnnualAmount = td.mortgageAnnualAmount;
         if (td.mortgageMonthlyAmount !== undefined) currentProfile.mortgageMonthlyAmount = td.mortgageMonthlyAmount;
         if (td.filingPreference) currentProfile.filingPreference = td.filingPreference;
         await currentProfile.save();
@@ -3082,7 +3115,7 @@ const handleWebhook = async (req, res) => {
 
     if (regUser && isSetUpTaxProfileIntent(text)) {
       // PDF edge case: unfinished draft profile — "You have an unfinished tax profile from [date]. 1 Continue where I left off 2 Start fresh"
-      const draftProfile = await TaxableProfile.findOne({ user: regUser._id, status: 'draft' }).sort({ updatedAt: -1 }).select('profileId year primaryNIN primaryIncomeSources state paysRent rentMonthlyAmount hasHealthInsurance healthInsuranceMonthlyAmount hasPension pensionMonthlyAmount paysMortgage mortgageMonthlyAmount filingPreference residency183Days createdAt').lean();
+      const draftProfile = await TaxableProfile.findOne({ user: regUser._id, status: 'draft' }).sort({ updatedAt: -1 }).select('profileId year primaryNIN primaryIncomeSources state paysRent rentAnnualAmount rentMonthlyAmount hasHealthInsurance healthInsuranceAnnualAmount healthInsuranceMonthlyAmount hasPension pensionAnnualAmount pensionMonthlyAmount paysMortgage mortgageAnnualAmount mortgageMonthlyAmount filingPreference residency183Days createdAt').lean();
       if (draftProfile) {
         const draftDate = draftProfile.createdAt ? new Date(draftProfile.createdAt).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) : 'a previous session';
         session = await WhatsAppSession.findOneAndUpdate(
