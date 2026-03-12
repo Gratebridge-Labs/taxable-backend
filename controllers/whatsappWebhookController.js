@@ -1789,9 +1789,9 @@ const handleWebhook = async (req, res) => {
           session.step = 'tax_profile_rent_amount';
           await session.save();
           await reply(
-            'How much do you pay in rent *per month*?\n\n' +
+            'How much do you pay in rent *per year* (total annual rent)?\n\n' +
             '✏️ Type the amount in Naira — numbers only.\n' +
-            'Example: 85000'
+            'Example: 1200000 or 1,200,000'
           );
           sendOk();
           return;
@@ -1826,23 +1826,24 @@ const handleWebhook = async (req, res) => {
       if (session.step === 'tax_profile_rent_amount') {
         const parsed = parseAmount(text);
         if (!parsed.ok) {
-          await reply('Please enter a valid amount in Naira (e.g. 85000 or 85,000).');
+          await reply('Please enter a valid amount in Naira (e.g. 1200000 or 1,200,000) for your *annual* rent.');
           sendOk();
           return;
         }
         const amount = parsed.value;
-        if (amount > PLAUSIBLE_MONTHLY_MAX) {
+        const PLAUSIBLE_ANNUAL_RENT_MAX = 100000000; // 100M for annual rent
+        if (amount > PLAUSIBLE_ANNUAL_RENT_MAX) {
           td._pendingConfirmAmountType = 'rent';
           td._pendingConfirmAmountValue = amount;
           session.taxProfileData = td;
           session.step = 'tax_profile_amount_confirm';
           await session.save();
-          await reply(`Just to confirm — you entered ₦${amount.toLocaleString()}. Is that correct?\n\n1️⃣ Yes\n2️⃣ No, let me fix it`);
+          await reply(`Just to confirm — you entered ₦${amount.toLocaleString()} as your *annual* rent. Is that correct?\n\n1️⃣ Yes\n2️⃣ No, let me fix it`);
           sendOk();
           return;
         }
         td.rentAnnualAmount = amount;
-        td.rentMonthlyAmount = amount;
+        td.rentMonthlyAmount = Math.round(amount / 12);
         session.taxProfileData = td;
         if (td.editReturnToSummary && currentProfile) {
           await returnToSummaryAndSend();
@@ -1870,8 +1871,9 @@ const handleWebhook = async (req, res) => {
           session.step = 'tax_profile_health_amount';
           await session.save();
           await reply(
-            'How much do you pay for health insurance *per month*?\n\n' +
-            '✏️ Type the amount in Naira — numbers only.'
+            'How much do you pay for health insurance *per month* (monthly amount)?\n\n' +
+            '✏️ Type the amount in Naira — numbers only.\n' +
+            'Example: 50000 or 50,000'
           );
           sendOk();
           return;
@@ -1922,8 +1924,8 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        td.healthInsuranceAnnualAmount = amount;
         td.healthInsuranceMonthlyAmount = amount;
+        td.healthInsuranceAnnualAmount = amount * 12;
         session.taxProfileData = td;
         if (td.editReturnToSummary && currentProfile) {
           await returnToSummaryAndSend();
@@ -1952,8 +1954,9 @@ const handleWebhook = async (req, res) => {
           session.step = 'tax_profile_pension_amount';
           await session.save();
           await reply(
-            'How much is contributed to your pension *per month* in total?\n\n' +
-            '✏️ Type the amount in Naira — numbers only.'
+            'How much is contributed to your pension *per month* in total (monthly amount)?\n\n' +
+            '✏️ Type the amount in Naira — numbers only.\n' +
+            'Example: 50000 or 50,000'
           );
           sendOk();
           return;
@@ -2002,8 +2005,8 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        td.pensionAnnualAmount = amount;
         td.pensionMonthlyAmount = amount;
+        td.pensionAnnualAmount = amount * 12;
         session.taxProfileData = td;
         if (td.editReturnToSummary && currentProfile) {
           await returnToSummaryAndSend();
@@ -2030,8 +2033,9 @@ const handleWebhook = async (req, res) => {
           session.step = 'tax_profile_mortgage_amount';
           await session.save();
           await reply(
-            'How much is your mortgage repayment *per month*?\n\n' +
-            '✏️ Type the amount in Naira — numbers only.'
+            'How much is your mortgage repayment *per month* (monthly amount)?\n\n' +
+            '✏️ Type the amount in Naira — numbers only.\n' +
+            'Example: 100000 or 100,000'
           );
           sendOk();
           return;
@@ -2070,8 +2074,8 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        td.mortgageAnnualAmount = amount;
         td.mortgageMonthlyAmount = amount;
+        td.mortgageAnnualAmount = amount * 12;
         session.taxProfileData = td;
         if (td.editReturnToSummary && currentProfile) {
           await returnToSummaryAndSend();
@@ -2111,7 +2115,10 @@ const handleWebhook = async (req, res) => {
               ? 'tax_profile_pension_amount'
               : 'tax_profile_mortgage_amount';
           await session.save();
-          await reply('No problem — please enter the correct amount in Naira (numbers only).');
+          const reenterMsg = type === 'rent'
+            ? 'No problem — please enter your *annual* rent in Naira (numbers only).'
+            : 'No problem — please enter the correct *monthly* amount in Naira (numbers only).';
+          await reply(reenterMsg);
           sendOk();
           return;
         }
@@ -2120,11 +2127,11 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        // Confirm and move forward based on which amount we were confirming
-        if (type === 'rent') { td.rentAnnualAmount = value; td.rentMonthlyAmount = value; }
-        if (type === 'health') { td.healthInsuranceAnnualAmount = value; td.healthInsuranceMonthlyAmount = value; }
-        if (type === 'pension') { td.pensionAnnualAmount = value; td.pensionMonthlyAmount = value; }
-        if (type === 'mortgage') { td.mortgageAnnualAmount = value; td.mortgageMonthlyAmount = value; }
+        // Confirm and move forward based on which amount we were confirming (rent = annual, others = monthly)
+        if (type === 'rent') { td.rentAnnualAmount = value; td.rentMonthlyAmount = Math.round(value / 12); }
+        if (type === 'health') { td.healthInsuranceMonthlyAmount = value; td.healthInsuranceAnnualAmount = value * 12; }
+        if (type === 'pension') { td.pensionMonthlyAmount = value; td.pensionAnnualAmount = value * 12; }
+        if (type === 'mortgage') { td.mortgageMonthlyAmount = value; td.mortgageAnnualAmount = value * 12; }
         td._pendingConfirmAmountType = undefined;
         td._pendingConfirmAmountValue = undefined;
         session.taxProfileData = td;
