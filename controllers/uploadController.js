@@ -251,7 +251,8 @@ const resolveUploadForUpload = async (req, res, next) => {
 
 /**
  * Ensure Deduction records exist for profile-level reliefs (paysRent, hasHealthInsurance, hasPension, paysMortgage)
- * so upload session can show reliefDocumentStatus and user can upload supporting docs. Uses profile amounts as annual.
+ * so upload session can show reliefDocumentStatus and user can upload supporting docs.
+ * Rent = annual only. Health, pension, mortgage = stored monthly on profile → we use monthly * 12 for annual relief.
  */
 async function ensureProfileReliefDeductions(profileId, year) {
   const profile = await TaxableProfile.findById(profileId)
@@ -261,10 +262,12 @@ async function ensureProfileReliefDeductions(profileId, year) {
   const y = year || profile.year;
   const period = { year: y, startDate: new Date(y, 0, 1), endDate: new Date(y, 11, 31) };
 
-  const rentAnnual = profile.rentAnnualAmount ?? profile.rentMonthlyAmount ?? 0;
-  const healthAnnual = profile.healthInsuranceAnnualAmount ?? profile.healthInsuranceMonthlyAmount ?? 0;
-  const pensionAnnual = profile.pensionAnnualAmount ?? profile.pensionMonthlyAmount ?? 0;
-  const mortgageAnnual = profile.mortgageAnnualAmount ?? profile.mortgageMonthlyAmount ?? 0;
+  // Rent: collected as annual
+  const rentAnnual = profile.rentAnnualAmount ?? (profile.rentMonthlyAmount != null ? profile.rentMonthlyAmount * 12 : 0);
+  // Health, pension, mortgage: collected as monthly → annual = monthly * 12 for relief/session
+  const healthAnnual = profile.healthInsuranceAnnualAmount ?? (profile.healthInsuranceMonthlyAmount != null ? profile.healthInsuranceMonthlyAmount * 12 : 0);
+  const pensionAnnual = profile.pensionAnnualAmount ?? (profile.pensionMonthlyAmount != null ? profile.pensionMonthlyAmount * 12 : 0);
+  const mortgageAnnual = profile.mortgageAnnualAmount ?? (profile.mortgageMonthlyAmount != null ? profile.mortgageMonthlyAmount * 12 : 0);
 
   if (profile.paysRent && rentAnnual > 0) {
     const exists = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'rent_relief' }).select('_id').lean();
