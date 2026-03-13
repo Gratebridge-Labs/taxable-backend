@@ -110,8 +110,13 @@ const getUploadByUploadId = async (req, res) => {
     }
 
     let reliefDocumentStatus = null;
+    let reliefSummary = null;
     if (upload.profileId) {
-      reliefDocumentStatus = await getReliefDocumentStatusForProfile(upload.profileId._id, upload.year || upload.profileId.year);
+      const reliefData = await getReliefDocumentStatusForProfile(upload.profileId._id, upload.year || upload.profileId.year);
+      if (reliefData) {
+        reliefDocumentStatus = reliefData.items;
+        reliefSummary = reliefData.summary;
+      }
     }
 
     return res.status(200).json({
@@ -125,6 +130,7 @@ const getUploadByUploadId = async (req, res) => {
         selectedBanks: upload.selectedBanks || [],
         files: upload.files || [],
         reliefDocumentStatus,
+        reliefSummary,
         banks: NIGERIAN_BANKS
       }
     });
@@ -282,8 +288,8 @@ async function ensureProfileReliefDeductions(profileId, year) {
     }
   }
   if (profile.hasHealthInsurance && healthAnnual > 0) {
-    const exists = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'nhis' }).select('_id').lean();
-    if (!exists) {
+    const existing = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'nhis' });
+    if (!existing) {
       await Deduction.create({
         profileId,
         deductionType: 'nhis',
@@ -291,11 +297,16 @@ async function ensureProfileReliefDeductions(profileId, year) {
         amount: healthAnnual,
         nhis: { contribution: healthAnnual }
       });
+    } else if (existing.amount !== healthAnnual) {
+      existing.amount = healthAnnual;
+      if (existing.nhis) existing.nhis.contribution = healthAnnual;
+      else existing.nhis = { contribution: healthAnnual };
+      await existing.save();
     }
   }
   if (profile.hasPension && pensionAnnual > 0) {
-    const exists = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'pension' }).select('_id').lean();
-    if (!exists) {
+    const existing = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'pension' });
+    if (!existing) {
       await Deduction.create({
         profileId,
         deductionType: 'pension',
@@ -303,11 +314,16 @@ async function ensureProfileReliefDeductions(profileId, year) {
         amount: pensionAnnual,
         pension: { contribution: pensionAnnual }
       });
+    } else if (existing.amount !== pensionAnnual) {
+      existing.amount = pensionAnnual;
+      if (existing.pension) existing.pension.contribution = pensionAnnual;
+      else existing.pension = { contribution: pensionAnnual };
+      await existing.save();
     }
   }
   if (profile.paysMortgage && mortgageAnnual > 0) {
-    const exists = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'mortgage_interest' }).select('_id').lean();
-    if (!exists) {
+    const existing = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'mortgage_interest' });
+    if (!existing) {
       await Deduction.create({
         profileId,
         deductionType: 'mortgage_interest',
@@ -315,14 +331,32 @@ async function ensureProfileReliefDeductions(profileId, year) {
         amount: mortgageAnnual,
         mortgageInterest: { interestPaid: mortgageAnnual }
       });
+    } else if (existing.amount !== mortgageAnnual) {
+      existing.amount = mortgageAnnual;
+      if (existing.mortgageInterest) existing.mortgageInterest.interestPaid = mortgageAnnual;
+      else existing.mortgageInterest = { interestPaid: mortgageAnnual };
+      await existing.save();
     }
   }
 }
 
+const RELIEF_LABELS = {
+  nhf: 'NHF',
+  nhis: 'NHIS',
+  pension: 'Pension',
+  life_insurance: 'Life Insurance',
+  mortgage_interest: 'Mortgage Interest',
+  rent_relief: 'Rent Relief',
+  transport_allowance: 'Transport Allowance',
+  other: 'Other'
+};
+
+/** Rent relief is 20% of annual rent, capped at ₦500,000 (FIRS). */
+const RENT_RELIEF_CAP = 500000;
+
 /**
  * Get relief document status for a profile: which reliefs user has declared and whether each has supporting docs.
- * Used by GET /api/uploads/:uploadId and by GET /api/profiles/:profileId/relief-document-status.
- * Ensures Deduction records exist from profile relief fields so WhatsApp-only users get status.
+ * Returns { items, summary } for UI: items have amount (annual), amountMonthly, and summary has totals and insights.
  */
 async function getReliefDocumentStatusForProfile(profileId, year) {
   const profile = await TaxableProfile.findById(profileId).lean();
@@ -338,24 +372,40 @@ async function getReliefDocumentStatusForProfile(profileId, year) {
 
   const hasDoc = new Set(docsByDeduction.map(d => d.linkedTo?.deductionId?.toString()).filter(Boolean));
 
-  const reliefLabels = {
-    nhf: 'NHF',
-    nhis: 'NHIS',
-    pension: 'Pension',
-    life_insurance: 'Life Insurance',
-    mortgage_interest: 'Mortgage Interest',
-    rent_relief: 'Rent Relief',
-    transport_allowance: 'Transport Allowance',
-    other: 'Other'
+  const items = deductions.map(d => {
+    const amountAnnual = Number(d.amount) || 0;
+    return {
+      deductionId: d._id,
+      deductionType: d.deductionType,
+      label: RELIEF_LABELS[d.deductionType] || d.deductionType,
+      amount: amountAnnual,
+      amountAnnual,
+      amountMonthly: amountAnnual > 0 ? Math.round(amountAnnual / 12) : 0,
+      hasSupportingDocument: hasDoc.has(d._id.toString())
+    };
+  });
+
+  const totalAnnualRelief = items.reduce((sum, i) => sum + (i.amountAnnual || 0), 0);
+  const rentItem = items.find(i => i.deductionType === 'rent_relief');
+  const insuranceItems = items.filter(i => i.deductionType === 'nhis' || i.deductionType === 'life_insurance');
+  const pensionItem = items.find(i => i.deductionType === 'pension');
+  const mortgageItem = items.find(i => i.deductionType === 'mortgage_interest');
+
+  const summary = {
+    totalAnnualRelief,
+    rentReliefAmount: rentItem ? rentItem.amountAnnual : 0,
+    rentReliefCap: RENT_RELIEF_CAP,
+    insuranceAmount: insuranceItems.reduce((s, i) => s + (i.amountAnnual || 0), 0),
+    pensionAmount: pensionItem ? pensionItem.amountAnnual : 0,
+    mortgageAmount: mortgageItem ? mortgageItem.amountAnnual : 0,
+    otherAmount: items
+      .filter(i => !['rent_relief', 'nhis', 'life_insurance', 'pension', 'mortgage_interest'].includes(i.deductionType))
+      .reduce((s, i) => s + (i.amountAnnual || 0), 0),
+    itemsWithoutDocument: items.filter(i => !i.hasSupportingDocument).length,
+    uploadRequiredMessage: 'Upload supporting documents for each relief below to qualify. Documents are required before filing.'
   };
 
-  return deductions.map(d => ({
-    deductionId: d._id,
-    deductionType: d.deductionType,
-    label: reliefLabels[d.deductionType] || d.deductionType,
-    amount: d.amount,
-    hasSupportingDocument: hasDoc.has(d._id.toString())
-  }));
+  return { items, summary };
 }
 
 /**

@@ -2547,6 +2547,28 @@ const handleWebhook = async (req, res) => {
         }
         if (choice === '2') {
           try {
+            // Require documents for all reliefs before booking accountant review
+            const deductions = await Deduction.find({ profileId: currentProfile._id, 'period.year': yearLabel })
+              .select('_id deductionType')
+              .lean();
+            const withoutDoc = [];
+            for (const d of deductions) {
+              const count = await Document.countDocuments({ 'linkedTo.deductionId': d._id });
+              if (count === 0) withoutDoc.push(d);
+            }
+            if (withoutDoc.length > 0) {
+              const labels = withoutDoc.map(
+                (d) => RELIEF_TYPES.find((r) => r.key === d.deductionType)?.label || d.deductionType
+              );
+              await reply(
+                'Before you book an accountant review, each relief needs a supporting document.\n\n' +
+                'Still missing documents for:\n• ' + labels.join('\n• ') + '\n\n' +
+                'Open your upload link, add documents for these reliefs, then reply *2* again.'
+              );
+              sendOk();
+              return;
+            }
+
             const { authorization_url } = await createFilingPaymentLink(userForTax._id, currentProfile._id, 'accountant_review');
             await reply(
               'Almost there! Tap the link below to pay ₦30,000 for your accountant review:\n\n' + authorization_url + '\n\n' +
@@ -2556,8 +2578,6 @@ const handleWebhook = async (req, res) => {
             session.step = 'done';
             session.taxProfileData = {};
             await session.save();
-            const menu = await getLoggedInMainMenu(userForTax.firstName, yearLabel, false, {});
-            await reply(menu);
           } catch (e) {
             console.error('[WhatsApp] createFilingPaymentLink accountant:', e.message);
             await reply("We couldn't generate the payment link. Please try again or say *menu* for options.");
@@ -2567,6 +2587,28 @@ const handleWebhook = async (req, res) => {
         }
         if (choice === '3') {
           try {
+            // Require documents for all reliefs before filing
+            const deductions = await Deduction.find({ profileId: currentProfile._id, 'period.year': yearLabel })
+              .select('_id deductionType')
+              .lean();
+            const withoutDoc = [];
+            for (const d of deductions) {
+              const count = await Document.countDocuments({ 'linkedTo.deductionId': d._id });
+              if (count === 0) withoutDoc.push(d);
+            }
+            if (withoutDoc.length > 0) {
+              const labels = withoutDoc.map(
+                (d) => RELIEF_TYPES.find((r) => r.key === d.deductionType)?.label || d.deductionType
+              );
+              await reply(
+                'Before you file, every relief needs a supporting document.\n\n' +
+                'Still missing documents for:\n• ' + labels.join('\n• ') + '\n\n' +
+                'Open your upload link, add documents for these reliefs, then reply *3* again.'
+              );
+              sendOk();
+              return;
+            }
+
             const { authorization_url } = await createFilingPaymentLink(userForTax._id, currentProfile._id, 'filing_fee');
             await reply(
               'Almost there! Tap the link below to pay ₦25,000 to file your ' + yearLabel + ' taxes:\n\n' + authorization_url + '\n\n' +
@@ -2576,8 +2618,6 @@ const handleWebhook = async (req, res) => {
             session.step = 'done';
             session.taxProfileData = {};
             await session.save();
-            const menu = await getLoggedInMainMenu(userForTax.firstName, yearLabel, false, { filedForYear: yearLabel });
-            await reply(menu);
           } catch (e) {
             console.error('[WhatsApp] createFilingPaymentLink filing:', e.message);
             await reply("We couldn't generate the payment link. Please try again or say *menu* for options.");
