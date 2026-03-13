@@ -9,7 +9,8 @@ const {
   getAllTaxableProfiles,
   getAllProfileReviews,
   getFilledProfiles,
-  addProfileNotes
+  addProfileNotes,
+  updateTaxFilingStatus
 } = require('../controllers/adminController');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 
@@ -80,6 +81,15 @@ const addProfileNotesValidation = [
     .isObject().withMessage('Admin metadata must be an object')
 ];
 
+// Validation rules for updating filing status
+const updateFilingStatusValidation = [
+  body('filingStatus')
+    .trim()
+    .notEmpty().withMessage('filingStatus is required')
+    .isIn(['pending_upload', 'pending_accountant_review', 'accountant_reviewed', 'in_review_for_filing', 'filed'])
+    .withMessage('Invalid filingStatus value')
+];
+
 // Protected routes (require admin authentication)
 router.post('/change-password', authenticateAdmin, changePasswordValidation, changeAdminPassword);
 router.get('/users', authenticateAdmin, getAllUsers);
@@ -87,6 +97,7 @@ router.get('/taxable-profiles', authenticateAdmin, getAllTaxableProfiles);
 router.get('/filled-profiles', authenticateAdmin, getFilledProfiles); // Get all submitted/filled profiles
 router.get('/profile-reviews', authenticateAdmin, getAllProfileReviews);
 router.put('/taxable-profiles/:profileId/notes', authenticateAdmin, addProfileNotesValidation, addProfileNotes); // Add notes/metadata to profile
+router.patch('/taxable-profiles/:profileId/filing-status', authenticateAdmin, updateFilingStatusValidation, updateTaxFilingStatus); // Update filingStatus for a profile
 
 module.exports = router;
 

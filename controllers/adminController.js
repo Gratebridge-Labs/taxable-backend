@@ -4,7 +4,7 @@ const TaxableProfile = require('../models/TaxableProfile');
 const ProfileReview = require('../models/ProfileReview');
 const TaxUpdate = require('../models/TaxUpdate');
 const { generateToken } = require('../utils/jwt');
-const { validationResult } = require('express-validator');
+const { validationResult, body } = require('express-validator');
 const { generateUniqueAdminCode } = require('../utils/adminCodeGenerator');
 
 /**
@@ -492,6 +492,67 @@ const addProfileNotes = async (req, res) => {
   }
 };
 
+/**
+ * Update filingStatus for a TaxableProfile (admin only).
+ * Allowed statuses: pending_upload | pending_accountant_review | accountant_reviewed | in_review_for_filing | filed
+ * Body: { filingStatus: string }
+ */
+const updateTaxFilingStatus = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const adminId = req.admin?.adminId;
+    const { profileId } = req.params;
+    const { filingStatus } = req.body;
+
+    if (!adminId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized - Admin access required'
+      });
+    }
+
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId);
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    profile.filingStatus = filingStatus;
+    profile.lastReviewedBy = adminId;
+    profile.lastReviewedAt = Date.now();
+    await profile.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Filing status updated successfully',
+      data: {
+        profileId: profile.profileId,
+        filingStatus: profile.filingStatus,
+        lastReviewedBy: profile.lastReviewedBy,
+        lastReviewedAt: profile.lastReviewedAt
+      }
+    });
+  } catch (error) {
+    console.error('Update tax filing status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating filing status',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createAdmin,
   adminLogin,
@@ -500,6 +561,7 @@ module.exports = {
   getAllTaxableProfiles,
   getAllProfileReviews,
   getFilledProfiles,
-  addProfileNotes
+  addProfileNotes,
+  updateTaxFilingStatus
 };
 
