@@ -447,10 +447,6 @@ Just type the word in brackets to continue.
 
   return `Hi ${firstName} 👋
 
-${TAXABLE_INTRO_LINE}
-
-${FILING_DEADLINE_INDIVIDUAL}
-
 ${filedLine}${menuBlock}`;
 }
 
