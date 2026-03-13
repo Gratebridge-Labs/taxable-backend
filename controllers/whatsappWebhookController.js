@@ -1047,24 +1047,26 @@ const handleWebhook = async (req, res) => {
 
           if (latestProfile) {
             let menuOpts = {};
+            // Always pass filingStatus for the latest profile
+            if (latestProfile.filingStatus) {
+              menuOpts.filingStatus = latestProfile.filingStatus;
+            }
+            // For filed profiles, keep filedForYear so we can mention it
             if (['in_review_for_filing', 'filed'].includes(latestProfile.filingStatus)) {
               menuOpts.filedForYear = year;
-            } else if (latestProfile.filingStatus === 'pending_accountant_review') {
-              // Build a lightweight summary snapshot for the menu when pending accountant review
-              let summary = null;
-              try {
-                const breakdown = await generateCompleteBreakdown(latestProfile._id, year);
-                const s = breakdown?.summary || {};
-                summary = {
-                  estimatedAnnualIncome: s.totalIncome ?? undefined,
-                  totalReliefs: s.totalDeductions ?? undefined,
-                  estimatedTax: s.finalTaxPayable ?? s.taxCalculated ?? undefined
-                };
-              } catch (e) {
-                console.error('[WhatsApp] getLoggedInMainMenu breakdown error:', e.message);
-              }
-              menuOpts.filingStatus = 'pending_accountant_review';
-              if (summary) menuOpts.filingSummary = summary;
+            }
+
+            // Build a lightweight summary snapshot for the menu (income, reliefs, tax) when possible
+            try {
+              const breakdown = await generateCompleteBreakdown(latestProfile._id, year);
+              const s = breakdown?.summary || {};
+              menuOpts.filingSummary = {
+                estimatedAnnualIncome: s.totalIncome ?? undefined,
+                totalReliefs: s.totalDeductions ?? undefined,
+                estimatedTax: s.finalTaxPayable ?? s.taxCalculated ?? undefined
+              };
+            } catch (e) {
+              console.error('[WhatsApp] getLoggedInMainMenu breakdown error:', e.message);
             }
 
             await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub, menuOpts));

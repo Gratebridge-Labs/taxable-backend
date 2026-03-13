@@ -369,85 +369,59 @@ const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 • Yes — add another
 • No — continue${BACK_TO_MENU_FOOTER}`;
 
-// —— LOGGED-IN MAIN MENU (has profile; slim copy: intro + individuals deadline only, then menu) ——
+// —— LOGGED-IN MAIN MENU (has profile) — compact status + snapshot + CTA to create new profile.
 // options:
-// - filedForYear?: number — when set, show "You have filed for X taxes. Set up another year?"
+// - filedForYear?: number — when set, show "You have filed for X taxes."
 // - filingStatus?: 'pending_upload' | 'pending_accountant_review' | 'accountant_reviewed' | 'in_review_for_filing' | 'filed'
 // - filingSummary?: { estimatedAnnualIncome?: number, totalReliefs?: number, estimatedTax?: number }
 function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false, options = {}) {
   const filedLine = options && options.filedForYear
-    ? `You have filed for *${options.filedForYear}* taxes. Do you want to set up another year's tax profile?\n\n`
+    ? `You have filed for *${options.filedForYear}* taxes.\n\n`
     : '';
 
   const filingStatus = options.filingStatus;
   const filingSummary = options.filingSummary || {};
 
-  // Special menu when profile is pending accountant review: no full menu, just status + summary + CTA to create another year.
-  if (filingStatus === 'pending_accountant_review') {
-    const fmt = (n) => (n != null && Number(n) >= 0 ? `₦${Number(n).toLocaleString()}` : '—');
-    const income = filingSummary.estimatedAnnualIncome != null ? filingSummary.estimatedAnnualIncome : undefined;
-    const totalReliefs = filingSummary.totalReliefs != null ? filingSummary.totalReliefs : undefined;
-    const tax = filingSummary.estimatedTax != null ? filingSummary.estimatedTax : undefined;
+  const statusLabel = (() => {
+    switch (filingStatus) {
+      case 'pending_upload':
+        return 'Pending document upload';
+      case 'pending_accountant_review':
+        return 'Pending tax agent review';
+      case 'accountant_reviewed':
+        return 'Approved by tax agent — ready to file';
+      case 'in_review_for_filing':
+        return 'In review for filing';
+      case 'filed':
+        return 'Filed';
+      default:
+        return 'Draft tax profile';
+    }
+  })();
 
-    let statusBlock = `Hi ${firstName} 👋
+  const fmt = (n) => (n != null && Number(n) >= 0 ? `₦${Number(n).toLocaleString()}` : '—');
+  const income = filingSummary.estimatedAnnualIncome != null ? filingSummary.estimatedAnnualIncome : undefined;
+  const totalReliefs = filingSummary.totalReliefs != null ? filingSummary.totalReliefs : undefined;
+  const tax = filingSummary.estimatedTax != null ? filingSummary.estimatedTax : undefined;
 
-Your ${year} tax profile is currently:
-*Filing status:* Pending tax agent review
+  let msg = `Hi ${firstName} 👋
 
-While your tax agent is reviewing, you can:
-• View your tax summary (summary)
-• Add or review relief documents (relief)
+${filedLine}*Tax year:* ${year}
+*Filing status:* ${statusLabel}
 `;
 
-    if (income != null || totalReliefs != null || tax != null) {
-      statusBlock += `\nHere’s a quick snapshot based on your profile:\n`;
-      if (income != null) statusBlock += `• Estimated annual income: ${fmt(income)}\n`;
-      if (totalReliefs != null) statusBlock += `• Total reliefs (est.): ${fmt(totalReliefs)}\n`;
-      if (tax != null) statusBlock += `• Estimated annual tax: ${fmt(tax)}\n`;
-    }
-
-    statusBlock += `\nIf you need to set up another year, you can say:
-• Create ${year + 1} tax profile
-
-Otherwise, sit tight — we’ll let you know when your tax agent has approved your profile.`;
-
-    return statusBlock;
+  if (income != null || totalReliefs != null || tax != null) {
+    msg += `\nBased on your current profile:\n`;
+    if (income != null) msg += `• Estimated annual income: ${fmt(income)}\n`;
+    if (totalReliefs != null) msg += `• Total reliefs (est.): ${fmt(totalReliefs)}\n`;
+    if (tax != null) msg += `• Estimated annual tax: ${fmt(tax)}\n`;
   }
-  const menuBlock = hasActiveSubscription
-    ? `Here's what you can do today 👇
 
-• Review your ${year} tax profile (review)
-• Add reliefs & upload documents (relief)
-• View tax summary (summary)
-• File your ${year} tax return (file)
-• Connect & manage banks (connect)
-• Subscription details (subscription)
-• I don't understand tax — explain it (explain)
-• FAQ (faq)
-• Talk to support (support)
+  msg += `\nTo see full details, reply *summary*.
 
-Just type the word in brackets to continue.`
-    : `Here's what you can do today 👇
+To start another year, say *Create ${year + 1} tax profile*.`;
 
-• Review your ${year} tax profile (review) 🔒
-• Add reliefs & upload documents (relief) 🔒
-• View tax summary (summary) 🔒
-• File your ${year} tax return (file) 🔒
-• Connect & manage banks (connect) 🔒
-• Subscription plans
-• Learn how tax works
-• Estimate my tax
-• FAQ (faq)
-• I don't understand tax — explain it (explain)
-• Talk to support (support)
-
-Just type the word in brackets to continue.
-
-🔒 = Requires active subscription`;
-
-  return `Hi ${firstName} 👋
-
-${filedLine}${menuBlock}`;
+  return msg;
 }
 
 // —— FILING ——
