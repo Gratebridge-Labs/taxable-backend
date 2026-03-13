@@ -803,10 +803,30 @@ async function getTaxProfileSummaryForStep8(firstName, profile, td, breakdown) {
   let annualTax = s.finalTaxPayable ?? s.taxCalculated ?? 0;
   const hasBreakdownData = estIncome > 0 || estDeductions > 0;
 
+  // Fallback: if breakdown has income but zero deductions, estimate reliefs from profile flags (rent/health/pension/mortgage)
+  const hasProfileReliefs =
+    (profile?.paysRent || td?.paysRent) ||
+    (profile?.hasHealthInsurance || td?.hasHealthInsurance) ||
+    (profile?.hasPension || td?.hasPension) ||
+    (profile?.paysMortgage || td?.paysMortgage);
+
   if (!hasBreakdownData) {
+    // No income/deduction data at all – just estimate deductibles, leave tax blank
     estDeductions = estimateDeductiblesFromProfile(profile, td);
     chargeable = null;
     annualTax = null;
+  } else if (estIncome > 0 && estDeductions === 0 && hasProfileReliefs) {
+    // We have income but no stored deductions, while profile has relief info:
+    // estimate deductions and recompute tax so the user sees a more realistic position.
+    estDeductions = estimateDeductiblesFromProfile(profile, td);
+    const estimatedChargeable = Math.max(estIncome - estDeductions, 0);
+    chargeable = estimatedChargeable;
+    if (estimatedChargeable > 0) {
+      const taxEst = estimateTaxFromAnnualIncome(estimatedChargeable);
+      annualTax = taxEst.totalTax;
+    } else {
+      annualTax = 0;
+    }
   }
   const monthlyTax = annualTax != null && annualTax > 0 ? Math.round(annualTax / 12) : null;
 
@@ -1021,11 +1041,32 @@ const handleWebhook = async (req, res) => {
       try {
         const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
         if (userForMenu) {
-          const hasProfile = await TaxableProfile.findOne({ user: userForMenu._id }).sort({ year: -1 }).select('_id year filingStatus').lean();
+          const latestProfile = await TaxableProfile.findOne({ user: userForMenu._id }).sort({ year: -1 }).lean();
           const hasSub = await safeHasActiveSubscription(userForMenu._id);
-          const year = hasProfile?.year || new Date().getFullYear();
-          const menuOpts = hasProfile?.filingStatus && ['in_review_for_filing', 'filed'].includes(hasProfile.filingStatus) ? { filedForYear: year } : {};
-          if (hasProfile) {
+          const year = latestProfile?.year || new Date().getFullYear();
+
+          if (latestProfile) {
+            let menuOpts = {};
+            if (['in_review_for_filing', 'filed'].includes(latestProfile.filingStatus)) {
+              menuOpts.filedForYear = year;
+            } else if (latestProfile.filingStatus === 'pending_accountant_review') {
+              // Build a lightweight summary snapshot for the menu when pending accountant review
+              let summary = null;
+              try {
+                const breakdown = await generateCompleteBreakdown(latestProfile._id, year);
+                const s = breakdown?.summary || {};
+                summary = {
+                  estimatedAnnualIncome: s.totalIncome ?? undefined,
+                  totalReliefs: s.totalDeductions ?? undefined,
+                  estimatedTax: s.finalTaxPayable ?? s.taxCalculated ?? undefined
+                };
+              } catch (e) {
+                console.error('[WhatsApp] getLoggedInMainMenu breakdown error:', e.message);
+              }
+              menuOpts.filingStatus = 'pending_accountant_review';
+              if (summary) menuOpts.filingSummary = summary;
+            }
+
             await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub, menuOpts));
           } else {
             await sendWatchVideoPreview();

@@ -370,11 +370,49 @@ const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 • No — continue${BACK_TO_MENU_FOOTER}`;
 
 // —— LOGGED-IN MAIN MENU (has profile; slim copy: intro + individuals deadline only, then menu) ——
-// options: { filedForYear?: number } — when set, show "You have filed for X taxes. Set up another year?"
+// options:
+// - filedForYear?: number — when set, show "You have filed for X taxes. Set up another year?"
+// - filingStatus?: 'pending_upload' | 'pending_accountant_review' | 'accountant_reviewed' | 'in_review_for_filing' | 'filed'
+// - filingSummary?: { estimatedAnnualIncome?: number, totalReliefs?: number, estimatedTax?: number }
 function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false, options = {}) {
   const filedLine = options && options.filedForYear
     ? `You have filed for *${options.filedForYear}* taxes. Do you want to set up another year's tax profile?\n\n`
     : '';
+
+  const filingStatus = options.filingStatus;
+  const filingSummary = options.filingSummary || {};
+
+  // Special menu when profile is pending accountant review: no full menu, just status + summary + CTA to create another year.
+  if (filingStatus === 'pending_accountant_review') {
+    const fmt = (n) => (n != null && Number(n) >= 0 ? `₦${Number(n).toLocaleString()}` : '—');
+    const income = filingSummary.estimatedAnnualIncome != null ? filingSummary.estimatedAnnualIncome : undefined;
+    const totalReliefs = filingSummary.totalReliefs != null ? filingSummary.totalReliefs : undefined;
+    const tax = filingSummary.estimatedTax != null ? filingSummary.estimatedTax : undefined;
+
+    let statusBlock = `Hi ${firstName} 👋
+
+Your ${year} tax profile is currently:
+*Filing status:* Pending tax agent review
+
+While your tax agent is reviewing, you can:
+• View your tax summary (summary)
+• Add or review relief documents (relief)
+`;
+
+    if (income != null || totalReliefs != null || tax != null) {
+      statusBlock += `\nHere’s a quick snapshot based on your profile:\n`;
+      if (income != null) statusBlock += `• Estimated annual income: ${fmt(income)}\n`;
+      if (totalReliefs != null) statusBlock += `• Total reliefs (est.): ${fmt(totalReliefs)}\n`;
+      if (tax != null) statusBlock += `• Estimated annual tax: ${fmt(tax)}\n`;
+    }
+
+    statusBlock += `\nIf you need to set up another year, you can say:
+• Create ${year + 1} tax profile
+
+Otherwise, sit tight — we’ll let you know when your tax agent has approved your profile.`;
+
+    return statusBlock;
+  }
   const menuBlock = hasActiveSubscription
     ? `Here's what you can do today 👇
 
