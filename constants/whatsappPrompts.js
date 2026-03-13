@@ -395,7 +395,7 @@ function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = fal
       case 'filed':
         return 'Filed';
       default:
-        return 'Draft tax profile';
+        return 'Not yet filed';
     }
   })();
 
@@ -417,9 +417,10 @@ ${filedLine}*Tax year:* ${year}
     if (tax != null) msg += `• Estimated annual tax: ${fmt(tax)}\n`;
   }
 
-  msg += `\nTo see full details, reply *summary*.
-
-To start another year, say *Create ${year + 1} tax profile*.`;
+  msg += `\nWhat would you like to do next?\n`;
+  msg += `1️⃣ View your ${year} tax summary — reply *summary*\n`;
+  msg += `2️⃣ Manage/add reliefs & documents — reply *relief*\n`;
+  msg += `3️⃣ Create ${year + 1} tax profile — reply *Create ${year + 1} tax profile*`;
 
   return msg;
 }
