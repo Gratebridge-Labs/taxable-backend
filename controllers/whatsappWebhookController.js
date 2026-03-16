@@ -1041,7 +1041,13 @@ const handleWebhook = async (req, res) => {
       try {
         const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
         if (userForMenu) {
-          const latestProfile = await TaxableProfile.findOne({ user: userForMenu._id }).sort({ year: -1 }).lean();
+          // Prefer the most recently updated profile with a non-null filingStatus; fall back to latest by year.
+          const recentProfiles = await TaxableProfile.find({ user: userForMenu._id })
+            .sort({ year: -1, updatedAt: -1 })
+            .limit(5)
+            .lean();
+          const latestWithStatus = recentProfiles.find(p => !!p.filingStatus);
+          const latestProfile = latestWithStatus || recentProfiles[0] || null;
           const hasSub = await safeHasActiveSubscription(userForMenu._id);
           const year = latestProfile?.year || new Date().getFullYear();
 
