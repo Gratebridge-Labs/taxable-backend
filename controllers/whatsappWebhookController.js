@@ -3114,8 +3114,9 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // —— Subscription flow (PDF): Done / Check again → verify payment ——
-    if (regUser && isDoneOrCheckAgainIntent(text)) {
+    // —— Subscription flow (PDF): Done / Check again → verify subscription payment ——
+    // IMPORTANT: Only handle here when the user is actually in a subscription-related context (no filingProfileId in session).
+    if (regUser && !session?.taxProfileData?.filingProfileId && isDoneOrCheckAgainIntent(text)) {
       try {
         const result = await verifyPendingSubscriptionForUser(regUser._id);
         if (result.verified) {
