@@ -197,10 +197,28 @@ const taxableProfileSchema = new mongoose.Schema({
   filedAt: {
     type: Date
   },
-  /** For annual flow: pending_upload | pending_accountant_review | accountant_reviewed | in_review_for_filing | filed */
+  /**
+   * Filing lifecycle status for annual flow.
+   * - null / undefined: user is still answering base questions (profile not ready)
+   * - pending_upload: profile created, user needs to upload documents
+   * - upload_done: documents uploaded / complete
+   * - pending_accountant_payment: user chose to book a tax agent, payment link created
+   * - tax_agent_review: accountant review payment completed, agent is reviewing
+   * - tax_agent_approved: agent has approved profile (admin action)
+   * - pending_filing_payment: user chose to file, filing-fee payment link created
+   * - filed: filing fee payment completed and return submitted
+   */
   filingStatus: {
     type: String,
-    enum: ['pending_upload', 'pending_accountant_review', 'accountant_reviewed', 'in_review_for_filing', 'filed'],
+    enum: [
+      'pending_upload',
+      'upload_done',
+      'pending_accountant_payment',
+      'tax_agent_review',
+      'tax_agent_approved',
+      'pending_filing_payment',
+      'filed'
+    ],
     default: null
   },
   adminNotes: {

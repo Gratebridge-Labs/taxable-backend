@@ -372,7 +372,7 @@ const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 // —— LOGGED-IN MAIN MENU (has profile) — compact status + snapshot + CTA to create new profile.
 // options:
 // - filedForYear?: number — when set, show "You have filed for X taxes."
-// - filingStatus?: 'pending_upload' | 'pending_accountant_review' | 'accountant_reviewed' | 'in_review_for_filing' | 'filed'
+// - filingStatus?: 'pending_upload' | 'upload_done' | 'pending_accountant_payment' | 'tax_agent_review' | 'tax_agent_approved' | 'pending_filing_payment' | 'filed'
 // - filingSummary?: { estimatedAnnualIncome?: number, totalReliefs?: number, estimatedTax?: number }
 function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false, options = {}) {
   const filedLine = options && options.filedForYear
@@ -386,12 +386,16 @@ function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = fal
     switch (filingStatus) {
       case 'pending_upload':
         return 'Pending document upload';
-      case 'pending_accountant_review':
+      case 'upload_done':
+        return 'Documents uploaded';
+      case 'pending_accountant_payment':
+        return 'Awaiting tax agent payment';
+      case 'tax_agent_review':
         return 'Pending tax agent review';
-      case 'accountant_reviewed':
+      case 'tax_agent_approved':
         return 'Approved by tax agent — ready to file';
-      case 'in_review_for_filing':
-        return 'In review for filing';
+      case 'pending_filing_payment':
+        return 'Awaiting filing payment';
       case 'filed':
         return 'Filed';
       default:
@@ -419,8 +423,7 @@ ${filedLine}*Tax year:* ${year}
 
   msg += `\nWhat would you like to do next?\n`;
   msg += `1️⃣ View your ${year} tax summary — reply *summary*\n`;
-  msg += `2️⃣ Manage/add reliefs & documents — reply *relief*\n`;
-  msg += `3️⃣ Create ${year + 1} tax profile — reply *Create ${year + 1} tax profile*`;
+  msg += `2️⃣ Create ${year + 1} tax profile — reply *Create ${year + 1} tax profile*`;
 
   return msg;
 }

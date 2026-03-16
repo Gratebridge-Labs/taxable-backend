@@ -191,7 +191,9 @@ const handleWebhook = async (req, res) => {
             { _id: filingPayment._id },
             { status: 'completed', updatedAt: new Date() }
           );
-          const newStatus = filingPayment.type === 'accountant_review' ? 'pending_accountant_review' : 'in_review_for_filing';
+          // When accountant_review is paid, profile moves into tax_agent_review.
+          // When filing_fee is paid, profile is filed.
+          const newStatus = filingPayment.type === 'accountant_review' ? 'tax_agent_review' : 'filed';
           await TaxableProfile.updateOne(
             { _id: filingPayment.profileId },
             { $set: { filingStatus: newStatus, updatedAt: new Date() } }

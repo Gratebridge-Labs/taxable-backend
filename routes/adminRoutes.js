@@ -86,7 +86,15 @@ const updateFilingStatusValidation = [
   body('filingStatus')
     .trim()
     .notEmpty().withMessage('filingStatus is required')
-    .isIn(['pending_upload', 'pending_accountant_review', 'accountant_reviewed', 'in_review_for_filing', 'filed'])
+    .isIn([
+      'pending_upload',
+      'upload_done',
+      'pending_accountant_payment',
+      'tax_agent_review',
+      'tax_agent_approved',
+      'pending_filing_payment',
+      'filed'
+    ])
     .withMessage('Invalid filingStatus value')
 ];
 

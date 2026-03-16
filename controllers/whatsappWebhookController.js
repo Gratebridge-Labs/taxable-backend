@@ -1052,7 +1052,7 @@ const handleWebhook = async (req, res) => {
               menuOpts.filingStatus = latestProfile.filingStatus;
             }
             // For filed profiles, keep filedForYear so we can mention it
-            if (['in_review_for_filing', 'filed'].includes(latestProfile.filingStatus)) {
+            if (latestProfile.filingStatus === 'filed') {
               menuOpts.filedForYear = year;
             }
 
@@ -2612,6 +2612,12 @@ const handleWebhook = async (req, res) => {
               return;
             }
 
+            // All documents present → mark upload_done and pending_accountant_payment
+            await TaxableProfile.updateOne(
+              { _id: currentProfile._id },
+              { $set: { filingStatus: 'pending_accountant_payment', updatedAt: new Date() } }
+            );
+
             const { authorization_url } = await createFilingPaymentLink(userForTax._id, currentProfile._id, 'accountant_review');
             await reply(
               'Almost there! Tap the link below to pay ₦30,000 for your accountant review:\n\n' + authorization_url + '\n\n' +
@@ -2651,6 +2657,12 @@ const handleWebhook = async (req, res) => {
               sendOk();
               return;
             }
+
+            // All documents present → mark upload_done and pending_filing_payment
+            await TaxableProfile.updateOne(
+              { _id: currentProfile._id },
+              { $set: { filingStatus: 'pending_filing_payment', updatedAt: new Date() } }
+            );
 
             const { authorization_url } = await createFilingPaymentLink(userForTax._id, currentProfile._id, 'filing_fee');
             await reply(
