@@ -195,11 +195,17 @@ const handleWebhook = async (req, res) => {
             { status: 'completed', updatedAt: new Date() }
           );
           // When accountant_review is paid, profile moves into tax_agent_review.
-          // When filing_fee is paid, profile is filed.
+          // When filing_fee is paid, profile is filed (sync filingStatus + filed/filedAt).
           const newStatus = filingPayment.type === 'accountant_review' ? 'tax_agent_review' : 'filed';
+          const update = { filingStatus: newStatus, updatedAt: new Date() };
+          if (filingPayment.type === 'filing_fee') {
+            update.filed = true;
+            update.filedAt = new Date();
+            update.status = 'completed';
+          }
           await TaxableProfile.updateOne(
             { _id: filingPayment.profileId },
-            { $set: { filingStatus: newStatus, updatedAt: new Date() } }
+            { $set: update }
           );
           console.log('[Paystack webhook] FilingPayment completed:', filingPayment._id, 'type:', filingPayment.type, 'profile:', filingPayment.profileId);
         } else {

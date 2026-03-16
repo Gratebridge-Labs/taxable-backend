@@ -345,6 +345,7 @@ const performFileTax = async (userId, profileId) => {
   }
   profile.filed = true;
   profile.filedAt = new Date();
+  profile.filingStatus = 'filed';
   profile.status = 'completed';
   await profile.save();
   try {

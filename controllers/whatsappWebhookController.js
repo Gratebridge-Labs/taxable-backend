@@ -419,11 +419,11 @@ function isViewTaxSummaryIntent(text) {
   return /^summary\.?$/i.test(t) || /view\s*tax\s*summary/i.test(t) || t === 'view tax summary' || /tax\s*summary/i.test(t) && /view|show|see/i.test(t);
 }
 
-/** PDF: "Proceed to file"; bracket shortcut (file) */
+/** PDF: "Proceed to file"; bracket shortcut (file). Also "3" when menu option 3 is "File your X tax return". */
 function isProceedToFileIntent(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim().toLowerCase();
-  return /^file\.?$/i.test(t) || /proceed\s*to\s*file/i.test(t) || /file\s*(my\s*)?tax/i.test(t) && /proceed|ready|submit/i.test(t) || t === 'proceed to file';
+  return /^file\.?$/i.test(t) || /^3$/i.test(t) || /proceed\s*to\s*file/i.test(t) || /file\s*(my\s*)?tax/i.test(t) && /proceed|ready|submit/i.test(t) || t === 'proceed to file';
 }
 
 /** PDF: "Reply CONFIRM to file" */
@@ -3723,7 +3723,7 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // —— Proceed to file (PDF: CONFIRM step) ——
+    // —— Proceed to file: branch on filingStatus (approve → payment link; filed → done; else → after approval) ——
     if (regUser && isProceedToFileIntent(text)) {
       const hasSub = await safeHasActiveSubscription(regUser._id);
       if (!hasSub) {
@@ -3731,12 +3731,38 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
-      const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('profileId year _id').lean();
+      const candidateProfiles = await TaxableProfile.find({ user: regUser._id })
+        .sort({ updatedAt: -1 })
+        .limit(20)
+        .select('profileId year _id filingStatus')
+        .lean();
+      const mostRecentWithStatus = candidateProfiles.find((p) => p.filingStatus != null);
+      const latestByYear = [...candidateProfiles].sort((a, b) => (b.year || 0) - (a.year || 0))[0] || null;
+      const latestProfile = mostRecentWithStatus || latestByYear;
+
       if (!latestProfile) {
         await reply("You don't have a tax profile yet. Reply *Create tax profile* first.");
         sendOk();
         return;
       }
+
+      const filingStatus = latestProfile.filingStatus || null;
+      const yearLabel = String(latestProfile.year);
+
+      if (filingStatus === 'filed') {
+        const year = latestProfile.year || new Date().getFullYear();
+        await reply("You've already filed your " + yearLabel + " tax return.");
+        await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub, { filingStatus: 'filed', filedForYear: year }));
+        sendOk();
+        return;
+      }
+
+      if (filingStatus !== 'tax_agent_approved' && filingStatus !== 'pending_filing_payment') {
+        await reply("File your " + yearLabel + " tax return is available *after a tax agent approves* your profile. We'll notify you when it's ready." + BACK_TO_MENU_FOOTER);
+        sendOk();
+        return;
+      }
+
       const deductions = await Deduction.find({ profileId: latestProfile._id, 'period.year': latestProfile.year }).select('_id deductionType').lean();
       const withoutDoc = [];
       for (const d of deductions) {
@@ -3749,13 +3775,39 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
-      session = await WhatsAppSession.findOneAndUpdate(
-        { waId: from },
-        { $set: { step: 'filing_confirm', 'taxProfileData.filingProfileId': latestProfile.profileId, updatedAt: new Date() } },
-        { upsert: true, new: true }
-      );
-      const confirmMsg = FILE_TAX_CONFIRM.replace('2025', String(latestProfile.year));
-      await reply(confirmMsg);
+
+      try {
+        if (filingStatus === 'tax_agent_approved') {
+          await TaxableProfile.updateOne(
+            { _id: latestProfile._id },
+            { $set: { filingStatus: 'pending_filing_payment', updatedAt: new Date() } }
+          );
+        }
+        const { authorization_url } = await createFilingPaymentLink(regUser._id, latestProfile._id, 'filing_fee');
+        await reply(
+          'Almost there! Tap the link below to pay ₦25,000 to file your ' + yearLabel + ' taxes:\n\n' + authorization_url + '\n\n' +
+          'After payment, your return will move to *Filed* status once confirmed.\n\n' +
+          'When you\'re done, reply *done* here and we\'ll show your latest status.'
+        );
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          {
+            $set: {
+              step: 'filing_payment_pending',
+              taxProfileData: {
+                ...(session?.taxProfileData || {}),
+                filingProfileId: latestProfile._id,
+                filingPaymentType: 'filing_fee'
+              },
+              updatedAt: new Date()
+            }
+          },
+          { upsert: true, new: true }
+        );
+      } catch (e) {
+        console.error('[WhatsApp] createFilingPaymentLink filing (file intent):', e.message);
+        await reply("We couldn't generate the payment link right now. Please try again or say *menu* for options.");
+      }
       sendOk();
       return;
     }
@@ -4343,11 +4395,17 @@ const handleWebhook = async (req, res) => {
           const phoneForDone = waIdToPhone(from);
           const userDone = await User.findOne({ $or: [{ phone: phoneForDone }, { phone: phoneForDone.replace(/^0/, '234') }] }).select('_id firstName').lean();
           if (userDone) {
-            const hasProfileDone = await TaxableProfile.findOne({ user: userDone._id }).sort({ year: -1 }).select('_id year').lean();
             const hasSubDone = await safeHasActiveSubscription(userDone._id);
-            const yearDone = hasProfileDone?.year || new Date().getFullYear();
-            if (hasProfileDone) {
-              await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone));
+            const candidateProfilesDone = await TaxableProfile.find({ user: userDone._id }).sort({ updatedAt: -1 }).limit(20).select('_id year filingStatus').lean();
+            const mostRecentWithStatusDone = candidateProfilesDone.find((p) => p.filingStatus != null);
+            const latestByYearDone = [...candidateProfilesDone].sort((a, b) => (b.year || 0) - (a.year || 0))[0] || null;
+            const latestProfileDone = mostRecentWithStatusDone || latestByYearDone;
+            const yearDone = latestProfileDone?.year || new Date().getFullYear();
+            if (latestProfileDone) {
+              const menuOptsDone = {};
+              if (latestProfileDone.filingStatus) menuOptsDone.filingStatus = latestProfileDone.filingStatus;
+              if (latestProfileDone.filingStatus === 'filed') menuOptsDone.filedForYear = yearDone;
+              await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone, menuOptsDone));
             } else {
               await sendWatchVideoPreview();
               await reply(getPostVerificationWelcome(userDone.firstName));

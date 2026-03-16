@@ -495,8 +495,11 @@ const addProfileNotes = async (req, res) => {
 
 /**
  * Update filingStatus for a TaxableProfile (admin only).
- * Allowed statuses: pending_upload | pending_accountant_review | accountant_reviewed | in_review_for_filing | filed
+ * Use this to approve a profile so the user can pay and file (e.g. set to tax_agent_approved).
+ * PATCH /api/admin/taxable-profiles/:profileId/filing-status
  * Body: { filingStatus: string }
+ * Allowed: pending_upload | upload_done | pending_accountant_payment | tax_agent_review | tax_agent_approved | pending_filing_payment | filed
+ * profileId: MongoDB _id or profileId string (e.g. TP958909103)
  */
 const updateTaxFilingStatus = async (req, res) => {
   try {
