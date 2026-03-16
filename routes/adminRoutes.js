@@ -10,7 +10,8 @@ const {
   getAllProfileReviews,
   getFilledProfiles,
   addProfileNotes,
-  updateTaxFilingStatus
+  updateTaxFilingStatus,
+  generateFilingPaymentLinkForAdmin
 } = require('../controllers/adminController');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 
@@ -98,6 +99,16 @@ const updateFilingStatusValidation = [
     .withMessage('Invalid filingStatus value')
 ];
 
+// Validation for generating filing payment link
+const generateFilingLinkValidation = [
+  body('userId')
+    .trim()
+    .notEmpty().withMessage('userId is required'),
+  body('type')
+    .optional()
+    .isIn(['accountant_review', 'filing_fee']).withMessage('type must be accountant_review or filing_fee')
+];
+
 // Protected routes (require admin authentication)
 router.post('/change-password', authenticateAdmin, changePasswordValidation, changeAdminPassword);
 router.get('/users', authenticateAdmin, getAllUsers);
@@ -106,6 +117,7 @@ router.get('/filled-profiles', authenticateAdmin, getFilledProfiles); // Get all
 router.get('/profile-reviews', authenticateAdmin, getAllProfileReviews);
 router.put('/taxable-profiles/:profileId/notes', authenticateAdmin, addProfileNotesValidation, addProfileNotes); // Add notes/metadata to profile
 router.patch('/taxable-profiles/:profileId/filing-status', authenticateAdmin, updateFilingStatusValidation, updateTaxFilingStatus); // Update filingStatus for a profile
+router.post('/taxable-profiles/:profileId/filing-link', authenticateAdmin, generateFilingLinkValidation, generateFilingPaymentLinkForAdmin); // Generate accountant/filing payment link
 
 module.exports = router;
 

@@ -423,7 +423,14 @@ ${filedLine}*Tax year:* ${year}
 
   msg += `\nWhat would you like to do next?\n`;
   msg += `1️⃣ View your ${year} tax summary — reply *summary*\n`;
-  msg += `2️⃣ Create ${year + 1} tax profile — reply *Create ${year + 1} tax profile*`;
+  msg += `2️⃣ Create ${year + 1} tax profile — reply *Create ${year + 1} tax profile*\n`;
+
+  // Option 3: File taxes, but locked unless tax agent has approved or filing payment is in progress/filed
+  if (filingStatus === 'tax_agent_approved' || filingStatus === 'pending_filing_payment' || filingStatus === 'filed') {
+    msg += `3️⃣ File your ${year} tax return — reply *file*\n`;
+  } else {
+    msg += `3️⃣ File your ${year} tax return — (available after tax agent approves)\n`;
+  }
 
   return msg;
 }

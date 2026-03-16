@@ -1,6 +1,7 @@
 const Admin = require('../models/Admin');
 const User = require('../models/User');
 const TaxableProfile = require('../models/TaxableProfile');
+const { createFilingPaymentLink } = require('./paystackController');
 const ProfileReview = require('../models/ProfileReview');
 const TaxUpdate = require('../models/TaxUpdate');
 const { generateToken } = require('../utils/jwt');
@@ -553,6 +554,65 @@ const updateTaxFilingStatus = async (req, res) => {
   }
 };
 
+/**
+ * Generate a one-time filing payment link for a profile (admin only).
+ * Body: { userId: string, type?: 'accountant_review' | 'filing_fee' }
+ * Returns: { authorization_url, reference, type, amountNaira }
+ */
+const generateFilingPaymentLinkForAdmin = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const adminId = req.admin?.adminId;
+    const { profileId } = req.params;
+    const { userId, type = 'accountant_review' } = req.body;
+
+    if (!adminId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized - Admin access required'
+      });
+    }
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId is required'
+      });
+    }
+
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId);
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    const data = await createFilingPaymentLink(userId, profile._id, type);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Filing payment link created',
+      data
+    });
+  } catch (error) {
+    console.error('Generate filing payment link error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creating filing payment link',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createAdmin,
   adminLogin,
@@ -562,6 +622,7 @@ module.exports = {
   getAllProfileReviews,
   getFilledProfiles,
   addProfileNotes,
-  updateTaxFilingStatus
+  updateTaxFilingStatus,
+  generateFilingPaymentLinkForAdmin
 };
 
