@@ -2621,8 +2621,8 @@ const handleWebhook = async (req, res) => {
             const { authorization_url } = await createFilingPaymentLink(userForTax._id, currentProfile._id, 'accountant_review');
             await reply(
               'Almost there! Tap the link below to pay ₦30,000 for your accountant review:\n\n' + authorization_url + '\n\n' +
-              'After payment, your status will be *Pending accountant review*. We\'ll update you when the review is done — then you can file.\n\n' +
-              'Reply *menu* when you\'re done.'
+              'After payment, your status will be *Pending tax agent review*. We\'ll update you when the review is done — then you can file.\n\n' +
+              'When you\'re done, reply *done* here and we\'ll show your latest status.'
             );
             session.step = 'done';
             session.taxProfileData = {};
@@ -2667,8 +2667,8 @@ const handleWebhook = async (req, res) => {
             const { authorization_url } = await createFilingPaymentLink(userForTax._id, currentProfile._id, 'filing_fee');
             await reply(
               'Almost there! Tap the link below to pay ₦25,000 to file your ' + yearLabel + ' taxes:\n\n' + authorization_url + '\n\n' +
-              'After payment, your return will be *In review for filing*. We\'ll update you when it\'s submitted.\n\n' +
-              'Reply *menu* when you\'re done.'
+              'After payment, your return will move to *Filed* status once confirmed.\n\n' +
+              'When you\'re done, reply *done* here and we\'ll show your latest status.'
             );
             session.step = 'done';
             session.taxProfileData = {};
