@@ -3919,11 +3919,50 @@ const handleWebhook = async (req, res) => {
     }
 
     if (regUser && isMenuOrHiIntent(text)) {
-      const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year').lean();
+      console.log('[WhatsApp menu] Menu/Hi intent (registered user)', {
+        waId: from,
+        userId: regUser._id.toString()
+      });
       const hasSub = await safeHasActiveSubscription(regUser._id);
-      const year = hasProfile?.year || new Date().getFullYear();
-      if (hasProfile) {
-        await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
+
+      // Same selection logic as Get started: prefer most recently updated profile with filingStatus,
+      // otherwise fall back to latest by year.
+      const candidateProfiles = await TaxableProfile.find({ user: regUser._id })
+        .sort({ updatedAt: -1 })
+        .limit(20)
+        .lean();
+      console.log(
+        '[WhatsApp menu] Candidate profiles (most recent first)',
+        candidateProfiles.map((p) => ({
+          _id: p?._id?.toString?.() || String(p?._id),
+          year: p?.year ?? null,
+          profileType: p?.profileType ?? null,
+          status: p?.status ?? null,
+          filingStatus: p?.filingStatus ?? null,
+          updatedAt: p?.updatedAt ?? null,
+          createdAt: p?.createdAt ?? null
+        }))
+      );
+      const mostRecentWithStatus = candidateProfiles.find((p) => p.filingStatus != null);
+      const latestByYear = [...candidateProfiles].sort((a, b) => (b.year || 0) - (a.year || 0))[0] || null;
+      const latestProfile = mostRecentWithStatus || latestByYear;
+
+      const year = latestProfile?.year || new Date().getFullYear();
+      if (latestProfile) {
+        const menuOpts = {};
+        if (latestProfile.filingStatus) menuOpts.filingStatus = latestProfile.filingStatus;
+        if (latestProfile.filingStatus === 'filed') menuOpts.filedForYear = year;
+
+        console.log('[WhatsApp menu] Resolved latestProfile for menu (menu/hi)', {
+          waId: from,
+          userId: regUser._id.toString(),
+          profileCount: candidateProfiles.length,
+          chosenProfileId: latestProfile?._id?.toString() || null,
+          chosenYear: latestProfile?.year || null,
+          chosenFilingStatus: latestProfile?.filingStatus || null
+        });
+
+        await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub, menuOpts));
       } else {
         await sendWatchVideoPreview();
         await reply(getPostVerificationWelcome(regUser.firstName));
