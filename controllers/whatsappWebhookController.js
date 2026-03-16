@@ -1048,6 +1048,14 @@ const handleWebhook = async (req, res) => {
             .lean();
           const latestWithStatus = recentProfiles.find(p => !!p.filingStatus);
           const latestProfile = latestWithStatus || recentProfiles[0] || null;
+          console.log('[WhatsApp menu] Resolved latestProfile for menu', {
+            waId: from,
+            userId: userForMenu._id.toString(),
+            profileCount: recentProfiles.length,
+            chosenProfileId: latestProfile?._id?.toString() || null,
+            chosenYear: latestProfile?.year || null,
+            chosenFilingStatus: latestProfile?.filingStatus || null
+          });
           const hasSub = await safeHasActiveSubscription(userForMenu._id);
           const year = latestProfile?.year || new Date().getFullYear();
 
