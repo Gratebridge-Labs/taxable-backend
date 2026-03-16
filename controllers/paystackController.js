@@ -150,6 +150,7 @@ const createPaymentLink = async (req, res) => {
  */
 const handleWebhook = async (req, res) => {
   try {
+    console.log('[Paystack webhook] Incoming request at /api/paystack/webhook');
     const rawBody = req.rawBody || (req.body && Buffer.isBuffer(req.body) ? req.body : null);
     const signature = req.headers['x-paystack-signature'];
     if (rawBody && signature && !verifyWebhookSignature(rawBody, signature)) {
@@ -159,6 +160,8 @@ const handleWebhook = async (req, res) => {
     const payload = typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? req.body : (rawBody ? JSON.parse(rawBody.toString()) : {});
     const event = payload.event;
     const data = payload.data || {};
+
+    console.log('[Paystack webhook] Event received:', event);
 
     if (event === 'charge.success') {
       const reference = data.reference || data.reference_id;
