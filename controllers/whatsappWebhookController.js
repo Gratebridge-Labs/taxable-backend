@@ -1041,6 +1041,11 @@ const handleWebhook = async (req, res) => {
       try {
         const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
         if (userForMenu) {
+          console.log('[WhatsApp menu] User resolved for menu', {
+            waId: from,
+            phoneForLookup,
+            userId: userForMenu._id.toString()
+          });
           // Prefer the most recently updated profile with a non-null filingStatus;
           // fall back to latest by year. We fetch a wider window because users can
           // have multiple drafts/years and only some have filingStatus populated.
@@ -1048,6 +1053,18 @@ const handleWebhook = async (req, res) => {
             .sort({ updatedAt: -1 })
             .limit(20)
             .lean();
+          console.log(
+            '[WhatsApp menu] Candidate profiles (most recent first)',
+            candidateProfiles.map((p) => ({
+              _id: p?._id?.toString?.() || String(p?._id),
+              year: p?.year ?? null,
+              profileType: p?.profileType ?? null,
+              status: p?.status ?? null,
+              filingStatus: p?.filingStatus ?? null,
+              updatedAt: p?.updatedAt ?? null,
+              createdAt: p?.createdAt ?? null
+            }))
+          );
           const mostRecentWithStatus = candidateProfiles.find(p => p.filingStatus != null);
           const latestByYear = [...candidateProfiles].sort((a, b) => (b.year || 0) - (a.year || 0))[0] || null;
           const latestProfile = mostRecentWithStatus || latestByYear;
