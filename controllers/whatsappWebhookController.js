@@ -2638,8 +2638,14 @@ const handleWebhook = async (req, res) => {
               'After payment, your status will be *Pending tax agent review*. We\'ll update you when the review is done — then you can file.\n\n' +
               'When you\'re done, reply *done* here and we\'ll show your latest status.'
             );
-            session.step = 'done';
-            session.taxProfileData = {};
+            // Track that the user has an in-progress filing payment for this profile,
+            // so "Done" checks the filing status instead of subscription payments.
+            session.step = 'filing_payment_pending';
+            session.taxProfileData = {
+              ...(session.taxProfileData || {}),
+              filingProfileId: currentProfile._id,
+              filingPaymentType: 'accountant_review'
+            };
             await session.save();
           } catch (e) {
             console.error('[WhatsApp] createFilingPaymentLink accountant:', e.message);
@@ -2684,8 +2690,14 @@ const handleWebhook = async (req, res) => {
               'After payment, your return will move to *Filed* status once confirmed.\n\n' +
               'When you\'re done, reply *done* here and we\'ll show your latest status.'
             );
-            session.step = 'done';
-            session.taxProfileData = {};
+            // Track that the user has an in-progress filing payment for this profile,
+            // so "Done" checks the filing status instead of subscription payments.
+            session.step = 'filing_payment_pending';
+            session.taxProfileData = {
+              ...(session.taxProfileData || {}),
+              filingProfileId: currentProfile._id,
+              filingPaymentType: 'filing_fee'
+            };
             await session.save();
           } catch (e) {
             console.error('[WhatsApp] createFilingPaymentLink filing:', e.message);
@@ -3110,6 +3122,44 @@ const handleWebhook = async (req, res) => {
     }
     if (regUser && isBeginnerIntent(text)) {
       await reply(getBeginnerExplanation(regUser.firstName) + BACK_TO_MENU_FOOTER);
+      sendOk();
+      return;
+    }
+
+    // —— "Done" / "Check again" after filing payments (accountant review / filing fee) ——
+    if (
+      regUser &&
+      session?.step === 'filing_payment_pending' &&
+      session?.taxProfileData?.filingProfileId &&
+      isDoneOrCheckAgainIntent(text)
+    ) {
+      try {
+        const profile = await TaxableProfile.findById(session.taxProfileData.filingProfileId)
+          .select('year filingStatus')
+          .lean();
+        if (!profile) {
+          await reply(
+            "We couldn't find your latest filing status yet. If you've completed payment, please wait a minute and try *Done* again, or say *menu* for options."
+          );
+          sendOk();
+          return;
+        }
+
+        const hasSub = await safeHasActiveSubscription(regUser._id);
+        const year = profile.year || new Date().getFullYear();
+
+        await reply("Here's your latest filing status:");
+        await reply(
+          getLoggedInMainMenu(regUser.firstName, year, hasSub, {
+            filingStatus: profile.filingStatus
+          })
+        );
+      } catch (err) {
+        console.error('[WhatsApp] filing payment Done handler error:', err.message);
+        await reply(
+          "We're still updating your filing status. If you've completed payment, wait a few seconds and reply *Done* again, or say *menu* for options."
+        );
+      }
       sendOk();
       return;
     }
