@@ -3172,6 +3172,23 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
+      if (choice === '3') {
+        // If the latest profile is already filed, option 3 should not be actionable.
+        const candidateProfiles = await TaxableProfile.find({ user: regUser._id })
+          .sort({ updatedAt: -1 })
+          .limit(20)
+          .select('_id year filingStatus')
+          .lean();
+        const mostRecentWithStatus = candidateProfiles.find((p) => p.filingStatus != null);
+        const latestByYear = [...candidateProfiles].sort((a, b) => (b.year || 0) - (a.year || 0))[0] || null;
+        const latestProfile = mostRecentWithStatus || latestByYear;
+        if (latestProfile?.filingStatus === 'filed') {
+          await reply("You've already filed for " + String(latestProfile.year) + ". Reply 1 to view summary or 2 to create next year's profile." + BACK_TO_MENU_FOOTER);
+          sendOk();
+          return;
+        }
+        // Otherwise, allow normal file flow below (isProceedToFileIntent handles it).
+      }
       // choice === '3' is already handled by isProceedToFileIntent (it matches /^3$/)
     }
 
