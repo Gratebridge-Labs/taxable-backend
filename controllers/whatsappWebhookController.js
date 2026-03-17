@@ -1570,15 +1570,80 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        session.step = 'tax_profile_nin';
-        await session.save();
-        await reply(
-          'STEP 2 — Tax ID (NIN)\n' +
-          'What is your *NIN* (National Identification Number)?\n' +
-          'Your NIN is your Tax ID for individual filers in Nigeria. It\'s required to file your taxes with the relevant authority.\n\n' +
-          '🔒 This is encrypted and never shared with third parties.\n\n' +
-          '✏️ Type your 11-digit NIN and send.'
-        );
+        // If we already have prior info (e.g. NIN/state) from a previous year, ask if the user wants to keep it.
+        try {
+          const prev = await TaxableProfile.findOne({
+            user: userForTax._id,
+            profileType: 'Individual',
+            year: { $lt: y }
+          })
+            .sort({ year: -1, updatedAt: -1 })
+            .select('primaryNIN state year')
+            .lean();
+          if (prev?.primaryNIN && !td.nin) td.prevNin = prev.primaryNIN;
+          if (prev?.state && !td.state) td.prevState = prev.state;
+        } catch (e) {
+          console.error('[WhatsApp] prev profile lookup failed:', e.message);
+        }
+
+        if (td.prevNin && !td.nin) {
+          session.step = 'tax_profile_nin_keep';
+          await session.save();
+          const masked = String(td.prevNin).slice(-3).padStart(11, '•');
+          await reply(
+            'STEP 2 — Tax ID (NIN)\n' +
+            'We found your NIN from your previous profile (' + masked + ').\n\n' +
+            'Do you want to use the same NIN for this tax year?\n\n' +
+            '1️⃣ Yes, use it\n' +
+            '2️⃣ No, enter a new one'
+          );
+        } else {
+          session.step = 'tax_profile_nin';
+          await session.save();
+          await reply(
+            'STEP 2 — Tax ID (NIN)\n' +
+            'What is your *NIN* (National Identification Number)?\n' +
+            'Your NIN is your Tax ID for individual filers in Nigeria. It\'s required to file your taxes with the relevant authority.\n\n' +
+            '🔒 This is encrypted and never shared with third parties.\n\n' +
+            '✏️ Type your 11-digit NIN and send.'
+          );
+        }
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_nin_keep') {
+        const choice = String(text || '').trim();
+        if (choice === '1') {
+          td.nin = td.prevNin;
+          session.taxProfileData = td;
+          session.step = 'tax_profile_income';
+          await session.save();
+          const incomeList = INCOME_SOURCE_OPTIONS.map((label, i) => `${i + 1}. ${label}`).join('\n');
+          await reply(
+            'STEP 3 — Source of Income\n' +
+            'How do you earn your income?\n' +
+            'Select *all that apply* — send the numbers separated by commas.\n\n' +
+            'Example: 1, 3\n\n' +
+            incomeList +
+            '\n'
+          );
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          session.step = 'tax_profile_nin';
+          session.taxProfileData = td;
+          await session.save();
+          await reply(
+            'STEP 2 — Tax ID (NIN)\n' +
+            'What is your *NIN* (National Identification Number)?\n\n' +
+            '✏️ Type your 11-digit NIN and send.'
+          );
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1 or 2.');
         sendOk();
         return;
       }
@@ -1766,13 +1831,25 @@ const handleWebhook = async (req, res) => {
             sendOk();
             return;
           }
-          session.step = 'tax_profile_state';
-          await session.save();
-          await reply(
-            'STEP 5 — State of Residence\n' +
-            'Which state do you currently live in?\n' +
-            'This tells us which tax authority to route your filing to.'
-          );
+          if (td.prevState && !td.state) {
+            session.step = 'tax_profile_state_keep';
+            await session.save();
+            await reply(
+              'STEP 5 — State of Residence\n' +
+              'We found your state from your previous profile: *' + td.prevState + '*.\n\n' +
+              'Do you want to use the same state?\n\n' +
+              '1️⃣ Yes, use it\n' +
+              '2️⃣ No, enter a new one'
+            );
+          } else {
+            session.step = 'tax_profile_state';
+            await session.save();
+            await reply(
+              'STEP 5 — State of Residence\n' +
+              'Which state do you currently live in?\n' +
+              'This tells us which tax authority to route your filing to.'
+            );
+          }
           sendOk();
           return;
         }
@@ -1818,13 +1895,60 @@ const handleWebhook = async (req, res) => {
           return;
         }
         // In both cases, continue to State of Residence
-        session.step = 'tax_profile_state';
-        await session.save();
-        await reply(
-          'STEP 5 — State of Residence\n' +
-          'Which state do you currently live in?\n' +
-          'This tells us which tax authority to route your filing to.'
-        );
+        if (td.prevState && !td.state) {
+          session.step = 'tax_profile_state_keep';
+          await session.save();
+          await reply(
+            'STEP 5 — State of Residence\n' +
+            'We found your state from your previous profile: *' + td.prevState + '*.\n\n' +
+            'Do you want to use the same state?\n\n' +
+            '1️⃣ Yes, use it\n' +
+            '2️⃣ No, enter a new one'
+          );
+        } else {
+          session.step = 'tax_profile_state';
+          await session.save();
+          await reply(
+            'STEP 5 — State of Residence\n' +
+            'Which state do you currently live in?\n' +
+            'This tells us which tax authority to route your filing to.'
+          );
+        }
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_state_keep') {
+        const choice = String(text || '').trim();
+        if (choice === '1') {
+          td.state = td.prevState;
+          session.taxProfileData = td;
+          session.step = 'tax_profile_rent';
+          await session.save();
+          await reply(`Got it — *${td.state}* ✅\n\nYour tax authority: *${td.state} Internal Revenue Service*`);
+          await reply(
+            'STEP 6 — Deductibles & Reliefs\n' +
+            'Now let\'s capture your deductibles. These reduce your taxable income — so don\'t skip this part! 😊\n\n' +
+            '6A — Rent\n' +
+            'Do you pay rent?\n\n' +
+            '1️⃣ Yes\n' +
+            '2️⃣ No'
+          );
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          session.step = 'tax_profile_state';
+          await session.save();
+          await reply(
+            'STEP 5 — State of Residence\n' +
+            'Which state do you currently live in?\n' +
+            'This tells us which tax authority to route your filing to.'
+          );
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1 or 2.');
         sendOk();
         return;
       }
