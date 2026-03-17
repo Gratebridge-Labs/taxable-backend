@@ -3091,6 +3091,90 @@ const handleWebhook = async (req, res) => {
     // Registered user
     const regUser = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
 
+    // —— Main menu numeric shortcuts (must be numbers) ——
+    // When the user is at the main menu (step=done), always treat:
+    // 1 = tax summary, 2 = tax profile, 3 = file.
+    if (regUser && session?.step === 'done') {
+      const choice = String(text || '').trim();
+      if (choice === '1') {
+        // Same behavior as "View tax summary"
+        const hasSub = await safeHasActiveSubscription(regUser._id);
+        if (!hasSub) {
+          await reply(SUBSCRIPTION_REQUIRED);
+          sendOk();
+          return;
+        }
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year profileId').lean();
+        if (!latestProfile) {
+          await reply("You don't have a tax profile yet. Reply *2* to create one.");
+          sendOk();
+          return;
+        }
+        try {
+          const breakdown = await generateCompleteBreakdown(latestProfile._id, latestProfile.year);
+          const s = breakdown?.summary || {};
+          const totalIncome = s.totalIncome ?? 0;
+          const totalDeductions = s.totalDeductions ?? 0;
+          const taxPayable = s.finalTaxPayable ?? s.taxCalculated ?? 0;
+          const feePlaceholder = 5000;
+          const totalToday = taxPayable + feePlaceholder;
+          let msg = `Here's your *${latestProfile.year}* tax summary (based on your income and reliefs):\n\n`;
+          msg += `*Income snapshot*\n• Total income detected: ₦${Number(totalIncome).toLocaleString()}\n• Period: Jan–Dec ${latestProfile.year} (or current-to-date)\n\n`;
+          msg += `*Reliefs applied*\n• Total reliefs & deductions: ₦${Number(totalDeductions).toLocaleString()}\n\n`;
+          msg += `*Estimated tax due*\n• Estimated PAYE/Tax payable: ₦${Number(taxPayable).toLocaleString()}\n\n`;
+          msg += `*Filing costs*\n• Filing service fee: ₦${feePlaceholder.toLocaleString()}\n• Estimated tax to pay government: ₦${Number(taxPayable).toLocaleString()}\n• *Total today: ₦${Number(totalToday).toLocaleString()}*\n\n`;
+          msg += `What would you like to do next?\n• Reply *3* to proceed to file\n• Reply *2* to create next year's profile${BACK_TO_MENU_FOOTER}`;
+          await reply(msg);
+        } catch (err) {
+          console.error('[WhatsApp] Tax summary error:', err.message);
+          await reply("We're still building your summary. Make sure your bank is connected and you've added reliefs, then try again. If it persists, contact support." + BACK_TO_MENU_FOOTER);
+        }
+        sendOk();
+        return;
+      }
+      if (choice === '2') {
+        // Same behavior as "Tax profile / Create tax profile"
+        // (Inline here to keep number-driven UX without relying on free-text intents.)
+        const draftProfile = await TaxableProfile.findOne({ user: regUser._id, status: 'draft' })
+          .sort({ updatedAt: -1 })
+          .select('profileId year primaryNIN primaryIncomeSources state paysRent rentAnnualAmount rentMonthlyAmount hasHealthInsurance healthInsuranceAnnualAmount healthInsuranceMonthlyAmount hasPension pensionAnnualAmount pensionMonthlyAmount paysMortgage mortgageAnnualAmount mortgageMonthlyAmount filingPreference residency183Days createdAt')
+          .lean();
+        if (draftProfile) {
+          const draftDate = draftProfile.createdAt
+            ? new Date(draftProfile.createdAt).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })
+            : 'a previous session';
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'tax_profile_draft_choice', taxProfileData: { _draftProfileId: draftProfile.profileId, year: draftProfile.year }, updatedAt: new Date() } },
+            { upsert: true, new: true }
+          );
+          await reply(`You have an unfinished tax profile from ${draftDate}.\n\n1️⃣ Continue where I left off\n2️⃣ Start fresh`);
+          sendOk();
+          return;
+        }
+        const existingProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
+        const initialYear = existingProfile?.year || new Date().getFullYear();
+        const taxProfileDataInitial = { year: initialYear };
+        session = await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'tax_profile_intro_choice', taxProfileData: taxProfileDataInitial, updatedAt: new Date() } },
+          { upsert: true, new: true }
+        );
+        await reply(
+          '📋 *Tax Profile Setup*\n\n' +
+          'This is where everything begins. Your tax profile helps us calculate what you owe, track your income across the year, and make filing stress-free when the time comes.\n\n' +
+          'It takes about 3–5 minutes to complete.\n\n' +
+          'Ready to set it up?\n' +
+          '1️⃣ Yes, let\'s go\n' +
+          '2️⃣ What is a tax profile?\n' +
+          '0️⃣ Back to Main Menu'
+        );
+        sendOk();
+        return;
+      }
+      // choice === '3' is already handled by isProceedToFileIntent (it matches /^3$/)
+    }
+
     // —— Filing confirm (PDF: CONFIRM to file, or Back) ——
     if (regUser && session?.step === 'filing_confirm') {
       const filingProfileId = session.taxProfileData?.filingProfileId;
