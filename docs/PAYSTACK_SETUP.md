@@ -10,8 +10,8 @@ Add to `.env`:
 # Paystack (subscriptions & charges)
 PAYSTACK_SECRET_KEY=sk_test_xxxx
 
-# Optional: where to redirect the user after successful payment (default: APP_URL + /payment/success)
-PAYSTACK_CALLBACK_URL=https://dashboard.gettaxable.com/payment/success
+# Redirect after successful payment (we use the dashboard root)
+PAYSTACK_CALLBACK_URL=https://dashboard.gettaxable.com
 APP_URL=https://dashboard.gettaxable.com
 
 # Cron: subscription expiry reminders (3 days before). Set and use in scheduler.
@@ -19,7 +19,7 @@ CRON_SECRET=your_secret_here
 ```
 
 - **PAYSTACK_SECRET_KEY**: From [Paystack Dashboard](https://dashboard.paystack.com) → Settings → API Keys & Webhooks. Use test key for development, live key for production.
-- **PAYSTACK_CALLBACK_URL** / **APP_URL**: Redirect URL after the user completes payment on Paystack.
+- **PAYSTACK_CALLBACK_URL** / **APP_URL**: Redirect URL after the user completes payment on Paystack. We redirect to the dashboard root (`https://dashboard.gettaxable.com`).
 - **CRON_SECRET**: Optional. Required to call the subscription-expiry-reminders cron endpoint (see Cron section below).
 
 ## API
@@ -33,7 +33,7 @@ Body:
 ```json
 {
   "plan": "monthly",
-  "callback_url": "https://your-app.com/payment/success"
+  "callback_url": "https://dashboard.gettaxable.com"
 }
 ```
 

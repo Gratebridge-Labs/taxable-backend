@@ -38,8 +38,8 @@ async function createSubscriptionLinkForUser(userId, plan = 'monthly', callback_
     status: 'pending'
   });
 
-  const baseUrl = process.env.APP_URL || process.env.PAYSTACK_CALLBACK_URL || 'https://dashboard.gettaxable.com';
-  const callback = callback_url || `${baseUrl}/payment/success`;
+  // Force Paystack redirect to the dashboard root (no extra unconfigured routes).
+  const callback = 'https://dashboard.gettaxable.com';
 
   const result = await initializeTransaction({
     email: user.email,
@@ -90,11 +90,11 @@ async function createFilingPaymentLink(userId, profileId, type = 'accountant_rev
     paystackReference: ref,
     status: 'pending'
   });
-  const baseUrl = process.env.APP_URL || process.env.PAYSTACK_CALLBACK_URL || 'https://dashboard.gettaxable.com';
   const result = await initializeTransaction({
     email: user.email,
     amount: amountKobo,
-    callback_url: `${baseUrl}/payment/success`,
+    // Force Paystack redirect to the dashboard root (no extra unconfigured routes).
+    callback_url: 'https://dashboard.gettaxable.com',
     metadata: {
       user_id: String(userId),
       profile_id: String(profileId),
