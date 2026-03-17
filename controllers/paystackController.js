@@ -74,11 +74,13 @@ const FILING_PAYMENT_AMOUNTS = {
  * Create a one-time payment link for accountant review (₦30k) or filing fee (₦25k).
  * Used by WhatsApp annual flow. Webhook updates profile.filingStatus.
  */
-async function createFilingPaymentLink(userId, profileId, type = 'accountant_review') {
+async function createFilingPaymentLink(userId, profileId, type = 'accountant_review', amountKoboOverride) {
   if (!['accountant_review', 'filing_fee'].includes(type)) throw new Error('Invalid filing payment type');
   const user = await User.findById(userId).select('email firstName').lean();
   if (!user?.email) throw new Error('User email not found');
-  const amountKobo = FILING_PAYMENT_AMOUNTS[type];
+  const amountKobo = typeof amountKoboOverride === 'number' && amountKoboOverride > 0
+    ? amountKoboOverride
+    : FILING_PAYMENT_AMOUNTS[type];
   const ref = `filing_${new mongoose.Types.ObjectId()}_${Date.now()}`;
   const doc = await FilingPayment.create({
     user: userId,

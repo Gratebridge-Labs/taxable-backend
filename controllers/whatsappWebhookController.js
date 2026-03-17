@@ -3725,12 +3725,8 @@ const handleWebhook = async (req, res) => {
 
     // —— Proceed to file: branch on filingStatus (approve → payment link; filed → done; else → after approval) ——
     if (regUser && isProceedToFileIntent(text)) {
+      // Filing does NOT require an active subscription.
       const hasSub = await safeHasActiveSubscription(regUser._id);
-      if (!hasSub) {
-        await reply(SUBSCRIPTION_REQUIRED);
-        sendOk();
-        return;
-      }
       const candidateProfiles = await TaxableProfile.find({ user: regUser._id })
         .sort({ updatedAt: -1 })
         .limit(20)
@@ -3783,9 +3779,20 @@ const handleWebhook = async (req, res) => {
             { $set: { filingStatus: 'pending_filing_payment', updatedAt: new Date() } }
           );
         }
-        const { authorization_url } = await createFilingPaymentLink(regUser._id, latestProfile._id, 'filing_fee');
+        // Charge = computed tax payable + ₦25,000 filing fee
+        const breakdown = await generateCompleteBreakdown(latestProfile._id, latestProfile.year);
+        const s = breakdown?.summary || {};
+        const taxPayable = s.finalTaxPayable ?? s.taxCalculated ?? 0;
+        const totalNaira = Number(taxPayable) + 25000;
+        const amountKoboOverride = Math.max(0, Math.round(totalNaira * 100));
+
+        const { authorization_url } = await createFilingPaymentLink(regUser._id, latestProfile._id, 'filing_fee', amountKoboOverride);
         await reply(
-          'Almost there! Tap the link below to pay ₦25,000 to file your ' + yearLabel + ' taxes:\n\n' + authorization_url + '\n\n' +
+          'Almost there! Tap the link below to pay *₦' + Number(totalNaira).toLocaleString() + '* to file your ' + yearLabel + ' taxes:\n\n' +
+          authorization_url + '\n\n' +
+          'This total includes:\n' +
+          '• Filing fee: ₦25,000\n' +
+          '• Estimated tax payable: ₦' + Number(taxPayable).toLocaleString() + '\n\n' +
           'After payment, your return will move to *Filed* status once confirmed.\n\n' +
           'When you\'re done, reply *done* here and we\'ll show your latest status.'
         );
