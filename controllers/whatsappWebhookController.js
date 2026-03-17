@@ -4247,6 +4247,13 @@ const handleWebhook = async (req, res) => {
         });
 
         await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub, menuOpts));
+
+        // Ensure numeric shortcuts (1/2/3) work immediately after showing the menu.
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          { $set: { step: 'done', updatedAt: new Date() } },
+          { upsert: true, new: true }
+        );
       } else {
         await sendWatchVideoPreview();
         await reply(getPostVerificationWelcome(regUser.firstName));
