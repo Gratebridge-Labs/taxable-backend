@@ -3399,6 +3399,20 @@ const handleWebhook = async (req, res) => {
             filingStatus: profile.filingStatus
           })
         );
+
+        // Reset session back to main menu after confirming filing payment status.
+        await WhatsAppSession.findOneAndUpdate(
+          { waId: from },
+          {
+            $set: {
+              step: 'done',
+              'taxProfileData.filingProfileId': undefined,
+              'taxProfileData.filingPaymentType': undefined,
+              updatedAt: new Date()
+            }
+          },
+          { upsert: true, new: true }
+        );
       } catch (err) {
         console.error('[WhatsApp] filing payment Done handler error:', err.message);
         await reply(
