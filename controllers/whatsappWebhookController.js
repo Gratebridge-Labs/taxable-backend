@@ -562,10 +562,19 @@ const INCOME_SOURCE_LABEL_TO_TYPE = {
  * Deletes existing IncomeSource for profileId+year, then creates one per (source, amount).
  */
 async function syncIncomeSourcesFromAmounts(profileId, year, primaryIncomeSources, incomeAmounts, otherIncomeDescription) {
+  let options = {};
+  // Backward-compatible: allow a 6th argument as options { month?: number }
+  if (arguments.length >= 6 && typeof arguments[5] === 'object' && arguments[5] != null) {
+    options = arguments[5];
+  }
+  const month = options?.month != null ? Number(options.month) : null; // 1..12
+
   if (!profileId || !Array.isArray(primaryIncomeSources) || primaryIncomeSources.length === 0 || !Array.isArray(incomeAmounts) || incomeAmounts.length !== primaryIncomeSources.length) return;
-  await IncomeSource.deleteMany({ profileId, 'period.year': year });
-  const startOfYear = new Date(year, 0, 1);
-  const endOfYear = new Date(year, 11, 31);
+  const deleteQuery = month ? { profileId, 'period.year': year, 'period.month': month } : { profileId, 'period.year': year };
+  await IncomeSource.deleteMany(deleteQuery);
+
+  const startDate = month ? new Date(year, month - 1, 1) : new Date(year, 0, 1);
+  const endDate = month ? new Date(year, month, 0) : new Date(year, 11, 31);
   for (let i = 0; i < primaryIncomeSources.length; i++) {
     const label = primaryIncomeSources[i];
     const amount = Number(incomeAmounts[i]) || 0;
@@ -574,9 +583,10 @@ async function syncIncomeSourcesFromAmounts(profileId, year, primaryIncomeSource
     const payload = {
       profileId,
       incomeType,
-      period: { startDate: startOfYear, endDate: endOfYear, year },
+      period: { startDate, endDate, year, ...(month ? { month } : {}) },
       totalAmount: amount
     };
+    // If month is set, treat the amount as a monthly value.
     if (incomeType === 'employment') payload.employment = { annualGrossSalary: amount };
     else if (incomeType === 'business') payload.business = { annualRevenue: amount };
     else if (incomeType === 'rental') payload.rental = { properties: [{ annualRentalIncome: amount }] };
@@ -1337,6 +1347,7 @@ const handleWebhook = async (req, res) => {
       'tax_profile_income',
       'tax_profile_income_other_desc',
       'tax_profile_income_confirm',
+      'tax_profile_filing_preference_early',
       'tax_profile_income_amount',
       'tax_profile_residency',
       'tax_profile_residency_nonresident_choice',
@@ -1760,6 +1771,15 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
+        // For future years (e.g. 2026+), ask filing preference BEFORE collecting amounts.
+        // Monthly means they report month-by-month (starting with January).
+        if (td.year && td.year > 2025 && !td.filingPreference) {
+          session.step = 'tax_profile_filing_preference_early';
+          await session.save();
+          await reply(getFilingPreferenceMessage(td.year));
+          sendOk();
+          return;
+        }
         // Ask for amount per income source (same order as primaryIncomeSources)
         td.incomeAmounts = [];
         td.incomeAmountIndex = 0;
@@ -1768,11 +1788,44 @@ const handleWebhook = async (req, res) => {
         await session.save();
         const sources = td.primaryIncomeSources || [];
         const yearForPrompt = td.year || new Date().getFullYear();
+        const monthName = td.filingPreference === 'monthly' ? 'January ' : '';
         const firstLabel = sources[0];
         await reply(
           `STEP 3B — Income amounts\n\n` +
-          `How much did you earn from *${firstLabel}* in ${yearForPrompt}?\n\n` +
-          `Enter the amount in Naira (annual total).\nExample: 5000000 or 3,000,000`
+          `How much did you earn from *${firstLabel}* in ${monthName}${yearForPrompt}?\n\n` +
+          `Enter the amount in Naira (${td.filingPreference === 'monthly' ? 'for that month' : 'annual total'}).\nExample: 5000000 or 3,000,000`
+        );
+        sendOk();
+        return;
+      }
+
+      if (session.step === 'tax_profile_filing_preference_early') {
+        const choice = String(text || '').trim();
+        if (choice === '1') {
+          td.filingPreference = 'monthly';
+          td.periodMonth = td.periodMonth || 1; // start with January
+        } else if (choice === '2') {
+          td.filingPreference = 'annual';
+          td.periodMonth = undefined;
+        } else {
+          await reply('Please reply with 1 (Monthly) or 2 (Annually).');
+          sendOk();
+          return;
+        }
+        // Continue to income amounts
+        td.incomeAmounts = [];
+        td.incomeAmountIndex = 0;
+        session.taxProfileData = td;
+        session.step = 'tax_profile_income_amount';
+        await session.save();
+        const sources = td.primaryIncomeSources || [];
+        const yearForPrompt = td.year || new Date().getFullYear();
+        const firstLabel = sources[0];
+        const monthName = td.filingPreference === 'monthly' ? 'January ' : '';
+        await reply(
+          `STEP 3B — Income amounts\n\n` +
+          `How much did you earn from *${firstLabel}* in ${monthName}${yearForPrompt}?\n\n` +
+          `Enter the amount in Naira (${td.filingPreference === 'monthly' ? 'for that month' : 'annual total'}).`
         );
         sendOk();
         return;
@@ -1796,10 +1849,11 @@ const handleWebhook = async (req, res) => {
           await session.save();
           const nextLabel = sources[idx + 1];
           const yearForPrompt = td.year || new Date().getFullYear();
+          const monthName = td.filingPreference === 'monthly' ? 'January ' : '';
           await reply(
             `Got it — ₦${Number(amount).toLocaleString()} for ${sources[idx]}.\n\n` +
-            `How much did you earn from *${nextLabel}* in ${yearForPrompt}?\n\n` +
-            `Enter the amount in Naira (annual total).`
+            `How much did you earn from *${nextLabel}* in ${monthName}${yearForPrompt}?\n\n` +
+            `Enter the amount in Naira (${td.filingPreference === 'monthly' ? 'for that month' : 'annual total'}).`
           );
           sendOk();
           return;
@@ -1809,7 +1863,14 @@ const handleWebhook = async (req, res) => {
           currentProfile.primaryIncomeSources = sources;
           await currentProfile.save();
           try {
-            await syncIncomeSourcesFromAmounts(currentProfile._id, currentProfile.year, sources, td.incomeAmounts, td.otherIncomeDescription);
+            await syncIncomeSourcesFromAmounts(
+              currentProfile._id,
+              currentProfile.year,
+              sources,
+              td.incomeAmounts,
+              td.otherIncomeDescription,
+              { month: td.filingPreference === 'monthly' ? (td.periodMonth || 1) : undefined }
+            );
           } catch (e) {
             console.error('[WhatsApp] syncIncomeSources on edit:', e.message);
           }
@@ -2524,7 +2585,14 @@ const handleWebhook = async (req, res) => {
         }
         if (Array.isArray(td.incomeAmounts) && td.incomeAmounts.length === primaryIncomeSources.length) {
           try {
-            await syncIncomeSourcesFromAmounts(createdProfile._id, year, primaryIncomeSources, td.incomeAmounts, td.otherIncomeDescription);
+            await syncIncomeSourcesFromAmounts(
+              createdProfile._id,
+              year,
+              primaryIncomeSources,
+              td.incomeAmounts,
+              td.otherIncomeDescription,
+              { month: td.filingPreference === 'monthly' ? (td.periodMonth || 1) : undefined }
+            );
           } catch (e) {
             console.error('[WhatsApp] syncIncomeSources on create:', e.message);
           }

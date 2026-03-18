@@ -48,6 +48,7 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'tax_profile_income',
       'tax_profile_income_other_desc',
       'tax_profile_income_confirm',
+      'tax_profile_filing_preference_early',
       'tax_profile_residency',
       'tax_profile_residency_nonresident_choice',
       'tax_profile_rent',
@@ -124,6 +125,8 @@ const whatsAppSessionSchema = new mongoose.Schema({
     mortgageAnnualAmount: { type: Number },
     mortgageMonthlyAmount: { type: Number },
     filingPreference: { type: String, trim: true }, // 'monthly' | 'annual'
+    /** For monthly filingPreference, which month we're capturing now (1=Jan..12=Dec). */
+    periodMonth: { type: Number },
     _pendingConfirmAmountType: { type: String, trim: true },
     _pendingConfirmAmountValue: { type: Number },
     editReturnToSummary: { type: Boolean },
