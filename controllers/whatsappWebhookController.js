@@ -2484,6 +2484,22 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
+        // If we already captured filingPreference earlier (monthly vs annual), do not ask again here.
+        // Proceed directly to profile creation after sending the preference confirmation message once.
+        if (td.filingPreference === 'monthly') {
+          await reply(
+            'Great choice! 💪\n\n' +
+            'Every month, we\'ll remind you to log your income, expenses, deductibles, and reliefs. We track everything in real time so filing at year end is just one tap.\n\n' +
+            'You also get *1 month free* to try it out — no commitment.'
+          );
+        } else if (td.filingPreference === 'annual') {
+          await reply(
+            'No problem. When you\'re ready to file, come back and we\'ll walk you through everything at once.\n\n' +
+            'Just know you can switch to monthly tracking anytime. 😊'
+          );
+        } else {
+          // Fall through to normal prompt handling below (will set td.filingPreference).
+        }
         const is2025OnlyAnnual = td.year === 2025;
         if (is2025OnlyAnnual) {
           if (choice !== '1') {
@@ -2500,6 +2516,8 @@ const handleWebhook = async (req, res) => {
             'For 2025 we\'ll capture everything for the full year when you file. You can file your 2025 return now — the deadline is *31 March 2026*. We\'re here to help you file whenever you\'re ready.\n\n' +
             'Just know you can switch to monthly tracking for future years anytime. 😊'
           );
+        } else if (td.filingPreference === 'monthly' || td.filingPreference === 'annual') {
+          // Already chosen earlier — skip re-prompt and proceed.
         } else if (choice === '1') {
           td.filingPreference = 'monthly';
           session.taxProfileData = td;
