@@ -44,6 +44,7 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'tax_profile_intro_explain',
       'tax_profile_year',
       'tax_profile_nin',
+      'tax_profile_nin_keep',
       'tax_profile_income',
       'tax_profile_income_other_desc',
       'tax_profile_income_confirm',
@@ -63,6 +64,7 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'tax_profile_street',
       'tax_profile_city',
       'tax_profile_state',
+      'tax_profile_state_keep',
       'tax_profile_income_info',
       'tax_profile_deductibles',
       'tax_profile_filing_preference',
@@ -76,6 +78,8 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'tax_profile_subscription_later',
       // Filing, banks & reliefs
       'filing_confirm',
+      // Filing payments (accountant review / filing fee) pending confirmation via "done"
+      'filing_payment_pending',
       'manage_banks_remove',
       'manage_banks_list',
       'relief_menu',
@@ -97,6 +101,9 @@ const whatsAppSessionSchema = new mongoose.Schema({
   taxProfileData: {
     year: { type: Number },
     nin: { type: String, trim: true },
+    /** Previous-year carryover (used to ask "keep same?") */
+    prevNin: { type: String, trim: true },
+    prevState: { type: String, trim: true },
     primaryIncomeSources: [String],
     otherIncomeDescription: { type: String, trim: true },
     /** Amounts per income source (same order as primaryIncomeSources), in Naira annual */
@@ -129,6 +136,7 @@ const whatsAppSessionSchema = new mongoose.Schema({
     /** For manage_banks_remove: ordered list of MonoLink _ids (string) */
     manageBanksLinkIds: [String],
     filingProfileId: { type: String, trim: true },
+    filingPaymentType: { type: String, trim: true },
     reliefProfileId: { type: String, trim: true },
     reliefYear: { type: Number },
     selectedReliefType: { type: String, trim: true },
