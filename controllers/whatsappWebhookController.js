@@ -1554,62 +1554,69 @@ const handleWebhook = async (req, res) => {
       }
 
       if (session.step === 'tax_profile_year') {
-        const choice = String(text || '').trim();
-        let y = null;
-        if (choice === '1') y = 2025;
-        if (choice === '2') y = 2026;
-        if (!y) {
-          await reply('Please reply with 1 or 2 for the tax year.\n\n1️⃣ 2025 (January – December 2025)\n2️⃣ 2026 (January – December 2026)');
-          sendOk();
-          return;
-        }
-        td.year = y;
-        session.taxProfileData = td;
-        if (td.editReturnToSummary && currentProfile) {
-          await returnToSummaryAndSend();
-          sendOk();
-          return;
-        }
-        // If we already have prior info (e.g. NIN/state) from a previous year, ask if the user wants to keep it.
         try {
-          const prev = await TaxableProfile.findOne({
-            user: userForTax._id,
-            profileType: 'Individual',
-            year: { $lt: y }
-          })
-            .sort({ year: -1, updatedAt: -1 })
-            .select('primaryNIN state year')
-            .lean();
-          if (prev?.primaryNIN && !td.nin) td.prevNin = prev.primaryNIN;
-          if (prev?.state && !td.state) td.prevState = prev.state;
-        } catch (e) {
-          console.error('[WhatsApp] prev profile lookup failed:', e.message);
-        }
+          const choice = String(text || '').trim();
+          let y = null;
+          if (choice === '1') y = 2025;
+          if (choice === '2') y = 2026;
+          if (!y) {
+            await reply('Please reply with 1 or 2 for the tax year.\n\n1️⃣ 2025 (January – December 2025)\n2️⃣ 2026 (January – December 2026)');
+            sendOk();
+            return;
+          }
+          td.year = y;
+          session.taxProfileData = td;
+          if (td.editReturnToSummary && currentProfile) {
+            await returnToSummaryAndSend();
+            sendOk();
+            return;
+          }
+          // If we already have prior info (e.g. NIN/state) from a previous year, ask if the user wants to keep it.
+          try {
+            const prev = await TaxableProfile.findOne({
+              user: userForTax._id,
+              profileType: 'Individual',
+              year: { $lt: y }
+            })
+              .sort({ year: -1, updatedAt: -1 })
+              .select('primaryNIN state year')
+              .lean();
+            if (prev?.primaryNIN && !td.nin) td.prevNin = prev.primaryNIN;
+            if (prev?.state && !td.state) td.prevState = prev.state;
+          } catch (e) {
+            console.error('[WhatsApp] prev profile lookup failed:', e.message);
+          }
 
-        if (td.prevNin && !td.nin) {
-          session.step = 'tax_profile_nin_keep';
-          await session.save();
-          const masked = String(td.prevNin).slice(-3).padStart(11, '•');
-          await reply(
-            'STEP 2 — Tax ID (NIN)\n' +
-            'We found your NIN from your previous profile (' + masked + ').\n\n' +
-            'Do you want to use the same NIN for this tax year?\n\n' +
-            '1️⃣ Yes, use it\n' +
-            '2️⃣ No, enter a new one'
-          );
-        } else {
-          session.step = 'tax_profile_nin';
-          await session.save();
-          await reply(
-            'STEP 2 — Tax ID (NIN)\n' +
-            'What is your *NIN* (National Identification Number)?\n' +
-            'Your NIN is your Tax ID for individual filers in Nigeria. It\'s required to file your taxes with the relevant authority.\n\n' +
-            '🔒 This is encrypted and never shared with third parties.\n\n' +
-            '✏️ Type your 11-digit NIN and send.'
-          );
+          if (td.prevNin && !td.nin) {
+            session.step = 'tax_profile_nin_keep';
+            await session.save();
+            const masked = String(td.prevNin).slice(-3).padStart(11, '•');
+            await reply(
+              'STEP 2 — Tax ID (NIN)\n' +
+              'We found your NIN from your previous profile (' + masked + ').\n\n' +
+              'Do you want to use the same NIN for this tax year?\n\n' +
+              '1️⃣ Yes, use it\n' +
+              '2️⃣ No, enter a new one'
+            );
+          } else {
+            session.step = 'tax_profile_nin';
+            await session.save();
+            await reply(
+              'STEP 2 — Tax ID (NIN)\n' +
+              'What is your *NIN* (National Identification Number)?\n' +
+              'Your NIN is your Tax ID for individual filers in Nigeria. It\'s required to file your taxes with the relevant authority.\n\n' +
+              '🔒 This is encrypted and never shared with third parties.\n\n' +
+              '✏️ Type your 11-digit NIN and send.'
+            );
+          }
+          sendOk();
+          return;
+        } catch (e) {
+          console.error('[WhatsApp] tax_profile_year error:', e?.message || e, e?.stack);
+          await reply("Something went wrong while setting your tax year. Please reply 1 or 2 again, or say *Hi* to restart." + BACK_TO_MENU_FOOTER);
+          sendOk();
+          return;
         }
-        sendOk();
-        return;
       }
 
       if (session.step === 'tax_profile_nin_keep') {
@@ -3257,8 +3264,8 @@ const handleWebhook = async (req, res) => {
         return;
       }
       if (choice === '2') {
-        // Same behavior as "Tax profile / Create tax profile"
-        // (Inline here to keep number-driven UX without relying on free-text intents.)
+        // Create next-year tax profile (number-driven).
+        // Since the menu already says "Create {year+1} tax profile", do NOT ask for year again.
         const draftProfile = await TaxableProfile.findOne({ user: regUser._id, status: 'draft' })
           .sort({ updatedAt: -1 })
           .select('profileId year primaryNIN primaryIncomeSources state paysRent rentAnnualAmount rentMonthlyAmount hasHealthInsurance healthInsuranceAnnualAmount healthInsuranceMonthlyAmount hasPension pensionAnnualAmount pensionMonthlyAmount paysMortgage mortgageAnnualAmount mortgageMonthlyAmount filingPreference residency183Days createdAt')
@@ -3276,22 +3283,21 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        const existingProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
-        const initialYear = existingProfile?.year || new Date().getFullYear();
-        const taxProfileDataInitial = { year: initialYear };
+        const latestExisting = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
+        const baseYear = latestExisting?.year || new Date().getFullYear();
+        const nextYear = baseYear + 1;
+        const taxProfileDataInitial = { year: nextYear };
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
-          { $set: { step: 'tax_profile_intro_choice', taxProfileData: taxProfileDataInitial, updatedAt: new Date() } },
+          // Jump straight to NIN step (or NIN reuse prompt) since year is already known.
+          { $set: { step: 'tax_profile_nin', taxProfileData: taxProfileDataInitial, updatedAt: new Date() } },
           { upsert: true, new: true }
         );
         await reply(
-          '📋 *Tax Profile Setup*\n\n' +
-          'This is where everything begins. Your tax profile helps us calculate what you owe, track your income across the year, and make filing stress-free when the time comes.\n\n' +
-          'It takes about 3–5 minutes to complete.\n\n' +
-          'Ready to set it up?\n' +
-          '1️⃣ Yes, let\'s go\n' +
-          '2️⃣ What is a tax profile?\n' +
-          '0️⃣ Back to Main Menu'
+          '📋 *Tax Profile Setup — ' + String(nextYear) + '*\n\n' +
+          'STEP 2 — Tax ID (NIN)\n' +
+          'What is your *NIN* (National Identification Number)?\n\n' +
+          '✏️ Type your 11-digit NIN and send.'
         );
         sendOk();
         return;
