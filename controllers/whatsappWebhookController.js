@@ -765,6 +765,15 @@ function getAnnualAmount(profile, td, annualKey, monthlyKey) {
   return 0;
 }
 
+/** Get monthly amount from profile/td (prefer monthly field, fallback to annual / 12). */
+function getMonthlyAmount(profile, td, monthlyKey, annualKey) {
+  const monthly = profile?.[monthlyKey] ?? td?.[monthlyKey];
+  if (monthly != null && Number(monthly) >= 0) return Number(monthly);
+  const annual = profile?.[annualKey] ?? td?.[annualKey];
+  if (annual != null && Number(annual) >= 0) return Number(annual) / 12;
+  return 0;
+}
+
 /** Estimate annual deductibles from profile/td (for summary when no IncomeSource/Deduction data yet). Amounts stored as annual. */
 function estimateDeductiblesFromProfile(profile, td) {
   let total = 0;
@@ -780,6 +789,27 @@ function estimateDeductiblesFromProfile(profile, td) {
   }
   if (profile?.paysMortgage || td?.paysMortgage) {
     total += getAnnualAmount(profile, td, 'mortgageAnnualAmount', 'mortgageMonthlyAmount');
+  }
+  return total;
+}
+
+/** Estimate monthly deductibles for monthly tracking (rent relief is annual, prorated monthly; others use monthly entered values). */
+function estimateMonthlyDeductiblesFromProfile(profile, td) {
+  let total = 0;
+  // Rent relief is computed annually, then prorated for monthly estimate.
+  const rentAnnual = getAnnualAmount(profile, td, 'rentAnnualAmount', 'rentMonthlyAmount');
+  if ((profile?.paysRent || td?.paysRent) && rentAnnual > 0) {
+    total += calculateRentRelief(rentAnnual) / 12;
+  }
+  // Other deductibles are applied based on the month’s captured amounts.
+  if (profile?.hasPension || td?.hasPension) {
+    total += getMonthlyAmount(profile, td, 'pensionMonthlyAmount', 'pensionAnnualAmount');
+  }
+  if (profile?.hasHealthInsurance || td?.hasHealthInsurance) {
+    total += getMonthlyAmount(profile, td, 'healthInsuranceMonthlyAmount', 'healthInsuranceAnnualAmount');
+  }
+  if (profile?.paysMortgage || td?.paysMortgage) {
+    total += getMonthlyAmount(profile, td, 'mortgageMonthlyAmount', 'mortgageAnnualAmount');
   }
   return total;
 }
@@ -820,24 +850,49 @@ async function getTaxProfileSummaryForStep8(firstName, profile, td, breakdown) {
     (profile?.hasPension || td?.hasPension) ||
     (profile?.paysMortgage || td?.paysMortgage);
 
+  const isMonthly = filingPref === 'monthly';
+  const month = td?.periodMonth || profile?.periodMonth || 1;
+
   if (!hasBreakdownData) {
-    // No income/deduction data at all – just estimate deductibles, leave tax blank
-    estDeductions = estimateDeductiblesFromProfile(profile, td);
+    // No income/deduction data at all – estimate from profile flags.
+    if (isMonthly) {
+      const mDed = estimateMonthlyDeductiblesFromProfile(profile, td);
+      estDeductions = Math.round(mDed * 12);
+    } else {
+      estDeductions = estimateDeductiblesFromProfile(profile, td);
+    }
     chargeable = null;
     annualTax = null;
   } else if (estIncome > 0 && estDeductions === 0 && hasProfileReliefs) {
     // We have income but no stored deductions, while profile has relief info:
     // estimate deductions and recompute tax so the user sees a more realistic position.
-    estDeductions = estimateDeductiblesFromProfile(profile, td);
-    const estimatedChargeable = Math.max(estIncome - estDeductions, 0);
-    chargeable = estimatedChargeable;
-    if (estimatedChargeable > 0) {
-      const taxEst = estimateTaxFromAnnualIncome(estimatedChargeable);
-      annualTax = taxEst.totalTax;
+    if (isMonthly) {
+      const mDed = estimateMonthlyDeductiblesFromProfile(profile, td);
+      const projectedAnnualIncome = Number(estIncome) * 12;
+      const projectedAnnualDeductions = Math.round(mDed * 12);
+      estDeductions = projectedAnnualDeductions;
+      const projectedChargeable = Math.max(projectedAnnualIncome - projectedAnnualDeductions, 0);
+      chargeable = projectedChargeable;
+      annualTax = projectedChargeable > 0 ? estimateTaxFromAnnualIncome(projectedChargeable).totalTax : 0;
+      estIncome = projectedAnnualIncome; // for display as annual estimate
     } else {
-      annualTax = 0;
+      estDeductions = estimateDeductiblesFromProfile(profile, td);
+      const estimatedChargeable = Math.max(estIncome - estDeductions, 0);
+      chargeable = estimatedChargeable;
+      annualTax = estimatedChargeable > 0 ? estimateTaxFromAnnualIncome(estimatedChargeable).totalTax : 0;
     }
+  } else if (isMonthly && estIncome > 0) {
+    // Monthly tracking: treat current stored income as this month, then annualize for an estimate.
+    const mDed = estimateMonthlyDeductiblesFromProfile(profile, td);
+    const projectedAnnualIncome = Number(estIncome) * 12;
+    const projectedAnnualDeductions = Math.round(mDed * 12);
+    const projectedChargeable = Math.max(projectedAnnualIncome - projectedAnnualDeductions, 0);
+    annualTax = projectedChargeable > 0 ? estimateTaxFromAnnualIncome(projectedChargeable).totalTax : 0;
+    chargeable = projectedChargeable;
+    estDeductions = projectedAnnualDeductions;
+    estIncome = projectedAnnualIncome;
   }
+
   const monthlyTax = annualTax != null && annualTax > 0 ? Math.round(annualTax / 12) : null;
 
   let msg = `Here's your tax profile summary, ${firstName || 'there'} 👇\n\n`;
@@ -2717,8 +2772,8 @@ const handleWebhook = async (req, res) => {
               '✅ Monthly income & expense tracking\n' +
               '✅ Real-time tax position\n' +
               '✅ Year-end filing included\n' +
-              '✅ Bank account integration\n' +
-              '✅ Tax expert support\n\n' +
+              '✅ Monthly upload link for income & deductibles\n' +
+              '✅ Rent relief (uploaded once)\n\n' +
               '1️⃣ Start my free month — save my profile\n' +
               '2️⃣ See more plan details\n' +
               '3️⃣ I\'ll subscribe later (profile won\'t be saved after trial ends)'
@@ -2732,8 +2787,8 @@ const handleWebhook = async (req, res) => {
               '✅ Full year tax documentation\n' +
               '✅ Accurate PIT calculation\n' +
               '✅ Year-end filing included\n' +
-              '✅ Bank account integration\n' +
-              '✅ Tax expert support\n\n' +
+              '✅ Monthly upload link for income & deductibles\n' +
+              '✅ Rent relief (uploaded once)\n\n' +
               '1️⃣ Subscribe and save my profile\n' +
               '2️⃣ See more plan details\n' +
               '3️⃣ I\'ll subscribe later (profile won\'t be saved after one month)'
@@ -3041,9 +3096,36 @@ const handleWebhook = async (req, res) => {
           await session.save();
           const isMonthly = (td.filingPreference || currentProfile?.filingPreference) === 'monthly';
           if (isMonthly) {
-            await reply('Your tax profile is ready to save. 🎉\n\n1️⃣ Start my free month — save my profile\n2️⃣ See more plan details\n3️⃣ I\'ll subscribe later (profile won\'t be saved after trial ends)');
+            await reply(
+              'Your tax profile is ready to save. 🎉\n\n' +
+              "To keep your profile, track your records monthly, and file your taxes — you'll need a Taxable plan.\n\n" +
+              "Here's the good news: *your first month is completely free.* No payment needed today.\n\n" +
+              '💳 *Monthly Plan*\n' +
+              '₦4,000/month — cancel anytime\n' +
+              '✅ Monthly income & expense tracking\n' +
+              '✅ Real-time tax position\n' +
+              '✅ Year-end filing included\n' +
+              '✅ Monthly upload link for income & deductibles\n' +
+              '✅ Rent relief (uploaded once)\n\n' +
+              '1️⃣ Start my free month — save my profile\n' +
+              '2️⃣ See more plan details\n' +
+              '3️⃣ I\'ll subscribe later (profile won\'t be saved after trial ends)'
+            );
           } else {
-            await reply('Your tax profile is ready to save. 🎉\n\n1️⃣ Subscribe and save my profile\n2️⃣ See more plan details\n3️⃣ I\'ll subscribe later (profile won\'t be saved after one month)');
+            await reply(
+              'Your tax profile is ready to save. 🎉\n\n' +
+              "To keep your profile and file your taxes — you'll need a Taxable plan.\n\n" +
+              '💳 *Annual Plan*\n' +
+              '₦30,000/year — one payment, full year access\n' +
+              '✅ Full year tax documentation\n' +
+              '✅ Accurate PIT calculation\n' +
+              '✅ Year-end filing included\n' +
+              '✅ Monthly upload link for income & deductibles\n' +
+              '✅ Rent relief (uploaded once)\n\n' +
+              '1️⃣ Subscribe and save my profile\n' +
+              '2️⃣ See more plan details\n' +
+              '3️⃣ I\'ll subscribe later (profile won\'t be saved after one month)'
+            );
           }
           sendOk();
           return;
