@@ -369,70 +369,48 @@ const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 • Yes — add another
 • No — continue${BACK_TO_MENU_FOOTER}`;
 
-// —— LOGGED-IN MAIN MENU (has profile) — compact status + snapshot + CTA to create new profile.
-// options:
-// - filedForYear?: number — when set, show "You have filed for X taxes."
-// - filingStatus?: 'pending_upload' | 'upload_done' | 'pending_accountant_payment' | 'tax_agent_review' | 'tax_agent_approved' | 'pending_filing_payment' | 'filed'
-// - filingSummary?: { estimatedAnnualIncome?: number, totalReliefs?: number, estimatedTax?: number }
+// —— LOGGED-IN MAIN MENU ——
 function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false, options = {}) {
-  const filedLine = options && options.filedForYear
-    ? `You have filed for *${options.filedForYear}* taxes.\n\n`
-    : '';
-
-  const filingStatus = options.filingStatus;
+  const filingStatus = options.filingStatus || 'not_filed';
   const filingSummary = options.filingSummary || {};
-
-  const statusLabel = (() => {
-    switch (filingStatus) {
-      case 'pending_upload':
-        return 'Pending document upload';
-      case 'upload_done':
-        return 'Documents uploaded';
-      case 'pending_accountant_payment':
-        return 'Awaiting tax agent payment';
-      case 'tax_agent_review':
-        return 'Pending tax agent review';
-      case 'tax_agent_approved':
-        return 'Approved by tax agent — ready to file';
-      case 'pending_filing_payment':
-        return 'Awaiting filing payment';
-      case 'filed':
-        return 'Filed';
-      default:
-        return 'Not yet filed';
-    }
-  })();
-
   const fmt = (n) => (n != null && Number(n) >= 0 ? `₦${Number(n).toLocaleString()}` : '—');
-  const income = filingSummary.estimatedAnnualIncome != null ? filingSummary.estimatedAnnualIncome : undefined;
-  const totalReliefs = filingSummary.totalReliefs != null ? filingSummary.totalReliefs : undefined;
-  const tax = filingSummary.estimatedTax != null ? filingSummary.estimatedTax : undefined;
+
+  const statusLabelMap = {
+    pending_upload: 'Pending document upload',
+    upload_done: 'Documents uploaded',
+    pending_accountant_payment: 'Awaiting tax agent payment',
+    tax_agent_review: 'Pending tax agent review',
+    tax_agent_approved: 'Approved by tax agent — ready to file',
+    pending_filing_payment: 'Awaiting filing payment',
+    filed: 'Filed ✅',
+    not_filed: 'Not yet filed',
+    monthly_active: 'Monthly tracking active',
+    monthly_pending: 'Monthly update pending'
+  };
 
   let msg = `Hi ${firstName} 👋
 
-${filedLine}*Tax year:* ${year}
-*Filing status:* ${statusLabel}
+*Tax year:* ${year}
+*Filing status:* ${statusLabelMap[filingStatus] || filingStatus}
 `;
 
-  if (income != null || totalReliefs != null || tax != null) {
-    msg += `\nBased on your current profile:\n`;
-    if (income != null) msg += `• Estimated annual income: ${fmt(income)}\n`;
-    if (totalReliefs != null) msg += `• Total reliefs (est.): ${fmt(totalReliefs)}\n`;
-    if (tax != null) msg += `• Estimated annual tax: ${fmt(tax)}\n`;
+  if (filingSummary.estimatedAnnualIncome != null || filingSummary.estimatedTax != null) {
+    msg += `\n`;
+    if (filingSummary.estimatedAnnualIncome != null) msg += `• Estimated annual income: ${fmt(filingSummary.estimatedAnnualIncome)}\n`;
+    if (filingSummary.totalReliefs != null) msg += `• Total reliefs (est.): ${fmt(filingSummary.totalReliefs)}\n`;
+    if (filingSummary.estimatedTax != null) msg += `• Estimated annual tax: ${fmt(filingSummary.estimatedTax)}\n`;
   }
 
-  msg += `\nWhat would you like to do next?\n`;
-  msg += `1️⃣ View your ${year} tax summary — reply 1\n`;
-  msg += `2️⃣ Create ${year + 1} tax profile — reply 2\n`;
+  msg += `
 
-  // Option 3: File taxes (hide once already filed)
-  if (filingStatus === 'filed') {
-    // no option 3
-  } else if (filingStatus === 'tax_agent_approved' || filingStatus === 'pending_filing_payment') {
-    msg += `3️⃣ File your ${year} tax return — reply 3\n`;
-  } else {
-    msg += `3️⃣ File your ${year} tax return — (available after tax agent approves)\n`;
-  }
+*Main Menu*
+
+1️⃣ My Tax Profile
+2️⃣ File / Update Taxes
+3️⃣ Subscribe / Manage Plan
+4️⃣ Watch Explainer Videos
+5️⃣ FAQs
+6️⃣ Talk to Support`;
 
   return msg;
 }

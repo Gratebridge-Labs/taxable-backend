@@ -159,6 +159,24 @@ const taxableProfileSchema = new mongoose.Schema({
     },
     required: false
   },
+  /** Monthly income entries for monthly filers: { month: 1-12, year: number, amount: number } */
+  monthlyIncome: [{
+    month: { type: Number, min: 1, max: 12 },
+    year: { type: Number },
+    amount: { type: Number }
+  }],
+  /** Monthly health insurance for monthly filers */
+  monthlyHealthInsurance: [{
+    month: { type: Number, min: 1, max: 12 },
+    year: { type: Number },
+    amount: { type: Number }
+  }],
+  /** Monthly pension for monthly filers */
+  monthlyPension: [{
+    month: { type: Number, min: 1, max: 12 },
+    year: { type: Number },
+    amount: { type: Number }
+  }],
   /** Date of birth (for individuals) */
   dob: { type: Date, required: false },
   /** Address */
@@ -217,7 +235,9 @@ const taxableProfileSchema = new mongoose.Schema({
       'tax_agent_review',
       'tax_agent_approved',
       'pending_filing_payment',
-      'filed'
+      'filed',
+      'monthly_active',
+      'monthly_pending'
     ],
     default: null
   },

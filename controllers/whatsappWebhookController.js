@@ -3031,30 +3031,34 @@ const handleWebhook = async (req, res) => {
           const isMonthly = (td.filingPreference || currentProfile?.filingPreference) === 'monthly';
           if (isMonthly) {
             await reply(
-              '💳 *Taxable Monthly Plan — ₦4,000/month*\n\n' +
-              "Here's everything that's included:\n" +
-              '- Log income & expenses every month\n' +
-              '- See your tax position in real time\n' +
-              '- Auto-track via bank integration\n' +
-              '- File your PIT at year end\n' +
-              '- Access to tax expert support\n' +
-              '- Cancel anytime — no lock-in\n\n' +
-              '*First month is free.* Your card is only charged from month 2.\n\n' +
-              '1️⃣ Start my free month\n' +
-              '2️⃣ Go back'
+              'Your tax profile is ready to save. 🎉\n\n' +
+              "To keep your profile, track your records monthly, and file your taxes — you'll need a Taxable plan.\n\n" +
+              "Here's the good news: *your first month is completely free.* No payment needed today.\n\n" +
+              '💳 *Monthly Plan*\n' +
+              '₦4,000/month — cancel anytime\n' +
+              '✅ Monthly income & expense tracking\n' +
+              '✅ Real-time tax position\n' +
+              '✅ Year-end filing included\n' +
+              '✅ Monthly upload link for income & deductibles\n' +
+              '✅ Rent relief (uploaded once)\n\n' +
+              '1️⃣ Start my free month — save my profile\n' +
+              '2️⃣ See more plan details\n' +
+              '3️⃣ I\'ll subscribe later (profile won\'t be saved after trial ends)'
             );
           } else {
             await reply(
-              '💳 *Taxable Annual Plan — ₦30,000/year*\n\n' +
-              "Here's everything that's included:\n" +
-              '- One-time full year documentation\n' +
-              '- Accurate PIT calculation\n' +
-              '- File your taxes at year end\n' +
-              '- Bank account integration\n' +
-              '- Access to tax expert support\n\n' +
-              'One payment. No monthly charges. No surprises.\n\n' +
-              '1️⃣ Subscribe now\n' +
-              '2️⃣ Go back'
+              'Your tax profile is ready to save. 🎉\n\n' +
+              "To keep your profile and file your taxes — you'll need a Taxable plan.\n\n" +
+              '💳 *Annual Plan*\n' +
+              '₦30,000/year — one payment, full year access\n' +
+              '✅ Full year tax documentation\n' +
+              '✅ Accurate PIT calculation\n' +
+              '✅ Year-end filing included\n' +
+              '✅ Monthly upload link for income & deductibles\n' +
+              '✅ Rent relief (uploaded once)\n\n' +
+              '1️⃣ Subscribe and save my profile\n' +
+              '2️⃣ See more plan details\n' +
+              '3️⃣ I\'ll subscribe later (profile won\'t be saved after one month)'
             );
           }
           sendOk();
@@ -3387,109 +3391,821 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
+      
+      // —— Monthly filing choice handler ——
+      if (session.step === 'monthly_filing_choice') {
+        const choice = String(text || '').trim();
+        if (choice === '0') {
+          session.step = 'done';
+          await session.save();
+          const hasSub = await safeHasActiveSubscription(regUser._id);
+          const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+          await reply(getLoggedInMainMenu(regUser.firstName, latestProfile?.year || new Date().getFullYear(), hasSub, { filingStatus: latestProfile?.filingStatus || 'not_filed' }));
+          sendOk();
+          return;
+        }
+        if (choice === '1') {
+          // Submit monthly update
+          const currentMonth = new Date().getMonth() + 1;
+          const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+          session.step = 'monthly_income_month';
+          session.taxProfileData = { ...session.taxProfileData, periodMonth: currentMonth };
+          await session.save();
+          await reply(
+            `*Submit ${monthNames[currentMonth - 1]} Update*\n\n` +
+            `Let's capture your ${monthNames[currentMonth - 1]} income and relief amounts.\n\n` +
+            `First — enter your income for this month.\n\n` +
+            `How much did you earn this month (total across all sources)?\n\n` +
+            `✏️ Type the amount in Naira (numbers only)\n` +
+            `Example: 500000`
+          );
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          // View annual summary
+          const profileId = session.taxProfileData?._profileId;
+          if (!profileId) {
+            await reply("Couldn't find your profile. Try again from the main menu.");
+            sendOk();
+            return;
+          }
+          try {
+            const profile = await TaxableProfile.findByProfileIdOrId(profileId, regUser._id);
+            const breakdown = await generateCompleteBreakdown(profile._id, profile.year);
+            const s = breakdown?.summary || {};
+            await reply(
+              `*Annual Summary — ${profile.year}*\n\n` +
+              `Total income (year to date): ₦${Number(s.totalIncome || 0).toLocaleString()}\n` +
+              `Total reliefs: ₦${Number(s.totalDeductions || 0).toLocaleString()}\n` +
+              `Estimated tax: ₦${Number(s.finalTaxPayable || s.taxCalculated || 0).toLocaleString()}\n\n` +
+              `Reply *Menu* to go back.`
+            );
+          } catch (e) {
+            console.error('[WhatsApp] Monthly summary error:', e.message);
+            await reply("We're still calculating your summary. Please try again in a moment." + BACK_TO_MENU_FOOTER);
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '3') {
+          // Upload rent relief document
+          const profileId = session.taxProfileData?._profileId;
+          const year = session.taxProfileData?._year || new Date().getFullYear();
+          if (!profileId) {
+            await reply("Couldn't find your profile. Try again from the main menu.");
+            sendOk();
+            return;
+          }
+          try {
+            const { uploadUrl } = await createUploadSessionForUser(regUser._id, profileId, year);
+            await reply(
+              `*Upload Rent Relief Document*\n\n` +
+              `Tap the link below to upload your rent agreement or receipt.\n\n` +
+              `🔗 ${uploadUrl}\n\n` +
+              `The link is valid for 7 days. Upload your document and reply *Done* when finished.`
+            );
+            session.step = 'monthly_upload_rent_done';
+            await session.save();
+          } catch (e) {
+            console.error('[WhatsApp] Rent upload error:', e.message);
+            await reply("We couldn't create the upload link. Please try again or go to the dashboard." + BACK_TO_MENU_FOOTER);
+          }
+          sendOk();
+          return;
+        }
+        await reply("Please reply with 1, 2, 3, or 0 for main menu.");
+        sendOk();
+        return;
+      }
+      
+      // —— Monthly income month handler ——
+      if (session.step === 'monthly_income_month') {
+        const amountRaw = String(text || '').replace(/[,₦\s]/g, '');
+        const amount = parseFloat(amountRaw, 10);
+        if (isNaN(amount) || amount < 0) {
+          await reply('Please enter a valid amount in Naira (e.g. 500000).');
+          sendOk();
+          return;
+        }
+        const currentMonth = session.taxProfileData?.periodMonth || new Date().getMonth() + 1;
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        
+        // Save monthly income
+        try {
+          const profileId = session.taxProfileData?._profileId;
+          const profile = await TaxableProfile.findByProfileIdOrId(profileId, regUser._id);
+          if (profile) {
+            const existingMonthly = profile.monthlyIncome || [];
+            existingMonthly.push({ month: currentMonth, amount, year: profile.year });
+            profile.monthlyIncome = existingMonthly;
+            await profile.save();
+          }
+        } catch (e) {
+          console.error('[WhatsApp] Save monthly income error:', e.message);
+        }
+        
+        session.taxProfileData = { ...session.taxProfileData, monthlyIncomeAmount: amount };
+        session.step = 'monthly_health_insurance';
+        await session.save();
+        
+        await reply(
+          `Got it — ₦${Number(amount).toLocaleString()} for ${monthNames[currentMonth - 1]} income ✅\n\n` +
+          `Now let's capture your relief amounts for this month.\n\n` +
+          `*Health Insurance*\n` +
+          `Do you have health insurance expenses this month?\n\n` +
+          `1️⃣ Yes\n` +
+          `2️⃣ No`
+        );
+        sendOk();
+        return;
+      }
+      
+      // —— Monthly health insurance handler ——
+      if (session.step === 'monthly_health_insurance') {
+        const choice = String(text || '').trim();
+        if (choice === '1') {
+          session.step = 'monthly_health_insurance_amount';
+          await session.save();
+          await reply('How much did you pay for health insurance this month?\n\n✏️ Type the amount in Naira (numbers only)\nExample: 50000');
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          session.taxProfileData = { ...session.taxProfileData, healthInsuranceMonthly: 0 };
+          session.step = 'monthly_pension';
+          await session.save();
+          await reply(
+            `*Pension*\n` +
+            `Do you have pension contributions this month?\n\n` +
+            `1️⃣ Yes\n` +
+            `2️⃣ No`
+          );
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1 or 2.');
+        sendOk();
+        return;
+      }
+      
+      // —— Monthly health insurance amount handler ——
+      if (session.step === 'monthly_health_insurance_amount') {
+        const amountRaw = String(text || '').replace(/[,₦\s]/g, '');
+        const amount = parseFloat(amountRaw, 10);
+        if (isNaN(amount) || amount < 0) {
+          await reply('Please enter a valid amount in Naira (e.g. 50000).');
+          sendOk();
+          return;
+        }
+        session.taxProfileData = { ...session.taxProfileData, healthInsuranceMonthly: amount };
+        session.step = 'monthly_pension';
+        await session.save();
+        await reply(
+          `Got it — ₦${Number(amount).toLocaleString()} for health insurance ✅\n\n` +
+          `*Pension*\n` +
+          `Do you have pension contributions this month?\n\n` +
+          `1️⃣ Yes\n` +
+          `2️⃣ No`
+        );
+        sendOk();
+        return;
+      }
+      
+      // —— Monthly pension handler ——
+      if (session.step === 'monthly_pension') {
+        const choice = String(text || '').trim();
+        if (choice === '1') {
+          session.step = 'monthly_pension_amount';
+          await session.save();
+          await reply('How much did you contribute to your pension this month?\n\n✏️ Type the amount in Naira (numbers only)\nExample: 50000');
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          session.taxProfileData = { ...session.taxProfileData, pensionMonthly: 0 };
+          session.step = 'monthly_upload';
+          await session.save();
+          await reply(
+            `Got it ✅\n\n` +
+            `*Upload your documents*\n\n` +
+            `Now upload your proof of income and reliefs for this month.\n\n` +
+            `📎 Send your documents as images or PDFs here, or reply *Link* to get an upload link.`
+          );
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1 or 2.');
+        sendOk();
+        return;
+      }
+      
+      // —— Monthly pension amount handler ——
+      if (session.step === 'monthly_pension_amount') {
+        const amountRaw = String(text || '').replace(/[,₦\s]/g, '');
+        const amount = parseFloat(amountRaw, 10);
+        if (isNaN(amount) || amount < 0) {
+          await reply('Please enter a valid amount in Naira (e.g. 50000).');
+          sendOk();
+          return;
+        }
+        session.taxProfileData = { ...session.taxProfileData, pensionMonthly: amount };
+        session.step = 'monthly_upload';
+        await session.save();
+        await reply(
+          `Got it — ₦${Number(amount).toLocaleString()} for pension ✅\n\n` +
+          `*Upload your documents*\n\n` +
+          `Now upload your proof of income and reliefs for this month.\n\n` +
+          `📎 Send your documents as images or PDFs here, or reply *Link* to get an upload link.`
+        );
+        sendOk();
+        return;
+      }
+      
+      // —— Monthly upload handler ——
+      if (session.step === 'monthly_upload') {
+        const choice = String(text || '').trim().toLowerCase();
+        if (choice === 'link') {
+          const profileId = session.taxProfileData?._profileId;
+          const year = session.taxProfileData?._year || new Date().getFullYear();
+          const month = session.taxProfileData?.periodMonth || new Date().getMonth() + 1;
+          try {
+            const { uploadUrl } = await createUploadSessionForUser(regUser._id, profileId, `${year}-${String(month).padStart(2, '0')}`);
+            await reply(
+              `*Upload Link for ${monthNames[month - 1]}*\n\n` +
+              `🔗 ${uploadUrl}\n\n` +
+              `The link is valid for 7 days. Upload your documents and reply *Done* when finished.`
+            );
+          } catch (e) {
+            console.error('[WhatsApp] Monthly upload link error:', e.message);
+            await reply("We couldn't create the upload link. Please try again." + BACK_TO_MENU_FOOTER);
+          }
+          sendOk();
+          return;
+        }
+        if (choice === 'done' || choice === 'skip') {
+          const currentMonth = session.taxProfileData?.periodMonth || new Date().getMonth() + 1;
+          const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+          const income = session.taxProfileData?.monthlyIncomeAmount || 0;
+          const health = session.taxProfileData?.healthInsuranceMonthly || 0;
+          const pension = session.taxProfileData?.pensionMonthly || 0;
+          const year = session.taxProfileData?._year || new Date().getFullYear();
+          const profileId = session.taxProfileData?._profileId;
+          
+          // Save monthly data to profile
+          try {
+            if (profileId) {
+              const profile = await TaxableProfile.findByProfileIdOrId(profileId, regUser._id);
+              if (profile) {
+                if (!profile.monthlyIncome) profile.monthlyIncome = [];
+                profile.monthlyIncome.push({ month: currentMonth, year, amount: income });
+                
+                if (health > 0) {
+                  if (!profile.monthlyHealthInsurance) profile.monthlyHealthInsurance = [];
+                  profile.monthlyHealthInsurance.push({ month: currentMonth, year, amount: health });
+                }
+                
+                if (pension > 0) {
+                  if (!profile.monthlyPension) profile.monthlyPension = [];
+                  profile.monthlyPension.push({ month: currentMonth, year, amount: pension });
+                }
+                
+                profile.filingStatus = 'monthly_active';
+                await profile.save();
+              }
+            }
+          } catch (e) {
+            console.error('[WhatsApp] Save monthly data error:', e.message);
+          }
+          
+          session.step = 'done';
+          session.taxProfileData = {};
+          await session.save();
+          
+          await reply(
+            `*${monthNames[currentMonth - 1]} Update Complete! ✅*\n\n` +
+            `Income: ₦${Number(income).toLocaleString()}\n` +
+            `Health Insurance: ₦${Number(health).toLocaleString()}\n` +
+            `Pension: ₦${Number(pension).toLocaleString()}\n\n` +
+            `Your ${monthNames[currentMonth - 1]} update has been saved. We'll include this in your annual tax calculation.\n\n` +
+            `Reply *Menu* to go back to the main menu.`
+          );
+          sendOk();
+          return;
+        }
+        await reply("Reply *Done* when you've uploaded your documents, or *Link* to get an upload link.");
+        sendOk();
+        return;
+      }
+      
+      // —— Monthly rent upload done handler ——
+      if (session.step === 'monthly_upload_rent_done') {
+        const choice = String(text || '').trim().toLowerCase();
+        if (choice === 'done') {
+          session.step = 'done';
+          session.taxProfileData = {};
+          await session.save();
+          const hasSub = await safeHasActiveSubscription(regUser._id);
+          const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+          await reply(
+            `Rent relief document uploaded ✅\n\n` +
+            `Your rent document has been saved and will be applied to your annual tax calculation.\n\n` +
+            `Reply *Menu* to go back.`
+          );
+          sendOk();
+          return;
+        }
+        await reply("Reply *Done* when you've uploaded your rent document.");
+        sendOk();
+        return;
+      }
+      
+      // —— Annual filing choice handler ——
+      if (session.step === 'annual_filing_choice') {
+        const choice = String(text || '').trim();
+        if (choice === '0') {
+          session.step = 'done';
+          await session.save();
+          const hasSub = await safeHasActiveSubscription(regUser._id);
+          const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+          await reply(getLoggedInMainMenu(regUser.firstName, latestProfile?.year || new Date().getFullYear(), hasSub, { filingStatus: latestProfile?.filingStatus || 'not_filed' }));
+          sendOk();
+          return;
+        }
+        if (choice === '1') {
+          // Upload documents
+          const profileId = session.taxProfileData?._profileId;
+          const year = session.taxProfileData?._year || new Date().getFullYear();
+          try {
+            const { uploadUrl } = await createUploadSessionForUser(regUser._id, profileId, year);
+            await reply(
+              `*Upload Documents*\n\n` +
+              `Tap the link below to upload your bank statements and relief documents.\n\n` +
+              `🔗 ${uploadUrl}\n\n` +
+              `The link is valid for 7 days. Upload your documents and reply *Done* when finished.`
+            );
+            session.step = 'annual_upload_done';
+            await session.save();
+          } catch (e) {
+            console.error('[WhatsApp] Annual upload error:', e.message);
+            await reply("We couldn't create the upload link. Please try again." + BACK_TO_MENU_FOOTER);
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          // View tax summary
+          const profileId = session.taxProfileData?._profileId;
+          if (!profileId) {
+            await reply("Couldn't find your profile. Try again from the main menu.");
+            sendOk();
+            return;
+          }
+          try {
+            const profile = await TaxableProfile.findByProfileIdOrId(profileId, regUser._id);
+            const breakdown = await generateCompleteBreakdown(profile._id, profile.year);
+            const s = breakdown?.summary || {};
+            const feePlaceholder = 5000;
+            const totalToday = (s.finalTaxPayable || s.taxCalculated || 0) + feePlaceholder;
+            await reply(
+              `*Tax Summary — ${profile.year}*\n\n` +
+              `Total income: ₦${Number(s.totalIncome || 0).toLocaleString()}\n` +
+              `Total reliefs: ₦${Number(s.totalDeductions || 0).toLocaleString()}\n` +
+              `Estimated tax: ₦${Number(s.finalTaxPayable || s.taxCalculated || 0).toLocaleString()}\n\n` +
+              `Filing fee: ₦${feePlaceholder.toLocaleString()}\n` +
+              `Total: ₦${Number(totalToday).toLocaleString()}\n\n` +
+              `Reply *Menu* to go back.`
+            );
+          } catch (e) {
+            console.error('[WhatsApp] Annual summary error:', e.message);
+            await reply("We're still calculating your summary. Please try again in a moment." + BACK_TO_MENU_FOOTER);
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '3') {
+          // Book accountant review
+          await reply(`*Book Accountant Review*\n\n` +
+            `Our tax agents will review your documents and profile to ensure everything is correct before filing.\n\n` +
+            `Cost: ₦30,000\n\n` +
+            `Would you like to proceed?\n\n` +
+            `1️⃣ Yes, book now\n` +
+            `2️⃣ Not yet`);
+          session.step = 'accountant_booking_confirm';
+          await session.save();
+          sendOk();
+          return;
+        }
+        if (choice === '4') {
+          // File taxes
+          const profileId = session.taxProfileData?._profileId;
+          session.taxProfileData = { ...session.taxProfileData, filingProfileId: profileId };
+          session.step = 'filing_confirm';
+          await session.save();
+          await reply(
+            `*File Your Taxes*\n\n` +
+            `Before I file, please confirm:\n` +
+            `1. Your information is accurate\n` +
+            `2. Your relief documents are uploaded\n` +
+            `3. You're ready to submit your ${session.taxProfileData?._year || new Date().getFullYear()} return\n\n` +
+            `Reply *CONFIRM* to file, or *Back* to go back.`
+          );
+          sendOk();
+          return;
+        }
+        await reply("Please reply with 1, 2, 3, 4, or 0 for main menu.");
+        sendOk();
+        return;
+      }
+      
+      // —— Annual upload done handler ——
+      if (session.step === 'annual_upload_done') {
+        const choice = String(text || '').trim().toLowerCase();
+        if (choice === 'done') {
+          session.step = 'annual_filing_choice';
+          await session.save();
+          await reply(
+            `Documents uploaded ✅\n\n` +
+            `Your documents have been received. What would you like to do next?\n\n` +
+            `1️⃣ Upload more documents\n` +
+            `2️⃣ Book accountant review\n` +
+            `3️⃣ File taxes\n` +
+            `0️⃣ Back to main menu`
+          );
+          sendOk();
+          return;
+        }
+        await reply("Reply *Done* when you've finished uploading your documents.");
+        sendOk();
+        return;
+      }
+      
+      // —— Accountant booking confirm handler ——
+      if (session.step === 'accountant_booking_confirm') {
+        const choice = String(text || '').trim();
+        if (choice === '1') {
+          const profileId = session.taxProfileData?._profileId;
+          try {
+            const { authorization_url } = await createFilingPaymentLink(regUser._id, profileId, 'accountant');
+            if (authorization_url) {
+              await reply(
+                `*Booking Accountant Review*\n\n` +
+                `Tap the link below to complete your payment of ₦30,000:\n\n` +
+                `🔗 ${authorization_url}\n\n` +
+                `Come back and reply *Done* once payment is complete.`
+              );
+              session.step = 'filing_payment_pending';
+              await session.save();
+            } else {
+              await reply("We couldn't generate a payment link. Please try again or contact support.");
+            }
+          } catch (e) {
+            console.error('[WhatsApp] Accountant payment error:', e.message);
+            await reply("We couldn't process your request. Please try again." + BACK_TO_MENU_FOOTER);
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          session.step = 'annual_filing_choice';
+          await session.save();
+          const year = session.taxProfileData?._year || new Date().getFullYear();
+          await reply(
+            `*File / Update Taxes — ${year}*\n\n` +
+            `What would you like to do?\n\n` +
+            `1️⃣ Upload documents\n` +
+            `2️⃣ View tax summary\n` +
+            `3️⃣ Book accountant review\n` +
+            `4️⃣ File taxes\n` +
+            `0️⃣ Back to main menu`
+          );
+          sendOk();
+          return;
+        }
+        await reply('Please reply with 1 or 2.');
+        sendOk();
+        return;
+      }
+      
+      // —— Subscription menu handler ——
+      if (session.step === 'subscription_menu') {
+        const choice = String(text || '').trim();
+        if (choice === '0') {
+          session.step = 'done';
+          await session.save();
+          const hasSub = await safeHasActiveSubscription(regUser._id);
+          const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+          await reply(getLoggedInMainMenu(regUser.firstName, latestProfile?.year || new Date().getFullYear(), hasSub, { filingStatus: latestProfile?.filingStatus || 'not_filed' }));
+          sendOk();
+          return;
+        }
+        if (choice === '1') {
+          // Start monthly plan
+          try {
+            const { authorization_url } = await createSubscriptionLinkForUser(regUser._id, 'monthly');
+            if (authorization_url) {
+              await reply(
+                `*Start Monthly Plan*\n\n` +
+                `Your first month is FREE! No payment needed today.\n\n` +
+                `Tap the link below to activate your subscription:\n\n` +
+                `🔗 ${authorization_url}\n\n` +
+                `Come back and reply *Done* once your subscription is active.`
+              );
+              session.step = 'subscription_pending';
+              await session.save();
+            } else {
+              await reply("We couldn't generate a payment link. Please try again." + BACK_TO_MENU_FOOTER);
+            }
+          } catch (e) {
+            console.error('[WhatsApp] Monthly subscription error:', e.message);
+            await reply("We couldn't process your request. Please try again." + BACK_TO_MENU_FOOTER);
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '2') {
+          // Start annual plan
+          try {
+            const { authorization_url } = await createSubscriptionLinkForUser(regUser._id, 'yearly');
+            if (authorization_url) {
+              await reply(
+                `*Start Annual Plan*\n\n` +
+                `Cost: ₦30,000/year (save ₦18,000!)\n\n` +
+                `Tap the link below to complete your payment:\n\n` +
+                `🔗 ${authorization_url}\n\n` +
+                `Come back and reply *Done* once payment is complete.`
+              );
+              session.step = 'subscription_pending';
+              await session.save();
+            } else {
+              await reply("We couldn't generate a payment link. Please try again." + BACK_TO_MENU_FOOTER);
+            }
+          } catch (e) {
+            console.error('[WhatsApp] Annual subscription error:', e.message);
+            await reply("We couldn't process your request. Please try again." + BACK_TO_MENU_FOOTER);
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '3') {
+          // Learn more about plans
+          await reply(
+            `*Plan Details*\n\n` +
+            `💳 *Monthly Plan*\n` +
+            `₦4,000/month — cancel anytime\n\n` +
+            `✅ Monthly income & expense tracking\n` +
+            `✅ Real-time tax position\n` +
+            `✅ Year-end filing included\n` +
+            `✅ Monthly upload link for income & deductibles\n` +
+            `✅ Rent relief (uploaded once)\n\n` +
+            `💳 *Annual Plan*\n` +
+            `₦30,000/year — save ₦18,000\n\n` +
+            `✅ Full year tax documentation\n` +
+            `✅ Accurate PIT calculation\n` +
+            `✅ Year-end filing included\n` +
+            `✅ Monthly upload link for income & deductibles\n` +
+            `✅ Rent relief (uploaded once)\n\n` +
+            `0️⃣ Back to main menu`
+          );
+          sendOk();
+          return;
+        }
+        await reply("Please reply with 1, 2, 3, or 0 for main menu.");
+        sendOk();
+        return;
+      }
+      
+      // —— Subscription pending handler ——
+      if (session.step === 'subscription_pending') {
+        const choice = String(text || '').trim().toLowerCase();
+        if (choice === 'done' || choice === 'check again') {
+          try {
+            const verified = await verifyPendingSubscriptionForUser(regUser._id);
+            if (verified) {
+              session.step = 'done';
+              await session.save();
+              await reply(`Subscription activated ✅\n\nWelcome to Taxable! Your account is now active.\n\nReply *Menu* to get started.`);
+            } else {
+              await reply(`We haven't confirmed your payment yet. Please wait a moment and reply *Done* again, or contact support if the issue persists.`);
+            }
+          } catch (e) {
+            console.error('[WhatsApp] Subscription verify error:', e.message);
+            await reply(`We couldn't verify your subscription yet. Please wait and try *Done* again.`);
+          }
+          sendOk();
+          return;
+        }
+        await reply("Reply *Done* once you've completed your payment.");
+        sendOk();
+        return;
+      }
+      
+      // —— Tax profile draft choice handler ——
+      if (session.step === 'tax_profile_draft_choice') {
+        const choice = String(text || '').trim();
+        if (choice === '0') {
+          session.step = 'done';
+          await session.save();
+          const hasSub = await safeHasActiveSubscription(regUser._id);
+          const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+          await reply(getLoggedInMainMenu(regUser.firstName, latestProfile?.year || new Date().getFullYear(), hasSub, { filingStatus: latestProfile?.filingStatus || 'not_filed' }));
+          sendOk();
+          return;
+        }
+        if (choice === '1') {
+          // View / Edit existing profile
+          const profileId = session.taxProfileData?._profileId;
+          if (profileId) {
+            session.step = 'tax_profile_summary_confirm';
+            await session.save();
+            try {
+              const profile = await TaxableProfile.findByProfileIdOrId(profileId, regUser._id);
+              const breakdown = await generateCompleteBreakdown(profile._id, profile.year);
+              const summaryMsg = await getTaxProfileSummaryForStep8(regUser.firstName, profile, session.taxProfileData, breakdown);
+              await reply(summaryMsg);
+            } catch (e) {
+              console.error('[WhatsApp] Profile view error:', e.message);
+              await reply("Couldn't load your profile. Please try again." + BACK_TO_MENU_FOOTER);
+            }
+            sendOk();
+            return;
+          }
+        }
+        if (choice === '2') {
+          // Submit monthly update or upload docs
+          const profileId = session.taxProfileData?._profileId;
+          const profile = await TaxableProfile.findByProfileIdOrId(profileId, regUser._id);
+          if (profile?.filingPreference === 'monthly') {
+            const currentMonth = new Date().getMonth() + 1;
+            session.step = 'monthly_income_month';
+            session.taxProfileData = { ...session.taxProfileData, periodMonth: currentMonth, _profileId: profileId };
+            await session.save();
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            await reply(
+              `*Submit ${monthNames[currentMonth - 1]} Update*\n\n` +
+              `Let's capture your ${monthNames[currentMonth - 1]} income and relief amounts.\n\n` +
+              `How much did you earn this month (total across all sources)?\n\n` +
+              `✏️ Type the amount in Naira (numbers only)\n` +
+              `Example: 500000`
+            );
+          } else {
+            try {
+              const { uploadUrl } = await createUploadSessionForUser(regUser._id, profileId, profile?.year || new Date().getFullYear());
+              await reply(
+                `*Upload Documents*\n\n` +
+                `Tap the link below to upload your bank statements and relief documents:\n\n` +
+                `🔗 ${uploadUrl}\n\n` +
+                `The link is valid for 7 days. Upload your documents and reply *Done* when finished.`
+              );
+              session.step = 'annual_upload_done';
+              await session.save();
+            } catch (e) {
+              console.error('[WhatsApp] Upload error:', e.message);
+              await reply("We couldn't create the upload link. Please try again." + BACK_TO_MENU_FOOTER);
+            }
+          }
+          sendOk();
+          return;
+        }
+        if (choice === '3') {
+          // Create new tax profile
+          session.step = 'tax_profile_year';
+          session.taxProfileData = { year: new Date().getFullYear() + 1 };
+          await session.save();
+          await reply(
+            `*Create New Tax Profile*\n\n` +
+            `Which tax year do you want to file for?\n\n` +
+            `1️⃣ ${new Date().getFullYear()} (January – December ${new Date().getFullYear()})\n` +
+            `2️⃣ ${new Date().getFullYear() + 1} (January – December ${new Date().getFullYear() + 1})`
+          );
+          sendOk();
+          return;
+        }
+        await reply("Please reply with 1, 2, 3, or 0 for main menu.");
+        sendOk();
+        return;
+      }
     }
 
     // Registered user
     const regUser = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
 
     // —— Main menu numeric shortcuts (must be numbers) ——
-    // When the user is at the main menu (step=done), always treat:
-    // 1 = tax summary, 2 = tax profile, 3 = file.
+    // New menu structure:
+    // 1 = My Tax Profile, 2 = File / Update Taxes, 3 = Subscribe / Manage Plan, 4 = Watch Videos, 5 = FAQs, 6 = Talk to Support
     if (regUser && session?.step === 'done') {
       const choice = String(text || '').trim();
+      
+      // 1️⃣ My Tax Profile
       if (choice === '1') {
-        // Same behavior as "View tax summary"
         const hasSub = await safeHasActiveSubscription(regUser._id);
         if (!hasSub) {
           await reply(SUBSCRIPTION_REQUIRED);
           sendOk();
           return;
         }
-        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year profileId').lean();
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year profileId filingPreference filingStatus').lean();
         if (!latestProfile) {
-          await reply("You don't have a tax profile yet. Reply *2* to create one.");
+          await reply("You don't have a tax profile yet.\n\nLet me help you create one. Reply *Start* to begin, or reply *Menu* to go back.");
           sendOk();
           return;
         }
-        try {
-          const breakdown = await generateCompleteBreakdown(latestProfile._id, latestProfile.year);
-          const s = breakdown?.summary || {};
-          const totalIncome = s.totalIncome ?? 0;
-          const totalDeductions = s.totalDeductions ?? 0;
-          const taxPayable = s.finalTaxPayable ?? s.taxCalculated ?? 0;
-          const feePlaceholder = 5000;
-          const totalToday = taxPayable + feePlaceholder;
-          let msg = `Here's your *${latestProfile.year}* tax summary (based on your income and reliefs):\n\n`;
-          msg += `*Income snapshot*\n• Total income detected: ₦${Number(totalIncome).toLocaleString()}\n• Period: Jan–Dec ${latestProfile.year} (or current-to-date)\n\n`;
-          msg += `*Reliefs applied*\n• Total reliefs & deductions: ₦${Number(totalDeductions).toLocaleString()}\n\n`;
-          msg += `*Estimated tax due*\n• Estimated PAYE/Tax payable: ₦${Number(taxPayable).toLocaleString()}\n\n`;
-          msg += `*Filing costs*\n• Filing service fee: ₦${feePlaceholder.toLocaleString()}\n• Estimated tax to pay government: ₦${Number(taxPayable).toLocaleString()}\n• *Total today: ₦${Number(totalToday).toLocaleString()}*\n\n`;
-          msg += `What would you like to do next?\n• Reply *3* to proceed to file\n• Reply *2* to create next year's profile${BACK_TO_MENU_FOOTER}`;
-          await reply(msg);
-        } catch (err) {
-          console.error('[WhatsApp] Tax summary error:', err.message);
-          await reply("We're still building your summary. Make sure your bank is connected and you've added reliefs, then try again. If it persists, contact support." + BACK_TO_MENU_FOOTER);
-        }
-        sendOk();
-        return;
-      }
-      if (choice === '2') {
-        // Create next-year tax profile (number-driven).
-        // Since the menu already says "Create {year+1} tax profile", do NOT ask for year again.
-        const draftProfile = await TaxableProfile.findOne({ user: regUser._id, status: 'draft' })
-          .sort({ updatedAt: -1 })
-          .select('profileId year primaryNIN primaryIncomeSources state paysRent rentAnnualAmount rentMonthlyAmount hasHealthInsurance healthInsuranceAnnualAmount healthInsuranceMonthlyAmount hasPension pensionAnnualAmount pensionMonthlyAmount paysMortgage mortgageAnnualAmount mortgageMonthlyAmount filingPreference residency183Days createdAt')
-          .lean();
-        if (draftProfile) {
-          const draftDate = draftProfile.createdAt
-            ? new Date(draftProfile.createdAt).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })
-            : 'a previous session';
-          session = await WhatsAppSession.findOneAndUpdate(
-            { waId: from },
-            { $set: { step: 'tax_profile_draft_choice', taxProfileData: { _draftProfileId: draftProfile.profileId, year: draftProfile.year }, updatedAt: new Date() } },
-            { upsert: true, new: true }
-          );
-          await reply(`You have an unfinished tax profile from ${draftDate}.\n\n1️⃣ Continue where I left off\n2️⃣ Start fresh`);
-          sendOk();
-          return;
-        }
-        const latestExisting = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
-        const baseYear = latestExisting?.year || new Date().getFullYear();
-        const nextYear = baseYear + 1;
-        const taxProfileDataInitial = { year: nextYear };
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
-          // Jump straight to NIN step (or NIN reuse prompt) since year is already known.
-          { $set: { step: 'tax_profile_nin', taxProfileData: taxProfileDataInitial, updatedAt: new Date() } },
+          { $set: { step: 'tax_profile_draft_choice', taxProfileData: { _profileId: latestProfile.profileId, year: latestProfile.year }, updatedAt: new Date() } },
           { upsert: true, new: true }
         );
+        const filingMode = latestProfile.filingPreference === 'monthly' ? 'monthly' : 'annual';
+        const filingStatusText = latestProfile.filingStatus === 'filed' ? '✅ Filed' : 'In progress';
         await reply(
-          '📋 *Tax Profile Setup — ' + String(nextYear) + '*\n\n' +
-          'STEP 2 — Tax ID (NIN)\n' +
-          'What is your *NIN* (National Identification Number)?\n\n' +
-          '✏️ Type your 11-digit NIN and send.'
+          `*My Tax Profile*\n\n` +
+          `Year: ${latestProfile.year}\n` +
+          `Mode: ${filingMode === 'monthly' ? 'Monthly tracking' : 'Annual filing'}\n` +
+          `Status: ${filingStatusText}\n\n` +
+          `What would you like to do?\n\n` +
+          `1️⃣ View / Edit profile\n` +
+          `2️⃣ ${filingMode === 'monthly' ? 'Submit monthly update' : 'Upload documents'}\n` +
+          `3️⃣ Create new tax profile\n` +
+          `0️⃣ Back to main menu`
         );
         sendOk();
         return;
       }
-      if (choice === '3') {
-        // If the latest profile is already filed, option 3 should not be actionable.
-        const candidateProfiles = await TaxableProfile.find({ user: regUser._id })
-          .sort({ updatedAt: -1 })
-          .limit(20)
-          .select('_id year filingStatus')
-          .lean();
-        const mostRecentWithStatus = candidateProfiles.find((p) => p.filingStatus != null);
-        const latestByYear = [...candidateProfiles].sort((a, b) => (b.year || 0) - (a.year || 0))[0] || null;
-        const latestProfile = mostRecentWithStatus || latestByYear;
-        if (latestProfile?.filingStatus === 'filed') {
-          await reply("You've already filed for " + String(latestProfile.year) + ". Reply 1 to view summary or 2 to create next year's profile." + BACK_TO_MENU_FOOTER);
+      
+      // 2️⃣ File / Update Taxes
+      if (choice === '2') {
+        const hasSub = await safeHasActiveSubscription(regUser._id);
+        if (!hasSub) {
+          await reply(SUBSCRIPTION_REQUIRED);
           sendOk();
           return;
         }
-        // Otherwise, allow normal file flow below (isProceedToFileIntent handles it).
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year filingPreference filingStatus').lean();
+        if (!latestProfile) {
+          await reply("You don't have a tax profile yet. Go to *My Tax Profile* (option 1) to create one first.");
+          sendOk();
+          return;
+        }
+        if (latestProfile.filingStatus === 'filed') {
+          await reply(`You've already filed for ${latestProfile.year} taxes. ✅\n\nTo file for a different year, go to *My Tax Profile* (option 1) and create a new profile.`);
+          sendOk();
+          return;
+        }
+        const isMonthly = latestProfile.filingPreference === 'monthly';
+        if (isMonthly) {
+          await handleMonthlyFilingFlow(regUser, session, latestProfile);
+        } else {
+          await handleAnnualFilingFlow(regUser, session, latestProfile);
+        }
+        sendOk();
+        return;
       }
-      // choice === '3' is already handled by isProceedToFileIntent (it matches /^3$/)
+      
+      // 3️⃣ Subscribe / Manage Plan
+      if (choice === '3') {
+        await handleSubscriptionMenu(regUser, session);
+        sendOk();
+        return;
+      }
+      
+      // 4️⃣ Watch Explainer Videos
+      if (choice === '4') {
+        await reply(
+          `*Watch Explainer Videos*\n\n` +
+          `📽 How Taxable Works\n${WATCH_VIDEO_URL}\n\n` +
+          `Reply *Menu* to go back to the main menu.`
+        );
+        sendOk();
+        return;
+      }
+      
+      // 5️⃣ FAQs
+      if (choice === '5') {
+        await reply(
+          `*FAQs*\n\n` +
+          `1️⃣ How does Taxable work?\n` +
+          `2️⃣ What reliefs can I claim?\n` +
+          `3️⃣ How much does it cost?\n` +
+          `4️⃣ Is my data secure?\n` +
+          `5️⃣ How do I file my taxes?\n\n` +
+          `Reply with a number (1-5) or *Menu* to go back.`
+        );
+        sendOk();
+        return;
+      }
+      
+      // 6️⃣ Talk to Support
+      if (choice === '6') {
+        await reply(
+          `*Talk to Support*\n\n` +
+          `Need help? Our team is here for you.\n\n` +
+          `📧 Email: support@gettaxable.com\n` +
+          `💬 WhatsApp: Message us here\n\n` +
+          `We typically respond within a few hours.`
+        );
+        sendOk();
+        return;
+      }
     }
 
     // —— Filing confirm (PDF: CONFIRM to file, or Back) ——
@@ -4819,26 +5535,103 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
+      
+      // —— Helper functions for main menu options ——
+      
+      async function handleMonthlyFilingFlow(user, sess, profile) {
+        const currentMonth = new Date().getMonth() + 1;
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const currentMonthName = monthNames[currentMonth - 1];
+        
+        await reply(
+          `*File / Update Taxes — ${profile.year}*\n\n` +
+          `Monthly tracking mode\n\n` +
+          `What would you like to do?\n\n` +
+          `1️⃣ Submit ${currentMonthName} update\n` +
+          `2️⃣ View annual summary so far\n` +
+          `3️⃣ Upload document for rent relief\n` +
+          `0️⃣ Back to main menu`
+        );
+        sess.step = 'monthly_filing_choice';
+        sess.taxProfileData = { ...(sess.taxProfileData || {}), _profileId: profile.profileId, _year: profile.year };
+        await sess.save();
+      }
+      
+      async function handleAnnualFilingFlow(user, sess, profile) {
+        const yearLabel = profile.year;
+        await reply(
+          `*File / Update Taxes — ${yearLabel}*\n\n` +
+          `Annual filing mode\n\n` +
+          `Current status: ${profile.filingStatus || 'Not started'}\n\n` +
+          `What would you like to do?\n\n` +
+          `1️⃣ Upload documents\n` +
+          `2️⃣ View tax summary\n` +
+          `3️⃣ Book accountant review\n` +
+          `4️⃣ File taxes\n` +
+          `0️⃣ Back to main menu`
+        );
+        sess.step = 'annual_filing_choice';
+        sess.taxProfileData = { ...(sess.taxProfileData || {}), _profileId: profile.profileId, _year: profile.year };
+        await sess.save();
+      }
+      
+      async function handleSubscriptionMenu(user, sess) {
+        const hasSub = await safeHasActiveSubscription(user._id);
+        const sub = hasSub ? await Subscription.findOne({ user: user._id, status: 'active' }).select('plan interval currentPeriodEnd').lean() : null;
+        
+        if (hasSub && sub) {
+          const planLabel = sub.interval === 'yearly' ? 'Annual' : 'Monthly';
+          const endDate = sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' }) : 'N/A';
+          await reply(
+            `*Subscribe / Manage Plan*\n\n` +
+            `Current plan: ${planLabel}\n` +
+            `Status: Active ✅\n` +
+            `Renews: ${endDate}\n\n` +
+            `What would you like to do?\n\n` +
+            `1️⃣ View plan details\n` +
+            `2️⃣ Switch to annual plan\n` +
+            `3️⃣ Cancel subscription\n` +
+            `0️⃣ Back to main menu`
+          );
+        } else {
+          await reply(
+            `*Subscribe / Manage Plan*\n\n` +
+            `You don't have an active subscription yet.\n\n` +
+            `💳 *Monthly Plan*\n` +
+            `₦4,000/month — cancel anytime\n\n` +
+            `💳 *Annual Plan*\n` +
+            `₦30,000/year — save ₦18,000\n\n` +
+            `What would you like to do?\n\n` +
+            `1️⃣ Start monthly plan\n` +
+            `2️⃣ Start annual plan\n` +
+            `3️⃣ Learn more about plans\n` +
+            `0️⃣ Back to main menu`
+          );
+        }
+        sess.step = 'subscription_menu';
+        await sess.save();
+      }
+      
+      async function sendWatchVideoPreview() {
+        if (WATCH_VIDEO_THUMBNAIL_URL) {
+          try {
+            await sendImage(from, WATCH_VIDEO_THUMBNAIL_URL, WATCH_VIDEO_CAPTION);
+          } catch (e) {
+            console.error('[WhatsApp] sendWatchVideoPreview error:', e.message);
+          }
+        }
+      }
+      
       case 'done': {
         try {
           const phoneForDone = waIdToPhone(from);
           const userDone = await User.findOne({ $or: [{ phone: phoneForDone }, { phone: phoneForDone.replace(/^0/, '234') }] }).select('_id firstName').lean();
           if (userDone) {
             const hasSubDone = await safeHasActiveSubscription(userDone._id);
-            const candidateProfilesDone = await TaxableProfile.find({ user: userDone._id }).sort({ updatedAt: -1 }).limit(20).select('_id year filingStatus').lean();
-            const mostRecentWithStatusDone = candidateProfilesDone.find((p) => p.filingStatus != null);
-            const latestByYearDone = [...candidateProfilesDone].sort((a, b) => (b.year || 0) - (a.year || 0))[0] || null;
-            const latestProfileDone = mostRecentWithStatusDone || latestByYearDone;
+            const latestProfileDone = await TaxableProfile.findOne({ user: userDone._id }).sort({ year: -1 }).select('_id year filingStatus filingPreference').lean();
             const yearDone = latestProfileDone?.year || new Date().getFullYear();
-            if (latestProfileDone) {
-              const menuOptsDone = {};
-              if (latestProfileDone.filingStatus) menuOptsDone.filingStatus = latestProfileDone.filingStatus;
-              if (latestProfileDone.filingStatus === 'filed') menuOptsDone.filedForYear = yearDone;
-              await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone, menuOptsDone));
-            } else {
-              await sendWatchVideoPreview();
-              await reply(getPostVerificationWelcome(userDone.firstName));
-            }
+            const menuOpts = { filingStatus: latestProfileDone?.filingStatus || 'not_filed' };
+            await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone, menuOpts));
           } else {
             await reply(FIRST_WELCOME_MESSAGE);
             await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome_choice', updatedAt: new Date() } }, { upsert: true, new: true });

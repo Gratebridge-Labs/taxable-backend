@@ -86,7 +86,23 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'relief_menu',
       'relief_amount',
       'relief_awaiting_document',
-      'review_profile_view'
+      'review_profile_view',
+      // Monthly filing flow
+      'monthly_filing_choice',
+      'monthly_income_month',
+      'monthly_health_insurance',
+      'monthly_health_insurance_amount',
+      'monthly_pension',
+      'monthly_pension_amount',
+      'monthly_upload',
+      'monthly_upload_rent_done',
+      // Annual filing flow
+      'annual_filing_choice',
+      'annual_upload_done',
+      'accountant_booking_confirm',
+      // Subscription
+      'subscription_menu',
+      'subscription_pending'
     ]
   },
   /** Partial registration data collected so far; loginEmail used during login flow */
@@ -146,7 +162,14 @@ const whatsAppSessionSchema = new mongoose.Schema({
     /** After adding a relief, store last created deduction id so next image/document can link to it */
     lastDeductionId: { type: String, trim: true },
     /** true after user got upload link in tax_profile_final_steps (must do upload before 2 or 3) */
-    finalStepsUploadLinkSent: { type: Boolean }
+    finalStepsUploadLinkSent: { type: Boolean },
+    /** For main menu flows */
+    _profileId: { type: String, trim: true },
+    _year: { type: Number },
+    /** Monthly filing data */
+    monthlyIncomeAmount: { type: Number },
+    healthInsuranceMonthly: { type: Number },
+    pensionMonthly: { type: Number }
   },
   /** After user is created, we may need to verify OTP */
   pendingUserId: {
