@@ -1497,6 +1497,13 @@ const handleWebhook = async (req, res) => {
 
       // Treat amounts above this as "implausibly high" and confirm
       const PLAUSIBLE_MONTHLY_MAX = 5000000;
+      // Prepare current profile context early so all edit branches can read it safely.
+      const pid = td.currentProfileId;
+      let currentProfile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+      // If we're at summary confirm but profile lookup failed (e.g. session from before currentProfileId), use latest profile for user+year
+      if (!currentProfile && td.year != null) {
+        currentProfile = await TaxableProfile.findOne({ user: userForTax._id, year: td.year }).sort({ createdAt: -1 }).limit(1).exec();
+      }
 
       if (session.step === 'tax_profile_draft_choice') {
         const choice = String(text || '').trim();
@@ -2727,14 +2734,7 @@ const handleWebhook = async (req, res) => {
         return;
       }
 
-      const pid = td.currentProfileId;
-      let currentProfile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
-      // If we're at summary confirm but profile lookup failed (e.g. session from before currentProfileId), use latest profile for user+year
-      if (!currentProfile && td.year != null) {
-        currentProfile = await TaxableProfile.findOne({ user: userForTax._id, year: td.year }).sort({ createdAt: -1 }).limit(1).exec();
-      }
-
-      const returnToSummaryAndSend = async () => {
+      async function returnToSummaryAndSend() {
         if (!currentProfile) {
           console.error('[WhatsApp] returnToSummaryAndSend: currentProfile is null');
           await reply("Something went wrong loading your profile. Let's start over.\n\nSay *Menu* to go back to the main menu.");
@@ -2776,7 +2776,7 @@ const handleWebhook = async (req, res) => {
         }
         const msg = await getTaxProfileSummaryForStep8(userForTax.firstName, currentProfile, td, b);
         await reply(msg);
-      };
+      }
 
       if (session.step === 'tax_profile_summary_confirm') {
         const choice = String(text || '').trim();
