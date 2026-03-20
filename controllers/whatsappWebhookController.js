@@ -1118,10 +1118,9 @@ const handleWebhook = async (req, res) => {
             `Hi ${userForMenu.firstName} 👋\n\n` +
             `Your email hasn't been verified yet.\n\n` +
             `Please check your inbox for the verification code we sent you.\n\n` +
-            `Reply with your 6-digit code to verify.\n` +
-            `Or:\n` +
-            `• Reply *resend* to get a new code\n` +
-            `• Reply *wrong email* to change your email address`
+            `Reply with your 6-digit code to verify.\n\n` +
+            `1️⃣ Resend code\n` +
+            `2️⃣ Wrong email`
           );
           session = await WhatsAppSession.findOneAndUpdate(
             { waId: from },
@@ -5421,7 +5420,7 @@ const handleWebhook = async (req, res) => {
           session.pendingUserId = user._id;
           await session.save();
           await reply(CREATE_ACCOUNT_PASSWORD_SAVED);
-          await reply(`${data.firstName}, we've sent a 6-digit code to ${data.email}. Reply with the *code* to verify. Didn't get it? Just reply *resend* and we'll send it again.`);
+          await reply(`${data.firstName}, we've sent a 6-digit code to ${data.email}.\n\nReply with the *code* to verify.\n\nOr:\n1️⃣ Resend code\n2️⃣ Wrong email`);
         } catch (err) {
           if (err.code === 'EMAIL_EXISTS') {
             session.step = 'email_exists';
@@ -5456,16 +5455,30 @@ const handleWebhook = async (req, res) => {
           return;
         }
         if (!isValidOTP(text)) {
-          // Check if user wants to correct their email
+          // Check if user wants to correct their email (supports '2' or text)
           const lowerText = text.toLowerCase().trim();
-          if (lowerText === 'wrong email' || lowerText === 'fix email' || lowerText === 'change email' || lowerText === 'correct email') {
+          if (lowerText === '2' || lowerText === 'wrong email' || lowerText === 'fix email' || lowerText === 'change email' || lowerText === 'correct email') {
             session.step = 'email';
             await session.save();
             await reply(`No problem! What's your correct email address?\n\n✏️ Type your email and send.`);
             sendOk();
             return;
           }
-          await reply(`${data.firstName || 'There'}, send us the *6-digit code* from your email.\n\nOr:\n• Reply *resend* if you didn't get it\n• Reply *wrong email* if you need to change your email address`);
+          // Check if user wants to resend (supports '1' or 'resend')
+          if (lowerText === '1' || lowerText === 'resend') {
+            const email = data.email;
+            const firstName = data.firstName || 'there';
+            try {
+              await resendOTP(email, firstName);
+              await reply(`New code sent! Check your inbox (and spam folder).\n\nReply with the *code* when you get it.\n\n1️⃣ Resend code\n2️⃣ Wrong email`);
+            } catch (e) {
+              console.error('[WhatsApp] Resend OTP failed', email, e.message);
+              await reply("We couldn't send the code right now. Please check that your email is correct, or say *Hi Taxable* to start over.");
+            }
+            sendOk();
+            return;
+          }
+          await reply(`${data.firstName || 'There'}, send us the *6-digit code* from your email.\n\n1️⃣ Resend code\n2️⃣ Wrong email`);
           sendOk();
           return;
         }
@@ -5476,7 +5489,7 @@ const handleWebhook = async (req, res) => {
           purpose: 'email_verification'
         });
         if (!otpRecord) {
-          await reply(`${data.firstName || 'There'}, that code doesn't look right or may have expired.\n\nOr:\n• Reply *resend* to get a new code\n• Reply *wrong email* to change your email address`);
+          await reply(`${data.firstName || 'There'}, that code doesn't look right or may have expired.\n\n1️⃣ Resend code\n2️⃣ Wrong email`);
           sendOk();
           return;
         }
@@ -5489,7 +5502,7 @@ const handleWebhook = async (req, res) => {
           return;
         }
         if (otpRecord.expiresAt < new Date()) {
-          await reply(`${data.firstName || 'There'}, that code has expired.\n\nOr:\n• Reply *resend* to get a new code\n• Reply *wrong email* to change your email address`);
+          await reply(`${data.firstName || 'There'}, that code has expired.\n\n1️⃣ Resend code\n2️⃣ Wrong email`);
           sendOk();
           return;
         }
@@ -5643,10 +5656,9 @@ const handleWebhook = async (req, res) => {
               `Hi ${userDone.firstName} 👋\n\n` +
               `Your email hasn't been verified yet.\n\n` +
               `Please check your inbox for the verification code we sent you.\n\n` +
-              `Reply with your 6-digit code to verify.\n` +
-              `Or:\n` +
-              `• Reply *resend* to get a new code\n` +
-              `• Reply *wrong email* to change your email address`
+              `Reply with your 6-digit code to verify.\n\n` +
+              `1️⃣ Resend code\n` +
+              `2️⃣ Wrong email`
             );
             await WhatsAppSession.findOneAndUpdate(
               { waId: from },
