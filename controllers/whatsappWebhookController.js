@@ -1664,6 +1664,9 @@ const handleWebhook = async (req, res) => {
           td.year = y;
           session.taxProfileData = td;
           if (td.editReturnToSummary && currentProfile) {
+            // #region agent log
+            fetch('http://127.0.0.1:7402/ingest/8841f111-e782-4862-acaa-8f2e41540d3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'23342d'},body:JSON.stringify({sessionId:'23342d',runId:'pre-fix',hypothesisId:'H3',location:'controllers/whatsappWebhookController.js:tax_profile_year:editReturnToSummary',message:'About to return to summary from tax year step',data:{step:session.step,hasCurrentProfile:!!currentProfile,editReturnToSummary:!!td.editReturnToSummary,year:td.year},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
             await returnToSummaryAndSend();
             sendOk();
             return;
@@ -1754,7 +1757,13 @@ const handleWebhook = async (req, res) => {
 
       if (session.step === 'tax_profile_nin') {
         const nin = String(text).trim().replace(/\D/g, '');
+        // #region agent log
+        fetch('http://127.0.0.1:7402/ingest/8841f111-e782-4862-acaa-8f2e41540d3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'23342d'},body:JSON.stringify({sessionId:'23342d',runId:'pre-fix',hypothesisId:'H2',location:'controllers/whatsappWebhookController.js:tax_profile_nin:parsed',message:'Parsed NIN from user input',data:{step:session.step,ninLength:nin.length,editReturnToSummary:!!td.editReturnToSummary,hasCurrentProfile:!!currentProfile},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         if (nin.length !== 11) {
+          // #region agent log
+          fetch('http://127.0.0.1:7402/ingest/8841f111-e782-4862-acaa-8f2e41540d3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'23342d'},body:JSON.stringify({sessionId:'23342d',runId:'pre-fix',hypothesisId:'H2',location:'controllers/whatsappWebhookController.js:tax_profile_nin:invalid_length',message:'Rejected NIN due to invalid length',data:{step:session.step,ninLength:nin.length},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           await reply('A NIN should be exactly 11 digits with no spaces or letters. Please check and try again. ✏️');
           sendOk();
           return;
@@ -1762,6 +1771,9 @@ const handleWebhook = async (req, res) => {
         td.nin = nin;
         session.taxProfileData = td;
         if (td.editReturnToSummary && currentProfile) {
+          // #region agent log
+          fetch('http://127.0.0.1:7402/ingest/8841f111-e782-4862-acaa-8f2e41540d3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'23342d'},body:JSON.stringify({sessionId:'23342d',runId:'pre-fix',hypothesisId:'H4',location:'controllers/whatsappWebhookController.js:tax_profile_nin:before_returnToSummary',message:'About to return to summary from NIN step',data:{step:session.step,hasCurrentProfile:!!currentProfile,editReturnToSummary:!!td.editReturnToSummary,ninLength:nin.length},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           await returnToSummaryAndSend();
           sendOk();
           return;
@@ -6046,6 +6058,9 @@ const handleWebhook = async (req, res) => {
     }
     sendOk();
   } catch (err) {
+    // #region agent log
+    fetch('http://127.0.0.1:7402/ingest/8841f111-e782-4862-acaa-8f2e41540d3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'23342d'},body:JSON.stringify({sessionId:'23342d',runId:'pre-fix',hypothesisId:'H1',location:'controllers/whatsappWebhookController.js:handleWebhook:catch',message:'Webhook handler fell into top-level catch',data:{errorName:err?.name||null,errorMessage:err?.message||String(err),errorStackTop:String(err?.stack||'').split('\n').slice(0,3).join(' | ')},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     console.error('[WhatsApp] webhook error:', err.message || err);
     try {
       await sendTextMessage(from, "Oops! Something went wrong. Try again or say *Hi Taxable* to start fresh — we're here to help! 💬" + BACK_TO_MENU_FOOTER);
