@@ -4100,8 +4100,8 @@ const handleWebhook = async (req, res) => {
           await reply(
             `*Create New Tax Profile*\n\n` +
             `Which tax year do you want to file for?\n\n` +
-            `1️⃣ ${new Date().getFullYear()} (January – December ${new Date().getFullYear()})\n` +
-            `2️⃣ ${new Date().getFullYear() + 1} (January – December ${new Date().getFullYear() + 1})`
+            `1️⃣ ${new Date().getFullYear() - 1} (January – December ${new Date().getFullYear() - 1})\n` +
+            `2️⃣ ${new Date().getFullYear()} (January – December ${new Date().getFullYear()})`
           );
           sendOk();
           return;
@@ -4134,8 +4134,8 @@ const handleWebhook = async (req, res) => {
           await reply(
             `*Create Tax Profile*\n\n` +
             `Let's get started! First, which tax year do you want to file for?\n\n` +
-            `1️⃣ ${new Date().getFullYear()} (January – December ${new Date().getFullYear()})\n` +
-            `2️⃣ ${new Date().getFullYear() + 1} (January – December ${new Date().getFullYear() + 1})`
+            `1️⃣ ${new Date().getFullYear() - 1} (January – December ${new Date().getFullYear() - 1})\n` +
+            `2️⃣ ${new Date().getFullYear()} (January – December ${new Date().getFullYear()})`
           );
           sendOk();
           return;
@@ -4177,8 +4177,8 @@ const handleWebhook = async (req, res) => {
             `*Create Tax Profile*\n\n` +
             `To file your taxes, you need a tax profile first.\n\n` +
             `Let's get started! Which tax year do you want to file for?\n\n` +
-            `1️⃣ ${new Date().getFullYear()} (January – December ${new Date().getFullYear()})\n` +
-            `2️⃣ ${new Date().getFullYear() + 1} (January – December ${new Date().getFullYear() + 1})`
+            `1️⃣ ${new Date().getFullYear() - 1} (January – December ${new Date().getFullYear() - 1})\n` +
+            `2️⃣ ${new Date().getFullYear()} (January – December ${new Date().getFullYear()})`
           );
           sendOk();
           return;
