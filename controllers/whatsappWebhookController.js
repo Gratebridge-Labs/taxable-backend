@@ -2723,7 +2723,13 @@ const handleWebhook = async (req, res) => {
       }
 
       const returnToSummaryAndSend = async () => {
-        if (!currentProfile) return;
+        if (!currentProfile) {
+          console.error('[WhatsApp] returnToSummaryAndSend: currentProfile is null');
+          await reply("Something went wrong loading your profile. Let's start over.\n\nSay *Menu* to go back to the main menu.");
+          session.step = 'done';
+          await session.save();
+          return;
+        }
         if (td.year !== undefined) currentProfile.year = td.year;
         if (td.nin) currentProfile.primaryNIN = td.nin;
         if (td.primaryIncomeSources?.length) currentProfile.primaryIncomeSources = td.primaryIncomeSources;
@@ -2742,13 +2748,20 @@ const handleWebhook = async (req, res) => {
         if (td.mortgageAnnualAmount !== undefined) currentProfile.mortgageAnnualAmount = td.mortgageAnnualAmount;
         if (td.mortgageMonthlyAmount !== undefined) currentProfile.mortgageMonthlyAmount = td.mortgageMonthlyAmount;
         if (td.filingPreference) currentProfile.filingPreference = td.filingPreference;
-        await currentProfile.save();
+        try {
+          await currentProfile.save();
+        } catch (e) {
+          console.error('[WhatsApp] returnToSummaryAndSend save error:', e.message);
+        }
         td.editReturnToSummary = false;
+        td.currentProfileId = currentProfile.profileId;
         session.taxProfileData = td;
         session.step = 'tax_profile_summary_confirm';
         await session.save();
         let b = null;
-        try { b = await generateCompleteBreakdown(currentProfile._id, currentProfile.year); } catch (e) {}
+        try { b = await generateCompleteBreakdown(currentProfile._id, currentProfile.year); } catch (e) {
+          console.error('[WhatsApp] returnToSummaryAndSend breakdown error:', e.message);
+        }
         const msg = await getTaxProfileSummaryForStep8(userForTax.firstName, currentProfile, td, b);
         await reply(msg);
       };
@@ -2827,6 +2840,20 @@ const handleWebhook = async (req, res) => {
           return;
         }
         if (choice === '2') {
+          // Ensure currentProfileId is set for the edit flow
+          if (currentProfile) {
+            td.currentProfileId = currentProfile.profileId;
+          } else if (!td.currentProfileId && td.year) {
+            // Try to find the profile from year
+            try {
+              const profileByYear = await TaxableProfile.findOne({ user: userForTax._id, year: td.year }).sort({ createdAt: -1 }).lean();
+              if (profileByYear) {
+                td.currentProfileId = profileByYear.profileId;
+              }
+            } catch (e) {
+              console.error('[WhatsApp] Profile lookup for edit:', e.message);
+            }
+          }
           session.step = 'tax_profile_edit_choice';
           session.taxProfileData = td;
           await session.save();
@@ -2850,44 +2877,362 @@ const handleWebhook = async (req, res) => {
 
       if (session.step === 'tax_profile_edit_choice') {
         const choice = String(text || '').trim();
-        const stepMap = {
-          '1': 'tax_profile_year',
-          '2': 'tax_profile_nin',
-          '3': 'tax_profile_income',
-          '4': 'tax_profile_residency',
-          '5': 'tax_profile_state',
-          '6': 'tax_profile_rent',
-          '7': 'tax_profile_filing_preference'
+        
+        // Helper: update profile and show summary
+        const updateAndShowSummary = async (profile, updateFields) => {
+          try {
+            Object.assign(profile, updateFields);
+            await profile.save();
+          } catch (e) {
+            console.error('[WhatsApp] Profile update error:', e.message);
+          }
+          session.step = 'done';
+          session.taxProfileData = {};
+          await session.save();
+          const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+          await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
         };
-        const nextStep = stepMap[choice];
-        if (!nextStep) {
-          await reply('Please reply with a number from 1 to 7.');
+        
+        // Helper: show profile summary
+        const showProfileSummary = async () => {
+          const pid = td.currentProfileId;
+          let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+          if (!profile && td.year) {
+            profile = await TaxableProfile.findOne({ user: userForTax._id, year: td.year }).lean();
+          }
+          if (!profile) {
+            profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+          }
+          if (profile) {
+            let b = null;
+            try { b = await generateCompleteBreakdown(profile._id, profile.year); } catch (e) {}
+            const summaryMsg = await getTaxProfileSummaryForStep8(userForTax.firstName, profile, td, b);
+            await reply(summaryMsg);
+          } else {
+            await reply("Couldn't load your profile. Please try again.");
+            session.step = 'done';
+            await session.save();
+          }
+        };
+        
+        // Ensure we have profile ID
+        if (!td.currentProfileId && !td.year && !currentProfile) {
+          await reply("Please start from your profile. Say *Menu* to go back.");
+          session.step = 'done';
+          await session.save();
           sendOk();
           return;
         }
-        td.editReturnToSummary = true;
-        session.taxProfileData = td;
-        session.step = nextStep;
-        await session.save();
-        if (nextStep === 'tax_profile_year') {
-          await reply('Which tax year are you filing for?\n\n1️⃣ 2025 (January – December 2025)\n2️⃣ 2026 (January – December 2026)');
-        } else if (nextStep === 'tax_profile_nin') {
-          await reply('What is your *NIN* (National Identification Number)? Type your 11-digit NIN and send.');
-        } else if (nextStep === 'tax_profile_income') {
-          td.incomeAmounts = undefined;
-          td.incomeAmountIndex = undefined;
+        
+        const pid = td.currentProfileId;
+        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+        if (!profile && td.year) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id, year: td.year }).lean();
+        }
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+        }
+        
+        if (!profile) {
+          await reply("Couldn't find your profile. Please start from the menu.");
+          session.step = 'done';
+          await session.save();
+          sendOk();
+          return;
+        }
+        
+        td.currentProfileId = profile.profileId;
+        
+        if (choice === '1') {
+          // Edit Tax Year
+          session.step = 'edit_tax_year';
           session.taxProfileData = td;
+          await session.save();
+          await reply('Which tax year are you filing for?\n\n1️⃣ 2025 (January – December 2025)\n2️⃣ 2026 (January – December 2026)');
+        } else if (choice === '2') {
+          // Edit NIN
+          session.step = 'edit_nin';
+          session.taxProfileData = td;
+          await session.save();
+          await reply('What is your *NIN* (National Identification Number)?\n\nType your 11-digit NIN and send.');
+        } else if (choice === '3') {
+          // Edit Income Sources
+          td.editingField = 'income';
+          session.step = 'edit_income';
+          session.taxProfileData = td;
+          await session.save();
           const incomeList = INCOME_SOURCE_OPTIONS.map((label, i) => `${i + 1}. ${label}`).join('\n');
           await reply('How do you earn your income? Select all that apply — send numbers separated by commas.\nExample: 1, 3\n\n' + incomeList);
-        } else if (nextStep === 'tax_profile_residency') {
+        } else if (choice === '4') {
+          // Edit Residency
+          td.editingField = 'residency';
+          session.step = 'edit_residency';
+          session.taxProfileData = td;
+          await session.save();
           await reply('Did you live in Nigeria for *183 days or more* during this tax year?\n\n1️⃣ Yes — I lived in Nigeria for 183+ days\n2️⃣ No — I spent significant time outside Nigeria');
-        } else if (nextStep === 'tax_profile_state') {
+        } else if (choice === '5') {
+          // Edit State
+          td.editingField = 'state';
+          session.step = 'edit_state';
+          session.taxProfileData = td;
+          await session.save();
           await reply('Which state do you currently live in?');
-        } else if (nextStep === 'tax_profile_rent') {
-          await reply('6A — Rent\nDo you pay rent?\n\n1️⃣ Yes\n2️⃣ No');
-        } else if (nextStep === 'tax_profile_filing_preference') {
-          await reply(getFilingPreferenceMessage(td.year));
+        } else if (choice === '6') {
+          // Edit Rent
+          td.editingField = 'rent';
+          session.step = 'edit_rent_yn';
+          session.taxProfileData = td;
+          await session.save();
+          await reply('Do you pay rent?\n\n1️⃣ Yes\n2️⃣ No');
+        } else if (choice === '7') {
+          // Edit Filing Preference
+          td.editingField = 'filing';
+          session.step = 'edit_filing_preference';
+          session.taxProfileData = td;
+          await session.save();
+          await reply(getFilingPreferenceMessage(profile.year));
+        } else {
+          await reply('Please reply with a number from 1 to 7.');
         }
+        sendOk();
+        return;
+      }
+      
+      // Direct edit handlers - update profile directly
+      
+      if (session.step === 'edit_tax_year') {
+        const choice = String(text || '').trim();
+        let y = null;
+        if (choice === '1') y = 2025;
+        if (choice === '2') y = 2026;
+        if (!y) {
+          await reply('Please reply with 1 or 2.\n\n1️⃣ 2025\n2️⃣ 2026');
+          sendOk();
+          return;
+        }
+        const pid = td.currentProfileId;
+        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+        }
+        if (profile) {
+          profile.year = y;
+          await profile.save();
+          await reply(`Tax year updated to ${y} ✅\n\nYour profile has been updated.`);
+        }
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        sendOk();
+        return;
+      }
+      
+      if (session.step === 'edit_nin') {
+        const nin = String(text || '').replace(/[^0-9]/g, '').trim();
+        if (nin.length !== 11) {
+          await reply('Please enter a valid 11-digit NIN.');
+          sendOk();
+          return;
+        }
+        const pid = td.currentProfileId;
+        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+        }
+        if (profile) {
+          profile.primaryNIN = nin;
+          await profile.save();
+          await reply(`NIN updated ✅\n\nYour profile has been updated.`);
+        }
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        sendOk();
+        return;
+      }
+      
+      if (session.step === 'edit_income') {
+        const nums = text.split(',').map(s => parseInt(s.trim(), 10)).filter(n => n >= 1 && n <= INCOME_SOURCE_OPTIONS.length);
+        if (!nums.length) {
+          await reply('Please select your income source(s). Example: 1, 3');
+          sendOk();
+          return;
+        }
+        const sources = nums.map(n => INCOME_SOURCE_OPTIONS[n - 1]);
+        const pid = td.currentProfileId;
+        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+        }
+        if (profile) {
+          profile.primaryIncomeSources = sources;
+          await profile.save();
+          await reply(`Income sources updated to: ${sources.join(', ')} ✅\n\nYour profile has been updated.`);
+        }
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        sendOk();
+        return;
+      }
+      
+      if (session.step === 'edit_residency') {
+        const choice = String(text || '').trim();
+        const residency = choice === '1';
+        const pid = td.currentProfileId;
+        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+        }
+        if (profile) {
+          profile.residency183Days = residency;
+          await profile.save();
+          await reply(`Residency updated: ${residency ? 'Yes, lived in Nigeria 183+ days' : 'No, spent time outside Nigeria'} ✅\n\nYour profile has been updated.`);
+        }
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        sendOk();
+        return;
+      }
+      
+      if (session.step === 'edit_state') {
+        const state = String(text || '').trim().slice(0, 100);
+        if (!state) {
+          await reply('Please enter your state.');
+          sendOk();
+          return;
+        }
+        const pid = td.currentProfileId;
+        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+        }
+        if (profile) {
+          profile.state = state;
+          await profile.save();
+          await reply(`State updated to ${state} ✅\n\nYour profile has been updated.`);
+        }
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        sendOk();
+        return;
+      }
+      
+      if (session.step === 'edit_rent_yn') {
+        const choice = String(text || '').trim();
+        if (choice === '2') {
+          // No rent - set paysRent to false
+          const pid = td.currentProfileId;
+          let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+          if (!profile) {
+            profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+          }
+          if (profile) {
+            profile.paysRent = false;
+            profile.rentAnnualAmount = null;
+            profile.rentMonthlyAmount = null;
+            await profile.save();
+            await reply(`Rent relief removed ✅\n\nYour profile has been updated.`);
+          }
+          session.step = 'done';
+          session.taxProfileData = {};
+          await session.save();
+          const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+          await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+          sendOk();
+          return;
+        }
+        if (choice !== '1') {
+          await reply('Please reply with 1 or 2.\n\n1️⃣ Yes\n2️⃣ No');
+          sendOk();
+          return;
+        }
+        td.editingField = 'rent';
+        session.step = 'edit_rent_amount';
+        session.taxProfileData = td;
+        await session.save();
+        await reply('What is your monthly rent amount?\n\n✏️ Type the amount in Naira (numbers only)\nExample: 500000');
+        sendOk();
+        return;
+      }
+      
+      if (session.step === 'edit_rent_amount') {
+        const amountRaw = String(text || '').replace(/[,₦\s]/g, '');
+        const amount = parseFloat(amountRaw, 10);
+        if (isNaN(amount) || amount < 0) {
+          await reply('Please enter a valid amount in Naira (e.g. 500000).');
+          sendOk();
+          return;
+        }
+        const pid = td.currentProfileId;
+        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+        }
+        if (profile) {
+          profile.paysRent = true;
+          profile.rentMonthlyAmount = amount;
+          profile.rentAnnualAmount = amount * 12;
+          await profile.save();
+          await reply(`Rent updated to ₦${Number(amount).toLocaleString()}/month ✅\n\nYour profile has been updated.`);
+        }
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        sendOk();
+        return;
+      }
+      
+      if (session.step === 'edit_filing_preference') {
+        const choice = String(text || '').trim();
+        const pid = td.currentProfileId;
+        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+        }
+        if (!profile) {
+          await reply("Couldn't find your profile. Please try again.");
+          session.step = 'done';
+          await session.save();
+          sendOk();
+          return;
+        }
+        let filingPref = null;
+        if (profile.year === 2025) {
+          filingPref = 'annual';
+        } else if (choice === '1') {
+          filingPref = 'monthly';
+        } else if (choice === '2') {
+          filingPref = 'annual';
+        }
+        if (filingPref) {
+          profile.filingPreference = filingPref;
+          await profile.save();
+          await reply(`Filing preference updated to ${filingPref === 'monthly' ? 'Monthly' : 'Annual'} ✅\n\nYour profile has been updated.`);
+        } else {
+          await reply('Please reply with 1 or 2.');
+          sendOk();
+          return;
+        }
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
         sendOk();
         return;
       }
@@ -4041,10 +4386,20 @@ const handleWebhook = async (req, res) => {
           // View / Edit existing profile
           const profileId = session.taxProfileData?._profileId;
           if (profileId) {
-            session.step = 'tax_profile_summary_confirm';
-            await session.save();
             try {
               const profile = await TaxableProfile.findByProfileIdOrId(profileId, regUser._id);
+              if (!profile) {
+                await reply("Couldn't find your profile. Please try again." + BACK_TO_MENU_FOOTER);
+                sendOk();
+                return;
+              }
+              session.step = 'tax_profile_summary_confirm';
+              session.taxProfileData = {
+                ...session.taxProfileData,
+                currentProfileId: profile.profileId,
+                year: profile.year
+              };
+              await session.save();
               const breakdown = await generateCompleteBreakdown(profile._id, profile.year);
               const summaryMsg = await getTaxProfileSummaryForStep8(regUser.firstName, profile, session.taxProfileData, breakdown);
               await reply(summaryMsg);

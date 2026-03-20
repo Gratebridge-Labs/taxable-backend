@@ -77,6 +77,15 @@ const whatsAppSessionSchema = new mongoose.Schema({
       'tax_profile_subscription',
       'tax_profile_subscription_details',
       'tax_profile_subscription_later',
+      // Direct edit steps
+      'edit_tax_year',
+      'edit_nin',
+      'edit_income',
+      'edit_residency',
+      'edit_state',
+      'edit_rent_yn',
+      'edit_rent_amount',
+      'edit_filing_preference',
       // Filing, banks & reliefs
       'filing_confirm',
       // Filing payments (accountant review / filing fee) pending confirmation via "done"
