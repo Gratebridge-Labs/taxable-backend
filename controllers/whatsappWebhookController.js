@@ -1459,8 +1459,22 @@ const handleWebhook = async (req, res) => {
       'tax_profile_final_steps',
       'tax_profile_subscription',
       'tax_profile_subscription_details',
-      'tax_profile_subscription_later'
+      'tax_profile_subscription_later',
+      // Direct edit flow steps (must be included so replies are routed to edit handlers)
+      'edit_tax_year',
+      'edit_nin',
+      'edit_income',
+      'edit_residency',
+      'edit_state',
+      'edit_rent_yn',
+      'edit_rent_amount',
+      'edit_filing_preference'
     ];
+    if (session && String(session.step || '').startsWith('edit_') && !taxProfileSteps.includes(session.step)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7402/ingest/8841f111-e782-4862-acaa-8f2e41540d3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'23342d'},body:JSON.stringify({sessionId:'23342d',runId:'post-fix',hypothesisId:'H6',location:'controllers/whatsappWebhookController.js:taxProfileSteps:gate',message:'Edit step is missing from taxProfileSteps allowlist',data:{step:session.step},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+    }
     if (session && taxProfileSteps.includes(session.step)) {
       const phoneForTax = waIdToPhone(from);
       const userForTax = await User.findOne({ $or: [{ phone: phoneForTax }, { phone: phoneForTax.replace(/^0/, '234') }] }).select('_id firstName').lean();
@@ -3108,6 +3122,9 @@ const handleWebhook = async (req, res) => {
       
       if (session.step === 'edit_residency') {
         const choice = String(text || '').trim();
+        // #region agent log
+        fetch('http://127.0.0.1:7402/ingest/8841f111-e782-4862-acaa-8f2e41540d3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'23342d'},body:JSON.stringify({sessionId:'23342d',runId:'post-fix',hypothesisId:'H7',location:'controllers/whatsappWebhookController.js:edit_residency:entry',message:'Entered edit_residency handler',data:{choice,step:session.step,currentProfileId:td.currentProfileId||null},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         const residency = choice === '1';
         const pid = td.currentProfileId;
         let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
