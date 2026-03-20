@@ -6,10 +6,6 @@
 // —— SHARED INTRO & MENU CONSTANT BLOCK (same for all users after greeting) ——
 const TAXABLE_INTRO_LINE = `I'm Taxable — your personal tax assistant for everything Nigerian tax.`;
 
-const WATCH_VIDEO_URL = 'https://www.youtube.com/watch?v=KSeupcEGVN4&t=82s&pp=ygUJdGF4c2xheWVy';
-const WATCH_VIDEO_THUMBNAIL_URL = 'https://img.youtube.com/vi/KSeupcEGVN4/maxresdefault.jpg';
-const WATCH_VIDEO_CAPTION = `📽 Watch how it works in 2 minutes:\n${WATCH_VIDEO_URL}`;
-
 const MENU_CONSTANT_BLOCK = `Tax doesn't have to be confusing.
 On Taxable, it's simple. Just 5 easy steps:
 1️⃣ Create your account
@@ -377,9 +373,8 @@ function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = fal
 1️⃣ My Tax Profile
 2️⃣ File / Update Taxes
 3️⃣ Subscribe / Manage Plan
-4️⃣ Watch Explainer Videos
-5️⃣ FAQs
-6️⃣ Talk to Support`;
+4️⃣ FAQs
+5️⃣ Talk to Support`;
 
   return msg;
 }
@@ -453,7 +448,5 @@ module.exports = {
   getLoggedInMainMenu,
   FILE_TAX_CONFIRM,
   FILE_TAX_SUBMITTED,
-  BACK_TO_MENU_FOOTER,
-  WATCH_VIDEO_THUMBNAIL_URL,
-  WATCH_VIDEO_CAPTION
+  BACK_TO_MENU_FOOTER
 };

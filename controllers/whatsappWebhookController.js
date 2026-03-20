@@ -56,9 +56,7 @@ const {
   CONNECT_BANK_INTRO,
   getConnectBankLink,
   CONNECT_ANOTHER_BANK,
-  BACK_TO_MENU_FOOTER,
-  WATCH_VIDEO_THUMBNAIL_URL,
-  WATCH_VIDEO_CAPTION
+  BACK_TO_MENU_FOOTER
 } = require('../constants/whatsappPrompts');
 const { generateCompleteBreakdown } = require('../utils/breakdownCalculator');
 const { performFileTax } = require('./profileController');
@@ -1016,15 +1014,6 @@ const handleWebhook = async (req, res) => {
       .catch(err => console.error('[WhatsApp webhook] Send error:', err.message || err));
   };
 
-  /** Send YouTube thumbnail + caption so the video link shows with preview in WhatsApp. */
-  async function sendWatchVideoPreview() {
-    try {
-      await sendImage(from, WATCH_VIDEO_THUMBNAIL_URL, WATCH_VIDEO_CAPTION);
-    } catch (e) {
-      console.error('[WhatsApp] sendWatchVideoPreview error:', e.message);
-    }
-  }
-
   // —— Incoming image or document: save and link to relief (user can send docs in chat) ——
   if (type === 'image' || type === 'document') {
     // Check if user has verified email
@@ -1121,7 +1110,28 @@ const handleWebhook = async (req, res) => {
     // Hi Taxable / Get started → PDF: entry (no account) or post-verification / logged-in menu (returning user)
     if (isGetStarted) {
       try {
-        const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id').lean();
+        const userForMenu = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('firstName _id emailVerified').lean();
+        
+        // Check if user exists but hasn't verified email
+        if (userForMenu && !userForMenu.emailVerified) {
+          await reply(
+            `Hi ${userForMenu.firstName} 👋\n\n` +
+            `Your email hasn't been verified yet.\n\n` +
+            `Please check your inbox for the verification code we sent you.\n\n` +
+            `Reply with your 6-digit code to verify.\n` +
+            `Or:\n` +
+            `• Reply *resend* to get a new code\n` +
+            `• Reply *wrong email* to change your email address`
+          );
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'otp', updatedAt: new Date() } },
+            { upsert: true, new: true }
+          );
+          sendOk();
+          return;
+        }
+        
         if (userForMenu) {
           console.log('[WhatsApp menu] User resolved for menu', {
             waId: from,
@@ -4183,19 +4193,8 @@ const handleWebhook = async (req, res) => {
         return;
       }
       
-      // 4️⃣ Watch Explainer Videos
+      // 4️⃣ FAQs
       if (choice === '4') {
-        await reply(
-          `*Watch Explainer Videos*\n\n` +
-          `📽 How Taxable Works\n${WATCH_VIDEO_URL}\n\n` +
-          `Reply *Menu* to go back to the main menu.`
-        );
-        sendOk();
-        return;
-      }
-      
-      // 5️⃣ FAQs
-      if (choice === '5') {
         await reply(
           `*FAQs*\n\n` +
           `1️⃣ How does Taxable work?\n` +
@@ -4209,8 +4208,8 @@ const handleWebhook = async (req, res) => {
         return;
       }
       
-      // 6️⃣ Talk to Support
-      if (choice === '6') {
+      // 5️⃣ Talk to Support
+      if (choice === '5') {
         await reply(
           `*Talk to Support*\n\n` +
           `Need help? Our team is here for you.\n\n` +
@@ -5176,7 +5175,6 @@ const handleWebhook = async (req, res) => {
           { upsert: true, new: true }
         );
       } else {
-        await sendWatchVideoPreview();
         await reply(getPostVerificationWelcome(regUser.firstName));
       }
       sendOk();
@@ -5535,7 +5533,6 @@ const handleWebhook = async (req, res) => {
         if (c === '2') {
           session.step = 'done';
           await session.save();
-          await sendWatchVideoPreview();
           await reply(getPostVerificationWelcome(firstName));
           sendOk();
           return;
@@ -5635,20 +5632,31 @@ const handleWebhook = async (req, res) => {
         await sess.save();
       }
       
-      async function sendWatchVideoPreview() {
-        if (WATCH_VIDEO_THUMBNAIL_URL) {
-          try {
-            await sendImage(from, WATCH_VIDEO_THUMBNAIL_URL, WATCH_VIDEO_CAPTION);
-          } catch (e) {
-            console.error('[WhatsApp] sendWatchVideoPreview error:', e.message);
-          }
-        }
-      }
-      
       case 'done': {
         try {
           const phoneForDone = waIdToPhone(from);
-          const userDone = await User.findOne({ $or: [{ phone: phoneForDone }, { phone: phoneForDone.replace(/^0/, '234') }] }).select('_id firstName').lean();
+          const userDone = await User.findOne({ $or: [{ phone: phoneForDone }, { phone: phoneForDone.replace(/^0/, '234') }] }).select('_id firstName emailVerified').lean();
+          
+          // Check if user exists but hasn't verified email
+          if (userDone && !userDone.emailVerified) {
+            await reply(
+              `Hi ${userDone.firstName} 👋\n\n` +
+              `Your email hasn't been verified yet.\n\n` +
+              `Please check your inbox for the verification code we sent you.\n\n` +
+              `Reply with your 6-digit code to verify.\n` +
+              `Or:\n` +
+              `• Reply *resend* to get a new code\n` +
+              `• Reply *wrong email* to change your email address`
+            );
+            await WhatsAppSession.findOneAndUpdate(
+              { waId: from },
+              { $set: { step: 'otp', updatedAt: new Date() } },
+              { upsert: true, new: true }
+            );
+            sendOk();
+            return;
+          }
+          
           if (userDone) {
             const hasSubDone = await safeHasActiveSubscription(userDone._id);
             const latestProfileDone = await TaxableProfile.findOne({ user: userDone._id }).sort({ year: -1 }).select('_id year filingStatus filingPreference').lean();
