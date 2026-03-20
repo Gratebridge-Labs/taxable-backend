@@ -188,34 +188,14 @@ const CREATE_ACCOUNT_EMAIL = `What's your email address?`;
 const CREATE_ACCOUNT_PASSWORD = `Now create a password.`;
 
 // —— POST-VERIFICATION WELCOME (logged in user - use same main menu) ——
-function getPostVerificationWelcome(firstName, year = 2025) {
-  return getLoggedInMainMenu(firstName, year, false, { filingStatus: 'not_filed' });
+function getPostVerificationWelcome(firstName) {
+  return getLoggedInMainMenu(firstName, false);
 }
 
 // Alias for backward compatibility
 const getLoggedInMainMenuOld = getLoggedInMainMenu;
 
-// —— SUBSCRIPTION PLACEMENT (when user taps locked action) ——
-const SUBSCRIPTION_REQUIRED = `To unlock this feature, you'll need an active subscription.
-
-Taxable runs year-round to:
-• Stay synced with your financial activity
-• Track changes automatically
-• Store your tax records securely
-• Send deadline reminders
-• Keep you compliant all year
-
-💳 ₦4,000 monthly
-💳 ₦30,000 yearly
-If you choose yearly, you save ₦18,000.
-That's over 6 months free.
-You can cancel anytime.
-
-What would you like to do?
-• Choose monthly
-• Choose yearly (Best value)
-• Learn why subscription matters
-• Go back${BACK_TO_MENU_FOOTER}`;
+// SUBSCRIPTION_REQUIRED - removed, no longer used in WhatsApp flow
 
 const SUBSCRIPTION_WHY_IT_MATTERS = `Tax isn't just about filing once.
 It's about staying updated as your income changes, capturing new reliefs, and avoiding penalties.
@@ -335,8 +315,7 @@ const CONNECT_ANOTHER_BANK = `Would you like to connect another bank?
 • No — continue${BACK_TO_MENU_FOOTER}`;
 
 // —— LOGGED-IN MAIN MENU ——
-function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = false, options = {}) {
-  const filingStatus = options.filingStatus || 'not_filed';
+function getLoggedInMainMenu(firstName, hasProfile = false, year = null, filingStatus = null, options = {}) {
   const filingSummary = options.filingSummary || {};
   const fmt = (n) => (n != null && Number(n) >= 0 ? `₦${Number(n).toLocaleString()}` : '—');
 
@@ -353,11 +332,13 @@ function getLoggedInMainMenu(firstName, year = 2025, hasActiveSubscription = fal
     monthly_pending: 'Monthly update pending'
   };
 
-  let msg = `Hi ${firstName} 👋
+  let msg = `Hi ${firstName} 👋\n`;
 
-*Tax year:* ${year}
-*Filing status:* ${statusLabelMap[filingStatus] || filingStatus}
-`;
+  // Only show tax year and filing status if user has a profile
+  if (hasProfile && year) {
+    msg += `\n*Tax year:* ${year}\n`;
+    msg += `*Filing status:* ${statusLabelMap[filingStatus] || 'Not yet filed'}\n`;
+  }
 
   if (filingSummary.estimatedAnnualIncome != null || filingSummary.estimatedTax != null) {
     msg += `\n`;

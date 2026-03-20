@@ -43,7 +43,6 @@ const {
   getPostVerificationWelcome,
   getTaxProfileIntro,
   TAX_PROFILE_ASK_NIN,
-  SUBSCRIPTION_REQUIRED,
   SUBSCRIPTION_WHY_IT_MATTERS,
   getPaymentLinkMessage,
   getPaymentLinkMessageYearly,
@@ -1194,9 +1193,9 @@ const handleWebhook = async (req, res) => {
               console.error('[WhatsApp] getLoggedInMainMenu breakdown error:', e.message);
             }
 
-            await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub, menuOpts));
+            await reply(getLoggedInMainMenu(userForMenu.firstName, true, year, latestProfile?.filingStatus || null, menuOpts));
           } else {
-            await reply(getLoggedInMainMenu(userForMenu.firstName, year, false, { filingStatus: 'not_filed' }));
+            await reply(getLoggedInMainMenu(userForMenu.firstName, false));
           }
           session = await WhatsAppSession.findOneAndUpdate(
             { waId: from },
@@ -1400,9 +1399,9 @@ const handleWebhook = async (req, res) => {
           const hasSub = await safeHasActiveSubscription(userDoc._id);
           const year = hasProfile?.year || new Date().getFullYear();
           if (hasProfile) {
-            await reply(getLoggedInMainMenu(userDoc.firstName, year, hasSub));
+            await reply(getLoggedInMainMenu(userDoc.firstName, true, hasProfile.year, null));
           } else {
-            await reply(getLoggedInMainMenu(userDoc.firstName, year, false, { filingStatus: 'not_filed' }));
+            await reply(getLoggedInMainMenu(userDoc.firstName, false));
           }
         } catch (e) {
           console.error('[WhatsApp] Login success save error:', e.message);
@@ -3188,7 +3187,7 @@ const handleWebhook = async (req, res) => {
           session.step = 'done';
           session.taxProfileData = {};
           await session.save();
-          const menu = await getLoggedInMainMenu(userForTax.firstName, td.year || new Date().getFullYear(), false);
+          const menu = await getLoggedInMainMenu(userForTax.firstName, false);
           await reply(menu);
         } else {
           await reply('Reply 1 to go back to Main Menu.');
@@ -3422,9 +3421,8 @@ const handleWebhook = async (req, res) => {
         if (choice === '0') {
           session.step = 'done';
           await session.save();
-          const hasSub = await safeHasActiveSubscription(regUser._id);
           const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
-          await reply(getLoggedInMainMenu(regUser.firstName, latestProfile?.year || new Date().getFullYear(), hasSub, { filingStatus: latestProfile?.filingStatus || 'not_filed' }));
+          await reply(getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
           sendOk();
           return;
         }
@@ -3750,9 +3748,8 @@ const handleWebhook = async (req, res) => {
         if (choice === '0') {
           session.step = 'done';
           await session.save();
-          const hasSub = await safeHasActiveSubscription(regUser._id);
           const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
-          await reply(getLoggedInMainMenu(regUser.firstName, latestProfile?.year || new Date().getFullYear(), hasSub, { filingStatus: latestProfile?.filingStatus || 'not_filed' }));
+          await reply(getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
           sendOk();
           return;
         }
@@ -3917,9 +3914,8 @@ const handleWebhook = async (req, res) => {
         if (choice === '0') {
           session.step = 'done';
           await session.save();
-          const hasSub = await safeHasActiveSubscription(regUser._id);
           const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
-          await reply(getLoggedInMainMenu(regUser.firstName, latestProfile?.year || new Date().getFullYear(), hasSub, { filingStatus: latestProfile?.filingStatus || 'not_filed' }));
+          await reply(getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
           sendOk();
           return;
         }
@@ -4030,9 +4026,8 @@ const handleWebhook = async (req, res) => {
         if (choice === '0') {
           session.step = 'done';
           await session.save();
-          const hasSub = await safeHasActiveSubscription(regUser._id);
           const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
-          await reply(getLoggedInMainMenu(regUser.firstName, latestProfile?.year || new Date().getFullYear(), hasSub, { filingStatus: latestProfile?.filingStatus || 'not_filed' }));
+          await reply(getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
           sendOk();
           return;
         }
@@ -4116,24 +4111,30 @@ const handleWebhook = async (req, res) => {
 
     // —— Main menu numeric shortcuts (must be numbers) ——
     // New menu structure:
-    // 1 = My Tax Profile, 2 = File / Update Taxes, 3 = Subscribe / Manage Plan, 4 = Watch Videos, 5 = FAQs, 6 = Talk to Support
+    // 1 = My Tax Profile, 2 = File / Update Taxes, 3 = Subscribe / Manage Plan, 4 = FAQs, 5 = Talk to Support
     if (regUser && session?.step === 'done') {
       const choice = String(text || '').trim();
       
-      // 1️⃣ My Tax Profile
+      // 1️⃣ My Tax Profile - Go directly to create/manage profile
       if (choice === '1') {
-        const hasSub = await safeHasActiveSubscription(regUser._id);
-        if (!hasSub) {
-          await reply(SUBSCRIPTION_REQUIRED);
-          sendOk();
-          return;
-        }
         const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year profileId filingPreference filingStatus').lean();
         if (!latestProfile) {
-          await reply("You don't have a tax profile yet.\n\nLet me help you create one. Reply *Start* to begin, or reply *Menu* to go back.");
+          // No profile - start creating one directly
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'tax_profile_year', taxProfileData: { year: new Date().getFullYear() }, updatedAt: new Date() } },
+            { upsert: true, new: true }
+          );
+          await reply(
+            `*Create Tax Profile*\n\n` +
+            `Let's get started! First, which tax year do you want to file for?\n\n` +
+            `1️⃣ ${new Date().getFullYear()} (January – December ${new Date().getFullYear()})\n` +
+            `2️⃣ ${new Date().getFullYear() + 1} (January – December ${new Date().getFullYear() + 1})`
+          );
           sendOk();
           return;
         }
+        // Has profile - show profile options
         session = await WhatsAppSession.findOneAndUpdate(
           { waId: from },
           { $set: { step: 'tax_profile_draft_choice', taxProfileData: { _profileId: latestProfile.profileId, year: latestProfile.year }, updatedAt: new Date() } },
@@ -4156,17 +4157,23 @@ const handleWebhook = async (req, res) => {
         return;
       }
       
-      // 2️⃣ File / Update Taxes
+      // 2️⃣ File / Update Taxes - Prompt to create profile if none exists
       if (choice === '2') {
-        const hasSub = await safeHasActiveSubscription(regUser._id);
-        if (!hasSub) {
-          await reply(SUBSCRIPTION_REQUIRED);
-          sendOk();
-          return;
-        }
         const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year filingPreference filingStatus').lean();
         if (!latestProfile) {
-          await reply("You don't have a tax profile yet. Go to *My Tax Profile* (option 1) to create one first.");
+          // No profile - start creating one
+          session = await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'tax_profile_year', taxProfileData: { year: new Date().getFullYear() }, updatedAt: new Date() } },
+            { upsert: true, new: true }
+          );
+          await reply(
+            `*Create Tax Profile*\n\n` +
+            `To file your taxes, you need a tax profile first.\n\n` +
+            `Let's get started! Which tax year do you want to file for?\n\n` +
+            `1️⃣ ${new Date().getFullYear()} (January – December ${new Date().getFullYear()})\n` +
+            `2️⃣ ${new Date().getFullYear() + 1} (January – December ${new Date().getFullYear() + 1})`
+          );
           sendOk();
           return;
         }
@@ -4239,10 +4246,8 @@ const handleWebhook = async (req, res) => {
             session.step = 'done';
             session.taxProfileData = { ...(session.taxProfileData || {}), filingProfileId: undefined };
             await session.save();
-            const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
-            const year = hasProfile?.year || new Date().getFullYear();
-            const hasSub = await safeHasActiveSubscription(regUser._id);
-            await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
+            const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+            await reply(getLoggedInMainMenu(regUser.firstName, !!hasProfile, hasProfile?.year || null, hasProfile?.filingStatus || null));
           } else {
             await reply(result.message || "We couldn't file your tax right now. Please try again or contact support.");
           }
@@ -4254,10 +4259,8 @@ const handleWebhook = async (req, res) => {
         session.step = 'done';
         session.taxProfileData = { ...(session.taxProfileData || {}), filingProfileId: undefined };
         await session.save();
-        const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
-        const year = hasProfile?.year || new Date().getFullYear();
-        const hasSub = await safeHasActiveSubscription(regUser._id);
-        await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub));
+        const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        await reply(getLoggedInMainMenu(regUser.firstName, !!hasProfile, hasProfile?.year || null, hasProfile?.filingStatus || null));
       } else {
         await reply("Reply *CONFIRM* to file, or *Back* to review.");
       }
@@ -4300,9 +4303,7 @@ const handleWebhook = async (req, res) => {
 
         await reply("Here's your latest filing status:");
         await reply(
-          getLoggedInMainMenu(regUser.firstName, year, hasSub, {
-            filingStatus: profile.filingStatus
-          })
+          getLoggedInMainMenu(regUser.firstName, true, year, profile.filingStatus)
         );
 
         // Reset session back to main menu after confirming filing payment status.
@@ -4335,10 +4336,8 @@ const handleWebhook = async (req, res) => {
         const result = await verifyPendingSubscriptionForUser(regUser._id);
         if (result.verified) {
           await reply(getPaymentConfirmedAfterProfile(regUser.firstName));
-          const hasProfile = await TaxableProfile.findOne({ user: regUser._id }).select('_id').lean();
-          const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year').lean();
-          const year = latestProfile?.year || new Date().getFullYear();
-          await reply(getLoggedInMainMenu(regUser.firstName, year, true));
+          const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+          await reply(getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
         } else {
           await reply(result.message || PAYMENT_NOT_CONFIRMED_YET);
         }
@@ -4352,7 +4351,7 @@ const handleWebhook = async (req, res) => {
 
     // —— Subscription plans menu (PDF) ——
     if (regUser && isSubscriptionPlansIntent(text)) {
-      await reply(SUBSCRIPTION_REQUIRED);
+      await handleSubscriptionMenu(regUser, session);
       sendOk();
       return;
     }
@@ -4392,7 +4391,8 @@ const handleWebhook = async (req, res) => {
           { waId: from },
           { $set: { step: 'done', updatedAt: new Date() } }
         );
-        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        const menu = await getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null);
         await reply(menu);
         sendOk();
         return;
@@ -4412,14 +4412,8 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // —— Locked actions: require active subscription (PDF 🔒) ——
+    // —— Review profile ——
     if (regUser && isReviewProfileIntent(text)) {
-      const hasSub = await safeHasActiveSubscription(regUser._id);
-      if (!hasSub) {
-        await reply(SUBSCRIPTION_REQUIRED);
-        sendOk();
-        return;
-      }
       const latestProfile = await TaxableProfile.findOne({ user: regUser._id })
         .sort({ year: -1 })
         .select('year primaryNIN primaryIncomeSources residency183Days paysRent hasPension hasHealthInsurance paysMortgage')
@@ -4479,14 +4473,8 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // —— View tax summary (PDF: income, reliefs, estimated tax, fee, next steps) ——
+    // —— View tax summary ——
     if (regUser && isViewTaxSummaryIntent(text)) {
-      const hasSub = await safeHasActiveSubscription(regUser._id);
-      if (!hasSub) {
-        await reply(SUBSCRIPTION_REQUIRED);
-        sendOk();
-        return;
-      }
       const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id year profileId').lean();
       if (!latestProfile) {
         await reply("You don't have a tax profile yet. Reply *Create tax profile* to set one up.");
@@ -4516,14 +4504,8 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // —— Manage connected banks (PDF: list, add, remove) ——
+    // —— Manage connected banks ——
     if (regUser && isManageConnectedBanksIntent(text)) {
-      const hasSub = await safeHasActiveSubscription(regUser._id);
-      if (!hasSub) {
-        await reply(SUBSCRIPTION_REQUIRED);
-        sendOk();
-        return;
-      }
       const links = await MonoLink.find({ user: regUser._id, status: 'linked' }).sort({ updatedAt: -1 }).lean();
       if (!links.length) {
         try {
@@ -4560,7 +4542,8 @@ const handleWebhook = async (req, res) => {
           { waId: from },
           { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
         );
-        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        const menu = await getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null);
         await reply(menu);
         sendOk();
         return;
@@ -4631,7 +4614,8 @@ const handleWebhook = async (req, res) => {
           { waId: from },
           { $set: { step: 'done', 'taxProfileData.manageBanksLinkIds': [], updatedAt: new Date() } }
         );
-        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        const menu = await getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null);
         await reply(menu);
         sendOk();
         return;
@@ -4706,14 +4690,8 @@ const handleWebhook = async (req, res) => {
       return;
     }
 
-    // —— Add reliefs (PDF: relief menu → amount → saved; documents via dashboard) ——
+    // —— Add reliefs ——
     if (regUser && isAddReliefsIntent(text)) {
-      const hasSub = await safeHasActiveSubscription(regUser._id);
-      if (!hasSub) {
-        await reply(SUBSCRIPTION_REQUIRED);
-        sendOk();
-        return;
-      }
       const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('_id profileId year').lean();
       if (!latestProfile) {
         await reply("You don't have a tax profile yet. Reply *Create tax profile* first.");
@@ -4755,7 +4733,8 @@ const handleWebhook = async (req, res) => {
           { waId: from },
           { $set: { step: 'done', 'taxProfileData.reliefProfileId': undefined, 'taxProfileData.reliefYear': undefined, 'taxProfileData.selectedReliefType': undefined, updatedAt: new Date() } }
         );
-        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        const menu = await getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null);
         await reply(menu);
         sendOk();
         return;
@@ -4784,7 +4763,8 @@ const handleWebhook = async (req, res) => {
           { waId: from },
           { $set: { step: 'done', 'taxProfileData.reliefProfileId': undefined, 'taxProfileData.reliefYear': undefined, 'taxProfileData.lastDeductionId': undefined, updatedAt: new Date() } }
         );
-        const menu = await getLoggedInMainMenu(regUser.firstName, new Date().getFullYear(), await safeHasActiveSubscription(regUser._id));
+        const latestProfile = await TaxableProfile.findOne({ user: regUser._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        const menu = await getLoggedInMainMenu(regUser.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null);
         await reply(menu);
         sendOk();
         return;
@@ -4892,7 +4872,7 @@ const handleWebhook = async (req, res) => {
       if (filingStatus === 'filed') {
         const year = latestProfile.year || new Date().getFullYear();
         await reply("You've already filed your " + yearLabel + " tax return.");
-        await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub, { filingStatus: 'filed', filedForYear: year }));
+        await reply(getLoggedInMainMenu(regUser.firstName, true, year, 'filed'));
         sendOk();
         return;
       }
@@ -4964,12 +4944,6 @@ const handleWebhook = async (req, res) => {
     }
 
     if (regUser && isContinueMyFilingIntent(text)) {
-      const hasSub = await safeHasActiveSubscription(regUser._id);
-      if (!hasSub) {
-        await reply(SUBSCRIPTION_REQUIRED);
-        sendOk();
-        return;
-      }
       const latestProfile = await TaxableProfile.findOne({ user: regUser._id })
         .sort({ year: -1, createdAt: -1 })
         .select('primaryNIN dob street city state profileId')
@@ -5152,10 +5126,6 @@ const handleWebhook = async (req, res) => {
 
       const year = latestProfile?.year || new Date().getFullYear();
       if (latestProfile) {
-        const menuOpts = {};
-        if (latestProfile.filingStatus) menuOpts.filingStatus = latestProfile.filingStatus;
-        if (latestProfile.filingStatus === 'filed') menuOpts.filedForYear = year;
-
         console.log('[WhatsApp menu] Resolved latestProfile for menu (menu/hi)', {
           waId: from,
           userId: regUser._id.toString(),
@@ -5165,7 +5135,7 @@ const handleWebhook = async (req, res) => {
           chosenFilingStatus: latestProfile?.filingStatus || null
         });
 
-        await reply(getLoggedInMainMenu(regUser.firstName, year, hasSub, menuOpts));
+        await reply(getLoggedInMainMenu(regUser.firstName, true, year, latestProfile?.filingStatus || null));
 
         // Ensure numeric shortcuts (1/2/3) work immediately after showing the menu.
         await WhatsAppSession.findOneAndUpdate(
@@ -5497,7 +5467,7 @@ const handleWebhook = async (req, res) => {
           await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — welcome back!`);
           session.step = 'done';
           await session.save();
-          await reply(getLoggedInMainMenu(data.firstName, new Date().getFullYear(), false, { filingStatus: 'not_filed' }));
+          await reply(getLoggedInMainMenu(data.firstName, false));
           sendOk();
           return;
         }
@@ -5520,7 +5490,7 @@ const handleWebhook = async (req, res) => {
         session.pendingUserId = undefined;
         await session.save();
         await reply(`✅ You're in, ${data.firstName}! Your email is verified. Your account is ready. 🎉\n\nHere's your main menu:`);
-        await reply(getLoggedInMainMenu(data.firstName, new Date().getFullYear(), false, { filingStatus: 'not_filed' }));
+        await reply(getLoggedInMainMenu(data.firstName, false));
         break;
       }
       case 'account_created_choice': {
@@ -5553,7 +5523,7 @@ const handleWebhook = async (req, res) => {
         if (c === '3') {
           session.step = 'done';
           await session.save();
-          await reply(SUBSCRIPTION_REQUIRED);
+          await handleSubscriptionMenu(user, session);
           sendOk();
           return;
         }
@@ -5670,11 +5640,8 @@ const handleWebhook = async (req, res) => {
           }
           
           if (userDone) {
-            const hasSubDone = await safeHasActiveSubscription(userDone._id);
             const latestProfileDone = await TaxableProfile.findOne({ user: userDone._id }).sort({ year: -1 }).select('_id year filingStatus filingPreference').lean();
-            const yearDone = latestProfileDone?.year || new Date().getFullYear();
-            const menuOpts = { filingStatus: latestProfileDone?.filingStatus || 'not_filed' };
-            await reply(getLoggedInMainMenu(userDone.firstName, yearDone, hasSubDone, menuOpts));
+            await reply(getLoggedInMainMenu(userDone.firstName, !!latestProfileDone, latestProfileDone?.year || null, latestProfileDone?.filingStatus || null));
           } else {
             await reply(FIRST_WELCOME_MESSAGE);
             await WhatsAppSession.findOneAndUpdate({ waId: from }, { $set: { step: 'welcome_choice', updatedAt: new Date() } }, { upsert: true, new: true });
