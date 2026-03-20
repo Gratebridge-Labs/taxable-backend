@@ -1518,6 +1518,52 @@ const handleWebhook = async (req, res) => {
       if (!currentProfile && td.year != null) {
         currentProfile = await TaxableProfile.findOne({ user: userForTax._id, year: td.year }).sort({ createdAt: -1 }).limit(1).exec();
       }
+      const EDIT_SUMMARY_MENU_TEXT =
+        'Which part would you like to update?\n\n' +
+        '1️⃣ Tax Year\n' +
+        '2️⃣ NIN / Tax ID\n' +
+        '3️⃣ Income Sources\n' +
+        '4️⃣ Tax Residency\n' +
+        '5️⃣ State of Residence\n' +
+        '6️⃣ Deductibles & Reliefs\n' +
+        '7️⃣ Filing Preference';
+
+      const returnToTaxProfileEditSummaryMenu = async (profileHint = null) => {
+        let profile = profileHint;
+        if (!profile) {
+          const profileId = td.currentProfileId;
+          profile = profileId ? await TaxableProfile.findByProfileIdOrId(profileId, userForTax._id) : null;
+        }
+        if (!profile && td.year) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id, year: td.year }).sort({ createdAt: -1 }).exec();
+        }
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).exec();
+        }
+        if (!profile) {
+          await reply("Couldn't load your profile summary right now. Say *Menu* to continue.");
+          session.step = 'done';
+          session.taxProfileData = {};
+          await session.save();
+          return;
+        }
+
+        td.currentProfileId = profile.profileId;
+        td.year = profile.year;
+        session.step = 'tax_profile_edit_choice';
+        session.taxProfileData = td;
+        await session.save();
+
+        // #region agent log
+        fetch('http://127.0.0.1:7402/ingest/8841f111-e782-4862-acaa-8f2e41540d3f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'23342d'},body:JSON.stringify({sessionId:'23342d',runId:'post-fix',hypothesisId:'H8',location:'controllers/whatsappWebhookController.js:returnToTaxProfileEditSummaryMenu',message:'Returned to tax profile edit summary after successful update',data:{step:session.step,profileId:profile.profileId,year:profile.year},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+
+        let breakdown = null;
+        try { breakdown = await generateCompleteBreakdown(profile._id, profile.year); } catch (e) {}
+        const summaryMsg = await getTaxProfileSummaryForStep8(userForTax.firstName, profile, td, breakdown);
+        await reply(summaryMsg);
+        await reply(EDIT_SUMMARY_MENU_TEXT);
+      };
 
       if (session.step === 'tax_profile_draft_choice') {
         const choice = String(text || '').trim();
@@ -2883,16 +2929,7 @@ const handleWebhook = async (req, res) => {
           session.step = 'tax_profile_edit_choice';
           session.taxProfileData = td;
           await session.save();
-          await reply(
-            'Which part would you like to update?\n\n' +
-            '1️⃣ Tax Year\n' +
-            '2️⃣ NIN / Tax ID\n' +
-            '3️⃣ Income Sources\n' +
-            '4️⃣ Tax Residency\n' +
-            '5️⃣ State of Residence\n' +
-            '6️⃣ Deductibles & Reliefs\n' +
-            '7️⃣ Filing Preference'
-          );
+          await reply(EDIT_SUMMARY_MENU_TEXT);
           sendOk();
           return;
         }
@@ -2903,43 +2940,6 @@ const handleWebhook = async (req, res) => {
 
       if (session.step === 'tax_profile_edit_choice') {
         const choice = String(text || '').trim();
-        
-        // Helper: update profile and show summary
-        const updateAndShowSummary = async (profile, updateFields) => {
-          try {
-            Object.assign(profile, updateFields);
-            await profile.save();
-          } catch (e) {
-            console.error('[WhatsApp] Profile update error:', e.message);
-          }
-          session.step = 'done';
-          session.taxProfileData = {};
-          await session.save();
-          const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-          await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
-        };
-        
-        // Helper: show profile summary
-        const showProfileSummary = async () => {
-          const pid = td.currentProfileId;
-          let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
-          if (!profile && td.year) {
-            profile = await TaxableProfile.findOne({ user: userForTax._id, year: td.year }).lean();
-          }
-          if (!profile) {
-            profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
-          }
-          if (profile) {
-            let b = null;
-            try { b = await generateCompleteBreakdown(profile._id, profile.year); } catch (e) {}
-            const summaryMsg = await getTaxProfileSummaryForStep8(userForTax.firstName, profile, td, b);
-            await reply(summaryMsg);
-          } else {
-            await reply("Couldn't load your profile. Please try again.");
-            session.step = 'done';
-            await session.save();
-          }
-        };
         
         // Ensure we have profile ID
         if (!td.currentProfileId && !td.year && !currentProfile) {
@@ -3050,11 +3050,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        session.step = 'done';
-        session.taxProfileData = {};
-        await session.save();
-        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        await returnToTaxProfileEditSummaryMenu(profile);
         sendOk();
         return;
       }
@@ -3080,11 +3076,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        session.step = 'done';
-        session.taxProfileData = {};
-        await session.save();
-        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        await returnToTaxProfileEditSummaryMenu(profile);
         sendOk();
         return;
       }
@@ -3111,11 +3103,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        session.step = 'done';
-        session.taxProfileData = {};
-        await session.save();
-        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        await returnToTaxProfileEditSummaryMenu(profile);
         sendOk();
         return;
       }
@@ -3140,11 +3128,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        session.step = 'done';
-        session.taxProfileData = {};
-        await session.save();
-        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        await returnToTaxProfileEditSummaryMenu(profile);
         sendOk();
         return;
       }
@@ -3170,11 +3154,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        session.step = 'done';
-        session.taxProfileData = {};
-        await session.save();
-        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        await returnToTaxProfileEditSummaryMenu(profile);
         sendOk();
         return;
       }
@@ -3198,11 +3178,7 @@ const handleWebhook = async (req, res) => {
             sendOk();
             return;
           }
-          session.step = 'done';
-          session.taxProfileData = {};
-          await session.save();
-          const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-          await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+          await returnToTaxProfileEditSummaryMenu(profile);
           sendOk();
           return;
         }
@@ -3244,11 +3220,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        session.step = 'done';
-        session.taxProfileData = {};
-        await session.save();
-        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        await returnToTaxProfileEditSummaryMenu(profile);
         sendOk();
         return;
       }
@@ -3284,11 +3256,7 @@ const handleWebhook = async (req, res) => {
           sendOk();
           return;
         }
-        session.step = 'done';
-        session.taxProfileData = {};
-        await session.save();
-        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        await returnToTaxProfileEditSummaryMenu(profile);
         sendOk();
         return;
       }
