@@ -3013,12 +3013,16 @@ const handleWebhook = async (req, res) => {
         const pid = td.currentProfileId;
         let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
         if (!profile) {
-          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 });
         }
         if (profile) {
           profile.year = y;
           await profile.save();
           await reply(`Tax year updated to ${y} ✅\n\nYour profile has been updated.`);
+        } else {
+          await reply("Couldn't find your profile. Please try again.");
+          sendOk();
+          return;
         }
         session.step = 'done';
         session.taxProfileData = {};
@@ -3039,12 +3043,16 @@ const handleWebhook = async (req, res) => {
         const pid = td.currentProfileId;
         let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
         if (!profile) {
-          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 });
         }
         if (profile) {
           profile.primaryNIN = nin;
           await profile.save();
           await reply(`NIN updated ✅\n\nYour profile has been updated.`);
+        } else {
+          await reply("Couldn't find your profile. Please try again.");
+          sendOk();
+          return;
         }
         session.step = 'done';
         session.taxProfileData = {};
@@ -3066,12 +3074,16 @@ const handleWebhook = async (req, res) => {
         const pid = td.currentProfileId;
         let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
         if (!profile) {
-          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 });
         }
         if (profile) {
           profile.primaryIncomeSources = sources;
           await profile.save();
           await reply(`Income sources updated to: ${sources.join(', ')} ✅\n\nYour profile has been updated.`);
+        } else {
+          await reply("Couldn't find your profile. Please try again.");
+          sendOk();
+          return;
         }
         session.step = 'done';
         session.taxProfileData = {};
@@ -3088,12 +3100,16 @@ const handleWebhook = async (req, res) => {
         const pid = td.currentProfileId;
         let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
         if (!profile) {
-          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 });
         }
         if (profile) {
           profile.residency183Days = residency;
           await profile.save();
           await reply(`Residency updated: ${residency ? 'Yes, lived in Nigeria 183+ days' : 'No, spent time outside Nigeria'} ✅\n\nYour profile has been updated.`);
+        } else {
+          await reply("Couldn't find your profile. Please try again.");
+          sendOk();
+          return;
         }
         session.step = 'done';
         session.taxProfileData = {};
@@ -3114,12 +3130,16 @@ const handleWebhook = async (req, res) => {
         const pid = td.currentProfileId;
         let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
         if (!profile) {
-          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 });
         }
         if (profile) {
           profile.state = state;
           await profile.save();
           await reply(`State updated to ${state} ✅\n\nYour profile has been updated.`);
+        } else {
+          await reply("Couldn't find your profile. Please try again.");
+          sendOk();
+          return;
         }
         session.step = 'done';
         session.taxProfileData = {};
@@ -3133,11 +3153,10 @@ const handleWebhook = async (req, res) => {
       if (session.step === 'edit_rent_yn') {
         const choice = String(text || '').trim();
         if (choice === '2') {
-          // No rent - set paysRent to false
           const pid = td.currentProfileId;
           let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
           if (!profile) {
-            profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+            profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 });
           }
           if (profile) {
             profile.paysRent = false;
@@ -3145,6 +3164,10 @@ const handleWebhook = async (req, res) => {
             profile.rentMonthlyAmount = null;
             await profile.save();
             await reply(`Rent relief removed ✅\n\nYour profile has been updated.`);
+          } else {
+            await reply("Couldn't find your profile. Please try again.");
+            sendOk();
+            return;
           }
           session.step = 'done';
           session.taxProfileData = {};
@@ -3169,13 +3192,37 @@ const handleWebhook = async (req, res) => {
       }
       
       if (session.step === 'edit_rent_amount') {
-        const amountRaw = String(text || '').replace(/[,₦\s]/g, '');
+        const amountRaw = String(text || '').replace(/[,$₦\s]/g, '');
         const amount = parseFloat(amountRaw, 10);
         if (isNaN(amount) || amount < 0) {
           await reply('Please enter a valid amount in Naira (e.g. 500000).');
           sendOk();
           return;
         }
+        const pid = td.currentProfileId;
+        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
+        if (!profile) {
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 });
+        }
+        if (profile) {
+          profile.paysRent = true;
+          profile.rentMonthlyAmount = amount;
+          profile.rentAnnualAmount = amount * 12;
+          await profile.save();
+          await reply(`Rent updated to ₦${Number(amount).toLocaleString()}/month ✅\n\nYour profile has been updated.`);
+        } else {
+          await reply("Couldn't find your profile. Please try again.");
+          sendOk();
+          return;
+        }
+        session.step = 'done';
+        session.taxProfileData = {};
+        await session.save();
+        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
+        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
+        sendOk();
+        return;
+      }
         const pid = td.currentProfileId;
         let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
         if (!profile) {
@@ -3202,7 +3249,7 @@ const handleWebhook = async (req, res) => {
         const pid = td.currentProfileId;
         let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
         if (!profile) {
-          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
+          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 });
         }
         if (!profile) {
           await reply("Couldn't find your profile. Please try again.");
