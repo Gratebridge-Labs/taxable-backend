@@ -3223,26 +3223,6 @@ const handleWebhook = async (req, res) => {
         sendOk();
         return;
       }
-        const pid = td.currentProfileId;
-        let profile = pid ? await TaxableProfile.findByProfileIdOrId(pid, userForTax._id) : null;
-        if (!profile) {
-          profile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).lean();
-        }
-        if (profile) {
-          profile.paysRent = true;
-          profile.rentMonthlyAmount = amount;
-          profile.rentAnnualAmount = amount * 12;
-          await profile.save();
-          await reply(`Rent updated to ₦${Number(amount).toLocaleString()}/month ✅\n\nYour profile has been updated.`);
-        }
-        session.step = 'done';
-        session.taxProfileData = {};
-        await session.save();
-        const latestProfile = await TaxableProfile.findOne({ user: userForTax._id }).sort({ year: -1 }).select('year filingStatus').lean();
-        await reply(getLoggedInMainMenu(userForTax.firstName, !!latestProfile, latestProfile?.year || null, latestProfile?.filingStatus || null));
-        sendOk();
-        return;
-      }
       
       if (session.step === 'edit_filing_preference') {
         const choice = String(text || '').trim();
