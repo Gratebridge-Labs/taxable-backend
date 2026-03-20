@@ -51,25 +51,8 @@ Are you new here or do you already have an account?
 
 Reply with 1 or 2 to continue.`;
 
-// —— ENTRY (legacy / fallback) ——
-function getEntryMessage() {
-  return `Hi 👋
-
-${TAXABLE_INTRO_LINE}
-
-${MENU_CONSTANT_BLOCK}
-
-What would you like to do?
-• I don't understand tax — explain it
-• Create an account
-• Login
-• FAQ
-• Talk to someone
-
-Just reply with your choice 👇`;
-}
-
-const ENTRY_MESSAGE = getEntryMessage();
+// —— ENTRY (legacy / fallback - should not be used) ——
+const ENTRY_MESSAGE = FIRST_WELCOME_MESSAGE;
 
 // —— CURIOUS MODE (education) ——
 const CURIOUS_MODE_REPLY = `That's completely okay 🙂
@@ -208,27 +191,13 @@ const CREATE_ACCOUNT_EMAIL = `What's your email address?`;
 
 const CREATE_ACCOUNT_PASSWORD = `Now create a password.`;
 
-// —— POST-VERIFICATION WELCOME (logged in, NO active subscription) ——
+// —— POST-VERIFICATION WELCOME (logged in user - use same main menu) ——
 function getPostVerificationWelcome(firstName, year = 2025) {
-  return `Hi ${firstName} 👋
-
-${TAXABLE_INTRO_LINE}
-
-${MENU_CONSTANT_BLOCK}
-
-Here's what you can do today:
-• Review your ${year} tax profile 🔒
-• Add reliefs & upload documents 🔒
-• File your ${year} tax return 🔒
-• Subscription plans
-• Learn how tax works
-• Estimate my tax
-• FAQ
-• I don't understand tax — explain it
-• Talk to support
-
-🔒 = Requires active subscription`;
+  return getLoggedInMainMenu(firstName, year, false, { filingStatus: 'not_filed' });
 }
+
+// Alias for backward compatibility
+const getLoggedInMainMenuOld = getLoggedInMainMenu;
 
 // —— SUBSCRIPTION PLACEMENT (when user taps locked action) ——
 const SUBSCRIPTION_REQUIRED = `To unlock this feature, you'll need an active subscription.

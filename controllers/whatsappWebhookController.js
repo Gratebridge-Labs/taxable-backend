@@ -1027,58 +1027,75 @@ const handleWebhook = async (req, res) => {
 
   // —— Incoming image or document: save and link to relief (user can send docs in chat) ——
   if (type === 'image' || type === 'document') {
+    // Check if user has verified email
+    const phoneForLookup = waIdToPhone(from);
+    const userForMedia = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('_id emailVerified').lean();
+    
+    if (!userForMedia) {
+      await reply("I can't process images right now. Please type your message instead, or create an account first.");
+      sendOk();
+      return;
+    }
+    
+    if (!userForMedia.emailVerified) {
+      await reply("Please verify your email first before sending documents. Check your inbox for the verification code.");
+      sendOk();
+      return;
+    }
+    
     try {
-      const phoneForLookup = waIdToPhone(from);
-      const regUserForMedia = await User.findOne({ $or: [{ phone: phoneForLookup }, { phone: phoneForLookup.replace(/^0/, '234') }] }).select('_id').lean();
-      if (regUserForMedia) {
-        const mediaId = type === 'image' ? message.image?.id : message.document?.id;
-        const originalFileName = type === 'document' ? (message.document?.filename || 'document') : (message.image?.caption ? `${message.image.caption}.jpg` : 'image.jpg');
-        if (mediaId) {
-          try {
-            const { buffer, mimeType } = await downloadMedia(mediaId);
-            const profile = await TaxableProfile.findOne({ user: regUserForMedia._id }).sort({ year: -1 }).select('_id year').lean();
-            if (!profile) {
-              await reply("Create a tax profile first (Reply *Create tax profile*), then add a relief. After that you can send documents here to attach to the relief.");
-              sendOk();
-              return;
-            }
-            let sessionForMedia = await WhatsAppSession.findOne({ waId: from }).lean();
-            let deductionId = sessionForMedia?.taxProfileData?.lastDeductionId || null;
-            if (!deductionId) {
-              const lastDeduction = await Deduction.findOne({ profileId: profile._id, 'period.year': profile.year }).sort({ createdAt: -1 }).select('_id').lean();
-              deductionId = lastDeduction ? String(lastDeduction._id) : null;
-            }
-            const doc = await createDocumentFromBuffer(
-              regUserForMedia._id,
-              profile._id,
-              deductionId ? new mongoose.Types.ObjectId(deductionId) : null,
-              buffer,
-              originalFileName,
-              mimeType
-            );
-            if (deductionId) {
-              await reply("Document received ✅ Saved and linked to your relief.");
-              const sessionAfter = await WhatsAppSession.findOne({ waId: from }).lean();
-              if (sessionAfter?.step === 'relief_awaiting_document') {
-                await WhatsAppSession.findOneAndUpdate(
-                  { waId: from },
-                  { $set: { step: 'relief_menu', updatedAt: new Date() } }
-                );
-                const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
-                await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.${BACK_TO_MENU_FOOTER}`);
-              }
-            } else {
-              await reply("Document received ✅ Saved. To attach it to a relief, add a relief first then send the document again, or link it from the dashboard.");
-            }
-          } catch (err) {
-            console.error('[WhatsApp] Document upload error:', err.message);
-            await reply("We couldn't save that file. Please try again or upload from the dashboard: https://" + DASHBOARD_URL);
+      const regUserForMedia = userForMedia;
+      const mediaId = type === 'image' ? message.image?.id : message.document?.id;
+      const originalFileName = type === 'document' ? (message.document?.filename || 'document') : (message.image?.caption ? `${message.image.caption}.jpg` : 'image.jpg');
+      
+      // Warn about images if this is a document upload step
+      let sessionForMedia = await WhatsAppSession.findOne({ waId: from }).lean();
+      if (sessionForMedia?.step === 'relief_awaiting_document' || sessionForMedia?.step === 'monthly_upload') {
+        // User is trying to send image during upload step - that's fine, process it
+      }
+      
+      if (mediaId) {
+        try {
+          const { buffer, mimeType } = await downloadMedia(mediaId);
+          const profile = await TaxableProfile.findOne({ user: regUserForMedia._id }).sort({ year: -1 }).select('_id year').lean();
+          if (!profile) {
+            await reply("Create a tax profile first (Reply *Create tax profile*), then add a relief. After that you can send documents here to attach to the relief.");
+            sendOk();
+            return;
           }
-        } else {
-          await reply("We didn't receive the file. Please send the image or document again.");
+          let deductionId = sessionForMedia?.taxProfileData?.lastDeductionId || null;
+          if (!deductionId) {
+            const lastDeduction = await Deduction.findOne({ profileId: profile._id, 'period.year': profile.year }).sort({ createdAt: -1 }).select('_id').lean();
+            deductionId = lastDeduction ? String(lastDeduction._id) : null;
+          }
+          const doc = await createDocumentFromBuffer(
+            regUserForMedia._id,
+            profile._id,
+            deductionId ? new mongoose.Types.ObjectId(deductionId) : null,
+            buffer,
+            originalFileName,
+            mimeType
+          );
+          if (deductionId) {
+            await reply("Document received ✅ Saved and linked to your relief.");
+            const sessionAfter = await WhatsAppSession.findOne({ waId: from }).lean();
+            if (sessionAfter?.step === 'relief_awaiting_document') {
+              await WhatsAppSession.findOneAndUpdate(
+                { waId: from },
+                { $set: { step: 'relief_menu', updatedAt: new Date() } }
+              );
+              const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
+              await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.${BACK_TO_MENU_FOOTER}`);
+            }
+          } else {
+            await reply("Document received ✅ Saved. To attach it to a relief, add a relief first then send the document again, or link it from the dashboard.");
+          }
+        } catch (err) {
+          console.error('[WhatsApp] Document upload error:', err.message);
+          await reply("We couldn't save that file. Please try again or upload from the dashboard: https://" + DASHBOARD_URL);
         }
       } else {
-        await reply("Create an account and add a relief first; then you can send documents here to attach to your relief.");
+        await reply("We didn't receive the file. Please send the image or document again.");
       }
     } catch (e) {
       console.error('[WhatsApp] Media handler error:', e.message);
@@ -1170,8 +1187,7 @@ const handleWebhook = async (req, res) => {
 
             await reply(getLoggedInMainMenu(userForMenu.firstName, year, hasSub, menuOpts));
           } else {
-            await sendWatchVideoPreview();
-            await reply(getPostVerificationWelcome(userForMenu.firstName));
+            await reply(getLoggedInMainMenu(userForMenu.firstName, year, false, { filingStatus: 'not_filed' }));
           }
           session = await WhatsAppSession.findOneAndUpdate(
             { waId: from },
@@ -1377,8 +1393,7 @@ const handleWebhook = async (req, res) => {
           if (hasProfile) {
             await reply(getLoggedInMainMenu(userDoc.firstName, year, hasSub));
           } else {
-            await sendWatchVideoPreview();
-            await reply(getPostVerificationWelcome(userDoc.firstName));
+            await reply(getLoggedInMainMenu(userDoc.firstName, year, false, { filingStatus: 'not_filed' }));
           }
         } catch (e) {
           console.error('[WhatsApp] Login success save error:', e.message);
@@ -5443,7 +5458,16 @@ const handleWebhook = async (req, res) => {
           return;
         }
         if (!isValidOTP(text)) {
-          await reply(`${data.firstName || 'There'}, send us the *6-digit code* from your email, or reply *resend* if you didn't get it. 😊`);
+          // Check if user wants to correct their email
+          const lowerText = text.toLowerCase().trim();
+          if (lowerText === 'wrong email' || lowerText === 'fix email' || lowerText === 'change email' || lowerText === 'correct email') {
+            session.step = 'email';
+            await session.save();
+            await reply(`No problem! What's your correct email address?\n\n✏️ Type your email and send.`);
+            sendOk();
+            return;
+          }
+          await reply(`${data.firstName || 'There'}, send us the *6-digit code* from your email.\n\nOr:\n• Reply *resend* if you didn't get it\n• Reply *wrong email* if you need to change your email address`);
           sendOk();
           return;
         }
@@ -5454,21 +5478,20 @@ const handleWebhook = async (req, res) => {
           purpose: 'email_verification'
         });
         if (!otpRecord) {
-          await reply(`${data.firstName || 'There'}, that code doesn't look right or may have expired. Check the code in your email, or reply *resend* to get a new one. Need to start over? Say *Hi Taxable*. 😊`);
+          await reply(`${data.firstName || 'There'}, that code doesn't look right or may have expired.\n\nOr:\n• Reply *resend* to get a new code\n• Reply *wrong email* to change your email address`);
           sendOk();
           return;
         }
         if (otpRecord.verified) {
-          await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — sign in when you're ready. Welcome back!`);
+          await reply(`${data.firstName || 'There'}, you're all set! 🎉 That code was already used — welcome back!`);
           session.step = 'done';
           await session.save();
-          await sendWatchVideoPreview();
-          await reply(getPostVerificationWelcome(data.firstName));
+          await reply(getLoggedInMainMenu(data.firstName, new Date().getFullYear(), false, { filingStatus: 'not_filed' }));
           sendOk();
           return;
         }
         if (otpRecord.expiresAt < new Date()) {
-          await reply(`${data.firstName || 'There'}, that code has expired. Reply *resend* to get a new code, or say *Hi Taxable* to start registration again. We've got you! 👍`);
+          await reply(`${data.firstName || 'There'}, that code has expired.\n\nOr:\n• Reply *resend* to get a new code\n• Reply *wrong email* to change your email address`);
           sendOk();
           return;
         }
@@ -5482,11 +5505,11 @@ const handleWebhook = async (req, res) => {
         await otpRecord.save();
         user.emailVerified = true;
         await user.save();
-        session.step = 'account_created_choice';
+        session.step = 'done';
         session.pendingUserId = undefined;
         await session.save();
-        await reply(`✅ You're in, ${data.firstName}! Your email is verified. Your account is ready. 🎉`);
-        await reply(getAccountCreatedFinalMessage(data.firstName));
+        await reply(`✅ You're in, ${data.firstName}! Your email is verified. Your account is ready. 🎉\n\nHere's your main menu:`);
+        await reply(getLoggedInMainMenu(data.firstName, new Date().getFullYear(), false, { filingStatus: 'not_filed' }));
         break;
       }
       case 'account_created_choice': {
