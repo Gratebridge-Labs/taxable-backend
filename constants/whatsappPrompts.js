@@ -398,7 +398,6 @@ module.exports = {
   CREATE_ACCOUNT_MENU_MID_FLOW,
   CREATE_ACCOUNT_STOPPED,
   getPostVerificationWelcome,
-  SUBSCRIPTION_REQUIRED,
   SUBSCRIPTION_WHY_IT_MATTERS,
   getPaymentLinkMessage,
   getPaymentLinkMessageYearly,

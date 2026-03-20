@@ -1036,58 +1036,64 @@ const handleWebhook = async (req, res) => {
       const mediaId = type === 'image' ? message.image?.id : message.document?.id;
       const originalFileName = type === 'document' ? (message.document?.filename || 'document') : (message.image?.caption ? `${message.image.caption}.jpg` : 'image.jpg');
       
-      // Warn about images if this is a document upload step
-      let sessionForMedia = await WhatsAppSession.findOne({ waId: from }).lean();
-      if (sessionForMedia?.step === 'relief_awaiting_document' || sessionForMedia?.step === 'monthly_upload') {
-        // User is trying to send image during upload step - that's fine, process it
+      if (!mediaId) {
+        await reply("I didn't receive the file. Please try sending it again.");
+        sendOk();
+        return;
       }
       
-      if (mediaId) {
-        try {
-          const { buffer, mimeType } = await downloadMedia(mediaId);
-          const profile = await TaxableProfile.findOne({ user: regUserForMedia._id }).sort({ year: -1 }).select('_id year').lean();
-          if (!profile) {
-            await reply("Create a tax profile first (Reply *Create tax profile*), then add a relief. After that you can send documents here to attach to the relief.");
-            sendOk();
-            return;
-          }
-          let deductionId = sessionForMedia?.taxProfileData?.lastDeductionId || null;
-          if (!deductionId) {
-            const lastDeduction = await Deduction.findOne({ profileId: profile._id, 'period.year': profile.year }).sort({ createdAt: -1 }).select('_id').lean();
-            deductionId = lastDeduction ? String(lastDeduction._id) : null;
-          }
-          const doc = await createDocumentFromBuffer(
-            regUserForMedia._id,
-            profile._id,
-            deductionId ? new mongoose.Types.ObjectId(deductionId) : null,
-            buffer,
-            originalFileName,
-            mimeType
+      let buffer, mimeType;
+      try {
+        const mediaResult = await downloadMedia(mediaId);
+        buffer = mediaResult.buffer;
+        mimeType = mediaResult.mimeType;
+      } catch (mediaErr) {
+        console.error('[WhatsApp] Media download error:', mediaErr.message);
+        await reply(`Sorry, I couldn't download that image. ${mediaErr.message?.includes('does not support image') ? "It seems this image type isn't supported. " : ''}Please try sending it as a document instead, or use the upload link in your profile.`);
+        sendOk();
+        return;
+      }
+      
+      const profile = await TaxableProfile.findOne({ user: regUserForMedia._id }).sort({ year: -1 }).select('_id year').lean();
+      if (!profile) {
+        await reply("Create a tax profile first (Reply *1* for My Tax Profile), then you can send documents here.");
+        sendOk();
+        return;
+      }
+      
+      let sessionForMedia = await WhatsAppSession.findOne({ waId: from }).lean();
+      let deductionId = sessionForMedia?.taxProfileData?.lastDeductionId || null;
+      if (!deductionId) {
+        const lastDeduction = await Deduction.findOne({ profileId: profile._id, 'period.year': profile.year }).sort({ createdAt: -1 }).select('_id').lean();
+        deductionId = lastDeduction ? String(lastDeduction._id) : null;
+      }
+      
+      const doc = await createDocumentFromBuffer(
+        regUserForMedia._id,
+        profile._id,
+        deductionId ? new mongoose.Types.ObjectId(deductionId) : null,
+        buffer,
+        originalFileName,
+        mimeType
+      );
+      
+      if (deductionId) {
+        await reply("Document received ✅ Saved and linked to your relief.");
+        const sessionAfter = await WhatsAppSession.findOne({ waId: from }).lean();
+        if (sessionAfter?.step === 'relief_awaiting_document') {
+          await WhatsAppSession.findOneAndUpdate(
+            { waId: from },
+            { $set: { step: 'relief_menu', updatedAt: new Date() } }
           );
-          if (deductionId) {
-            await reply("Document received ✅ Saved and linked to your relief.");
-            const sessionAfter = await WhatsAppSession.findOne({ waId: from }).lean();
-            if (sessionAfter?.step === 'relief_awaiting_document') {
-              await WhatsAppSession.findOneAndUpdate(
-                { waId: from },
-                { $set: { step: 'relief_menu', updatedAt: new Date() } }
-              );
-              const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
-              await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.${BACK_TO_MENU_FOOTER}`);
-            }
-          } else {
-            await reply("Document received ✅ Saved. To attach it to a relief, add a relief first then send the document again, or link it from the dashboard.");
-          }
-        } catch (err) {
-          console.error('[WhatsApp] Document upload error:', err.message);
-          await reply("We couldn't save that file. Please try again or upload from the dashboard: https://" + DASHBOARD_URL);
+          const reliefList = RELIEF_TYPES.map((r) => `${r.num}. ${r.label}`).join('\n');
+          await reply(`Choose a relief type:\n\n${reliefList}\n\nOr *View added reliefs* or *Back*.${BACK_TO_MENU_FOOTER}`);
         }
       } else {
-        await reply("We didn't receive the file. Please send the image or document again.");
+        await reply("Document received ✅ Saved. To attach it to a relief, add a relief first then send the document again, or link it from the dashboard.");
       }
     } catch (e) {
       console.error('[WhatsApp] Media handler error:', e.message);
-      await reply("We couldn't process that. Please try again or upload from the dashboard: https://" + DASHBOARD_URL);
+      await reply("We couldn't process that. Please try again or use the upload link in your profile.");
     }
     sendOk();
     return;
