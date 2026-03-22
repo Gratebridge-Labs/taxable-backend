@@ -81,6 +81,7 @@ app.post('/api/health/email-test', async (req, res) => {
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes')); // Admin routes
 app.use('/api/taxableprofile', require('./routes/profileRoutes'));
+app.use('/api/taxableprofile/web', require('./routes/profileWebRoutes')); // Web-specific profile endpoints
 app.use('/api/calculations', require('./routes/calculationRoutes')); // Tax calculation routes
 app.use('/api/questions', require('./routes/questionRoutes')); // Question flow routes
 app.use('/api/profile-reviews', require('./routes/profileReviewRoutes')); // Profile review routes

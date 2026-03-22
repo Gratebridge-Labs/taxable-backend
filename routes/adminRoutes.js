@@ -11,6 +11,7 @@ const {
   getFilledProfiles,
   addProfileNotes,
   updateTaxFilingStatus,
+  approveNIN,
   generateFilingPaymentLinkForAdmin
 } = require('../controllers/adminController');
 const { authenticateAdmin } = require('../middleware/adminAuth');
@@ -109,6 +110,17 @@ const generateFilingLinkValidation = [
     .isIn(['accountant_review', 'filing_fee']).withMessage('type must be accountant_review or filing_fee')
 ];
 
+// Validation for NIN approval
+const ninApprovalValidation = [
+  body('verified')
+    .notEmpty().withMessage('verified is required')
+    .isBoolean().withMessage('verified must be a boolean'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 }).withMessage('Notes cannot exceed 1000 characters')
+];
+
 // Protected routes (require admin authentication)
 router.post('/change-password', authenticateAdmin, changePasswordValidation, changeAdminPassword);
 router.get('/users', authenticateAdmin, getAllUsers);
@@ -117,6 +129,7 @@ router.get('/filled-profiles', authenticateAdmin, getFilledProfiles); // Get all
 router.get('/profile-reviews', authenticateAdmin, getAllProfileReviews);
 router.put('/taxable-profiles/:profileId/notes', authenticateAdmin, addProfileNotesValidation, addProfileNotes); // Add notes/metadata to profile
 router.patch('/taxable-profiles/:profileId/filing-status', authenticateAdmin, updateFilingStatusValidation, updateTaxFilingStatus); // Update filingStatus for a profile
+router.patch('/taxable-profiles/:profileId/nin-approval', authenticateAdmin, ninApprovalValidation, approveNIN); // Approve/reject NIN verification
 router.post('/taxable-profiles/:profileId/filing-link', authenticateAdmin, generateFilingLinkValidation, generateFilingPaymentLinkForAdmin); // Generate accountant/filing payment link
 
 module.exports = router;

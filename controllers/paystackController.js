@@ -315,10 +315,82 @@ const verifyPaymentDone = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/paystack/filing-link
+ * Create a filing payment link for accountant review or filing fee (user-facing).
+ * Body: { profileId: string, type: 'accountant_review' | 'filing_fee' }
+ * Returns: { authorization_url, reference, type, amountNaira }
+ */
+const createUserFilingPaymentLink = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { profileId, type = 'accountant_review' } = req.body;
+
+    if (!profileId) {
+      return res.status(400).json({
+        success: false,
+        message: 'profileId is required'
+      });
+    }
+
+    if (!['accountant_review', 'filing_fee'].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'type must be either "accountant_review" or "filing_fee"'
+      });
+    }
+
+    // Verify profile belongs to user
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found or access denied'
+      });
+    }
+
+    // Validate profile status based on payment type
+    if (type === 'accountant_review') {
+      if (!['draft', 'submitted'].includes(profile.filingStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Accountant review payment only available for draft or submitted profiles'
+        });
+      }
+    } else if (type === 'filing_fee') {
+      if (profile.filingStatus !== 'tax_agent_review') {
+        return res.status(400).json({
+          success: false,
+          message: 'Filing fee payment only available after tax agent review'
+        });
+      }
+    }
+
+    const data = await createFilingPaymentLink(userId, profile._id, type);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Filing payment link created',
+      data
+    });
+  } catch (error) {
+    console.error('[Paystack] createUserFilingPaymentLink error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error creating filing payment link',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createPaymentLink,
   createSubscriptionLinkForUser,
   createFilingPaymentLink,
+  createUserFilingPaymentLink,
   handleWebhook,
   getSubscriptionStatus,
   verifyPaymentDone,

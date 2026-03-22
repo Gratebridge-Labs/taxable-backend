@@ -248,9 +248,161 @@ const getCalculationHistory = async (req, res) => {
   }
 };
 
+/**
+ * Get tax summary for a profile (WhatsApp-style summary)
+ */
+const getTaxSummary = async (req, res) => {
+  try {
+    const { profileId } = req.params;
+    const { year } = req.query;
+
+    // Get profile
+    const profile = await TaxableProfile.findOne({ 
+      profileId,
+      user: req.user.userId 
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    const taxYear = parseInt(year) || profile.year;
+
+    // Generate complete breakdown
+    const breakdown = await generateCompleteBreakdown(profile._id, taxYear);
+    const s = breakdown?.summary || {};
+
+    // Format NIN for display
+    const nin = profile.primaryNIN || '';
+    const ninDisplay = nin.length >= 3 ? `****${nin.slice(-3)}` : '—';
+
+    // Get income sources list
+    const incomeList = Array.isArray(profile.primaryIncomeSources) && profile.primaryIncomeSources.length
+      ? profile.primaryIncomeSources.join(', ')
+      : '—';
+
+    // Get tax authority
+    const state = profile.state || '—';
+    const stateIRS = state !== '—' ? `${state} Internal Revenue Service` : '—';
+
+    // Format amounts
+    const fmt = (n) => (n != null && Number(n) >= 0 ? `₦${Number(n).toLocaleString()}` : '—');
+
+    // Get deductible amounts from profile
+    const rentVal = profile.rentAnnualAmount || (profile.rentMonthlyAmount ? profile.rentMonthlyAmount * 12 : 0);
+    const rent = profile.paysRent ? fmt(rentVal) : '—';
+    const healthVal = profile.healthInsuranceAnnualAmount || (profile.healthInsuranceMonthlyAmount ? profile.healthInsuranceMonthlyAmount * 12 : 0);
+    const health = profile.hasHealthInsurance ? fmt(healthVal) : '—';
+    const pensionVal = profile.pensionAnnualAmount || (profile.pensionMonthlyAmount ? profile.pensionMonthlyAmount * 12 : 0);
+    const pension = profile.hasPension ? fmt(pensionVal) : '—';
+    const mortgageVal = profile.mortgageAnnualAmount || (profile.mortgageMonthlyAmount ? profile.mortgageMonthlyAmount * 12 : 0);
+    const mortgage = profile.paysMortgage ? fmt(mortgageVal) : '—';
+
+    const filingPref = profile.filingPreference || '—';
+    const filingLabel = filingPref === 'monthly' ? 'Monthly' : filingPref === 'annual' ? 'Annual' : filingPref;
+
+    // Calculate monthly tax if annual tax available
+    const annualTax = s.finalTaxPayable ?? s.taxCalculated ?? 0;
+    const monthlyTax = annualTax > 0 ? Math.round(annualTax / 12) : null;
+
+    // Determine next steps based on profile status
+    let nextSteps = [];
+    if (profile.filingStatus === 'draft') {
+      nextSteps.push('Complete profile details');
+      nextSteps.push('Upload supporting documents');
+      nextSteps.push('Submit for review or file directly');
+    } else if (profile.filingStatus === 'submitted') {
+      nextSteps.push('Wait for tax agent review');
+      nextSteps.push('Pay accountant review fee (₦30,000) if needed');
+    } else if (profile.filingStatus === 'tax_agent_review') {
+      nextSteps.push('Tax agent reviewing your profile');
+      nextSteps.push('Pay filing fee (₦25,000) when ready to file');
+    } else if (profile.filingStatus === 'filed') {
+      nextSteps.push('Tax filing completed');
+      nextSteps.push('Download filing receipt');
+    }
+
+    // Payment options
+    const paymentOptions = [];
+    if (profile.filingStatus === 'submitted' || profile.filingStatus === 'draft') {
+      paymentOptions.push({
+        type: 'accountant_review',
+        amount: 30000,
+        description: 'Tax agent review fee',
+        status: 'available'
+      });
+    }
+    if (profile.filingStatus === 'tax_agent_review') {
+      paymentOptions.push({
+        type: 'filing_fee',
+        amount: 25000,
+        description: 'Tax filing fee',
+        status: 'available'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Tax summary retrieved successfully',
+      data: {
+        profile: {
+          profileId: profile.profileId,
+          year: profile.year,
+          profileType: profile.profileType,
+          filingStatus: profile.filingStatus,
+          filingPreference: filingLabel,
+          nin: ninDisplay,
+          incomeSources: incomeList,
+          taxAuthority: stateIRS,
+          deductibles: {
+            rent: { display: rent, annualAmount: rentVal },
+            healthInsurance: { display: health, annualAmount: healthVal },
+            pension: { display: pension, annualAmount: pensionVal },
+            mortgage: { display: mortgage, annualAmount: mortgageVal }
+          }
+        },
+        taxSummary: {
+          totalIncome: s.totalIncome ?? 0,
+          totalDeductions: s.totalDeductions ?? 0,
+          chargeableIncome: s.chargeableIncome ?? 0,
+          estimatedAnnualTax: annualTax,
+          estimatedMonthlyTax: monthlyTax,
+          isRefund: s.isRefund ?? false,
+          breakdownAvailable: !!breakdown.taxBreakdown
+        },
+        nextSteps,
+        paymentOptions,
+        actions: {
+          canSubmit: profile.filingStatus === 'draft',
+          canPayAccountantReview: ['draft', 'submitted'].includes(profile.filingStatus),
+          canPayFilingFee: profile.filingStatus === 'tax_agent_review',
+          canFile: profile.filingStatus === 'tax_agent_review' && profile.filed !== true
+        },
+        breakdown: {
+          income: breakdown.incomeBreakdown,
+          deductions: breakdown.deductionBreakdown,
+          tax: breakdown.taxBreakdown
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Tax summary error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error generating tax summary',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   calculateTax,
   getBreakdown,
-  getCalculationHistory
+  getCalculationHistory,
+  getTaxSummary
 };
 

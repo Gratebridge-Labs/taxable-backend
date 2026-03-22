@@ -558,6 +558,86 @@ const updateTaxFilingStatus = async (req, res) => {
 };
 
 /**
+ * Approve NIN for a TaxableProfile (admin only).
+ * POST /api/admin/taxable-profiles/:profileId/approve-nin
+ * Body: { verificationNotes: string (optional) }
+ */
+const approveNIN = async (req, res) => {
+  try {
+    const adminId = req.admin?.adminId;
+    const { profileId } = req.params;
+    const { verificationNotes } = req.body || {};
+
+    if (!adminId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized - Admin access required'
+      });
+    }
+
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId);
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    // Check if NIN exists
+    if (!profile.primaryNIN || profile.primaryNIN.trim().length !== 11) {
+      return res.status(400).json({
+        success: false,
+        message: 'Profile does not have a valid NIN to approve'
+      });
+    }
+
+    // Initialize adminMetadata if it doesn't exist
+    if (!profile.adminMetadata) {
+      profile.adminMetadata = {};
+    }
+
+    // Update NIN verification status
+    profile.adminMetadata.ninVerified = true;
+    profile.adminMetadata.ninVerifiedBy = adminId;
+    profile.adminMetadata.ninVerifiedAt = new Date();
+    
+    if (verificationNotes) {
+      profile.adminMetadata.ninVerificationNotes = verificationNotes;
+    }
+
+    // Add admin note
+    const existingNotes = profile.adminNotes || '';
+    const newNote = `NIN verified by admin on ${new Date().toISOString().split('T')[0]}. ${verificationNotes || ''}`.trim();
+    profile.adminNotes = existingNotes ? `${existingNotes}\n${newNote}` : newNote;
+
+    profile.lastReviewedBy = adminId;
+    profile.lastReviewedAt = new Date();
+
+    await profile.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'NIN approved successfully',
+      data: {
+        profileId: profile.profileId,
+        primaryNIN: `${profile.primaryNIN.slice(0, 4)}*******`, // Masked
+        ninVerified: true,
+        ninVerifiedBy: profile.adminMetadata.ninVerifiedBy,
+        ninVerifiedAt: profile.adminMetadata.ninVerifiedAt,
+        lastReviewedAt: profile.lastReviewedAt
+      }
+    });
+  } catch (error) {
+    console.error('Approve NIN error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error approving NIN',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
  * Generate a one-time filing payment link for a profile (admin only).
  * Body: { userId: string, type?: 'accountant_review' | 'filing_fee' }
  * Returns: { authorization_url, reference, type, amountNaira }
@@ -626,6 +706,7 @@ module.exports = {
   getFilledProfiles,
   addProfileNotes,
   updateTaxFilingStatus,
+  approveNIN,
   generateFilingPaymentLinkForAdmin
 };
 

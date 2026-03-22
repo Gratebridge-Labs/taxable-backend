@@ -124,9 +124,127 @@ const validateProfileType = (profileType) => {
   };
 };
 
+/**
+ * Web-specific year validation (only 2025 or 2026 allowed)
+ * @param {Number} year - The year to validate
+ * @returns {Object} { valid: Boolean, message: String }
+ */
+const validateWebYear = (year) => {
+  const yearNum = typeof year === 'string' ? parseInt(year, 10) : year;
+
+  if (!Number.isInteger(yearNum) || isNaN(yearNum)) {
+    return {
+      valid: false,
+      message: 'Year must be a valid number'
+    };
+  }
+
+  if (yearNum === 2025 || yearNum === 2026) {
+    return {
+      valid: true,
+      message: 'Valid year'
+    };
+  }
+
+  return {
+    valid: false,
+    message: 'Year must be 2025 or 2026'
+  };
+};
+
+/**
+ * Get allowed years for web (2025, 2026)
+ * @returns {Array} Array of allowed year numbers
+ */
+const getWebAllowedYears = () => {
+  return [2025, 2026];
+};
+
+/**
+ * Validate filing preference based on year
+ * @param {String} filingPreference - 'monthly' or 'annual'
+ * @param {Number} year - The tax year
+ * @returns {Object} { valid: Boolean, message: String }
+ */
+const validateFilingPreference = (filingPreference, year) => {
+  if (!filingPreference) {
+    return {
+      valid: false,
+      message: 'Filing preference is required'
+    };
+  }
+
+  if (!['monthly', 'annual'].includes(filingPreference)) {
+    return {
+      valid: false,
+      message: 'Filing preference must be "monthly" or "annual"'
+    };
+  }
+
+  // 2025 only allows annual filing
+  if (year === 2025 && filingPreference !== 'annual') {
+    return {
+      valid: false,
+      message: 'For tax year 2025, only annual filing is allowed'
+    };
+  }
+
+  return {
+    valid: true,
+    message: 'Valid filing preference'
+  };
+};
+
+/**
+ * Validate NIN format
+ * @param {String} nin - NIN to validate
+ * @returns {Object} { valid: Boolean, message: String }
+ */
+const validateNIN = (nin) => {
+  if (!nin) {
+    return {
+      valid: false,
+      message: 'NIN is required'
+    };
+  }
+
+  const ninStr = String(nin).replace(/[^0-9]/g, '');
+  if (ninStr.length !== 11) {
+    return {
+      valid: false,
+      message: 'NIN must be exactly 11 digits'
+    };
+  }
+
+  return {
+    valid: true,
+    message: 'Valid NIN'
+  };
+};
+
+/**
+ * Get valid income sources
+ * @returns {Array} Array of valid income source strings
+ */
+const getValidIncomeSources = () => {
+  return [
+    'Salary / Employment',
+    'Business/Self-employment',
+    'Freelance/Consulting',
+    'Investment income',
+    'Rental income',
+    'Digital Assets/Crypto'
+  ];
+};
+
 module.exports = {
   validateYear,
   getAllowedYears,
-  validateProfileType
+  validateProfileType,
+  validateWebYear,
+  getWebAllowedYears,
+  validateFilingPreference,
+  validateNIN,
+  getValidIncomeSources
 };
 
