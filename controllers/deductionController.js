@@ -206,11 +206,75 @@ const deleteDeduction = async (req, res) => {
   }
 };
 
+/**
+ * Verify a deduction (admin endpoint)
+ * POST /api/deductions/:id/verify
+ * Body: { status: 'verified' | 'rejected', notes: string, documentId: ObjectId }
+ */
+const verifyDeduction = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { id } = req.params;
+    const { status, notes, documentId } = req.body;
+
+    // Check if user is admin (you might want to add admin check middleware)
+    // For now, we'll allow any authenticated user to verify
+    // In production, add: const isAdmin = req.user?.role === 'admin';
+
+    if (!status || !['verified', 'rejected'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status is required and must be "verified" or "rejected"'
+      });
+    }
+
+    const deduction = await Deduction.findById(id);
+    if (!deduction) {
+      return res.status(404).json({ success: false, message: 'Deduction not found' });
+    }
+
+    // Update verification status
+    deduction.verificationStatus = status;
+    deduction.verificationNotes = notes || deduction.verificationNotes;
+    deduction.documentId = documentId || deduction.documentId;
+    deduction.verifiedBy = userId; // In production, this should be admin ID
+    deduction.verifiedAt = new Date();
+
+    await deduction.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Deduction ${status} successfully`,
+      data: {
+        deduction: {
+          id: deduction._id,
+          deductionType: deduction.deductionType,
+          amount: deduction.amount,
+          verificationStatus: deduction.verificationStatus,
+          verificationNotes: deduction.verificationNotes,
+          verifiedBy: deduction.verifiedBy,
+          verifiedAt: deduction.verifiedAt,
+          documentId: deduction.documentId
+        }
+      }
+    });
+  } catch (err) {
+    if (err.name === 'CastError') {
+      return res.status(400).json({ success: false, message: 'Invalid deduction id' });
+    }
+    console.error('[Deduction] verify error:', err.message);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to verify deduction' });
+  }
+};
+
 module.exports = {
   createDeduction,
   listDeductions,
   getDeductionById,
   updateDeduction,
   deleteDeduction,
+  verifyDeduction,
   getProfileForUser
 };

@@ -127,6 +127,22 @@ const deductionSchema = new mongoose.Schema({
       required: true
     }
   },
+  // Verification workflow
+  verificationStatus: {
+    type: String,
+    enum: ['pending', 'verified', 'rejected'],
+    default: 'pending'
+  },
+  documentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Document'
+  },
+  verificationNotes: String,
+  verifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin'
+  },
+  verifiedAt: Date,
   // Validation
   isValid: {
     type: Boolean,

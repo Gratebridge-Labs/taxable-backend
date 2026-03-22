@@ -7,7 +7,8 @@ const {
   listDeductions,
   getDeductionById,
   updateDeduction,
-  deleteDeduction
+  deleteDeduction,
+  verifyDeduction
 } = require('../controllers/deductionController');
 
 router.post('/', authenticate, checkEmailVerified, createDeduction);
@@ -15,5 +16,6 @@ router.get('/', authenticate, checkEmailVerified, listDeductions);
 router.get('/:id', authenticate, checkEmailVerified, getDeductionById);
 router.put('/:id', authenticate, checkEmailVerified, updateDeduction);
 router.delete('/:id', authenticate, checkEmailVerified, deleteDeduction);
+router.post('/:id/verify', authenticate, checkEmailVerified, verifyDeduction);
 
 module.exports = router;

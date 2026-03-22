@@ -8,8 +8,12 @@ const {
   submitProfileForReview,
   fileTax,
   getAllowedYears,
-  getIncomeSources
+  getIncomeSources,
+  updatePersonalInfo,
+  downloadTaxReturn
 } = require('../controllers/profileWebController');
+const { calculateWebTax } = require('../controllers/calculationController');
+const { verifyNIN, getNINStatus, verifyNINBulk } = require('../controllers/ninController');
 const { authenticate } = require('../middleware/auth');
 const { checkEmailVerified } = require('../middleware/profileAuth');
 
@@ -61,12 +65,57 @@ const completeProfileValidation = [
   body('city').optional({ values: 'falsy' }).trim().isLength({ max: 100 }).withMessage('city max 100 characters')
 ];
 
+// Validation for personal info
+const personalInfoValidation = [
+  body('tin')
+    .optional({ values: 'falsy' })
+    .trim()
+    .matches(/^[0-9]{10,12}$/).withMessage('TIN must be 10-12 digits'),
+  
+  body('residencyStatus')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isIn(['resident', 'non-resident', 'part-year']).withMessage('Residency status must be resident, non-resident, or part-year'),
+  
+  body('fullName')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ min: 2, max: 100 }).withMessage('Full name must be between 2 and 100 characters'),
+  
+  body('dateOfBirth')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('Date of birth must be a valid date (e.g. YYYY-MM-DD)'),
+  
+  body('streetAddress')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ max: 500 }).withMessage('Street address cannot exceed 500 characters'),
+  
+  body('city')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ max: 100 }).withMessage('City cannot exceed 100 characters'),
+  
+  body('state')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ max: 100 }).withMessage('State cannot exceed 100 characters')
+];
+
 // Profile creation and management
 router.post('/create', authenticate, checkEmailVerified, createWebProfileValidation, createWebProfile);
 router.put('/:profileId/complete', authenticate, checkEmailVerified, completeProfileValidation, completeProfile);
+router.put('/:profileId/personal-info', authenticate, checkEmailVerified, personalInfoValidation, updatePersonalInfo);
 router.post('/:profileId/upload-session', authenticate, checkEmailVerified, createProfileUploadSession);
 router.post('/:profileId/submit', authenticate, checkEmailVerified, submitProfileForReview);
 router.post('/:profileId/file', authenticate, checkEmailVerified, fileTax);
+router.get('/:profileId/calculate', authenticate, checkEmailVerified, calculateWebTax);
+router.get('/:profileId/download', authenticate, checkEmailVerified, downloadTaxReturn);
+
+// NIN verification endpoints (stub)
+router.post('/nin/verify', authenticate, checkEmailVerified, verifyNIN);
+router.get('/nin/status/:nin', authenticate, checkEmailVerified, getNINStatus);
+router.post('/nin/verify-bulk', authenticate, checkEmailVerified, verifyNINBulk);
 
 // Helper endpoints (no auth required for some)
 router.get('/allowed-years', getAllowedYears); // Public

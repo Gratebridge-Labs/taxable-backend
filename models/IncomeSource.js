@@ -10,7 +10,7 @@ const incomeSourceSchema = new mongoose.Schema({
   incomeType: {
     type: String,
     required: [true, 'Income type is required'],
-    enum: ['employment', 'business', 'rental', 'investment', 'other'],
+    enum: ['employment', 'business', 'rental', 'investment', 'freelance', 'crypto', 'other'],
     index: true
   },
   // Employment income details
@@ -48,6 +48,14 @@ const incomeSourceSchema = new mongoose.Schema({
       type: Number,
       default: 0
     },
+    bonuses: {
+      type: Number,
+      default: 0
+    },
+    commissions: {
+      type: Number,
+      default: 0
+    },
     benefitsInKind: [{
       benefitType: String,
       value: Number,
@@ -73,6 +81,42 @@ const incomeSourceSchema = new mongoose.Schema({
       amount: Number,
       description: String
     }]
+  },
+  // Freelance income details
+  freelance: {
+    clientName: String,
+    clientTIN: String,
+    clientAddress: {
+      streetAddress: String,
+      city: String,
+      state: String,
+      postalCode: String
+    },
+    freelanceFees: {
+      type: Number,
+      default: 0
+    },
+    royalties: {
+      type: Number,
+      default: 0
+    },
+    contractStartDate: Date,
+    contractEndDate: Date,
+    description: String
+  },
+  // Crypto income details
+  crypto: {
+    platformName: String,
+    walletAddress: String,
+    cryptoType: String,
+    amountInNGN: {
+      type: Number,
+      default: 0
+    },
+    amountInCrypto: Number,
+    exchangeRate: Number,
+    transactionDate: Date,
+    description: String
   },
   // Rental income details
   rental: {
@@ -136,6 +180,11 @@ const incomeSourceSchema = new mongoose.Schema({
     source: String
   },
   // Common fields
+  category: {
+    type: String,
+    enum: ['salary', 'bonus', 'commission', 'freelance_fee', 'royalty', 'rental', 'dividend', 'interest', 'capital_gain', 'crypto', 'other'],
+    default: 'salary'
+  },
   period: {
     startDate: Date,
     endDate: Date,
@@ -175,7 +224,10 @@ incomeSourceSchema.pre('save', function(next) {
   
   // Auto-calculate totalAmount based on incomeType
   if (this.incomeType === 'employment' && this.employment) {
-    this.totalAmount = this.employment.annualGrossSalary || 0;
+    const baseSalary = this.employment.annualGrossSalary || 0;
+    const bonuses = this.employment.bonuses || 0;
+    const commissions = this.employment.commissions || 0;
+    this.totalAmount = baseSalary + bonuses + commissions;
   } else if (this.incomeType === 'business' && this.business) {
     this.totalAmount = this.business.annualRevenue || 0;
   } else if (this.incomeType === 'rental' && this.rental && this.rental.properties) {
@@ -187,6 +239,12 @@ incomeSourceSchema.pre('save', function(next) {
     this.netAmount = totalIncome - totalExpenses;
   } else if (this.incomeType === 'investment' && this.investment && this.investment.incomeItems) {
     this.totalAmount = this.investment.incomeItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+  } else if (this.incomeType === 'freelance' && this.freelance) {
+    const freelanceFees = this.freelance.freelanceFees || 0;
+    const royalties = this.freelance.royalties || 0;
+    this.totalAmount = freelanceFees + royalties;
+  } else if (this.incomeType === 'crypto' && this.crypto) {
+    this.totalAmount = this.crypto.amountInNGN || 0;
   } else if (this.incomeType === 'other' && this.other) {
     this.totalAmount = this.other.amount || 0;
   }

@@ -501,6 +501,213 @@ const getIncomeSources = async (req, res) => {
   }
 };
 
+/**
+ * Download tax return (stub endpoint)
+ * GET /taxableprofile/web/:profileId/download
+ */
+const downloadTaxReturn = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { profileId } = req.params;
+    const { format = 'pdf' } = req.query;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    // Find profile (user must own it)
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    // Check if profile has been filed
+    if (!profile.filed) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tax return has not been filed yet. Please file your tax return first.'
+      });
+    }
+
+    // This is a stub endpoint for PDF generation
+    // In production, this would generate and return a PDF file
+    
+    const stubResponse = {
+      success: true,
+      message: 'Tax return download initiated (stub)',
+      data: {
+        profileId: profile.profileId,
+        year: profile.year,
+        format,
+        downloadUrl: `https://api.taxable.com/stub/download/${profile.profileId}.${format}`,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours from now
+        note: 'This is a stub endpoint. In production, this would generate and return a PDF tax return document.'
+      }
+    };
+
+    // If client wants to simulate file download, we can set headers
+    if (req.query.simulate === 'true') {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="tax-return-${profile.profileId}.pdf"`);
+      // Return a minimal PDF header (just for stub)
+      const pdfStub = '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj\nxref\n0 3\n0000000000 65535 f \n0000000010 00000 n \n0000000053 00000 n \ntrailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n94\n%%EOF';
+      return res.send(pdfStub);
+    }
+
+    res.status(200).json(stubResponse);
+  } catch (error) {
+    console.error('Download tax return error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while preparing tax return download',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Update personal information
+ * PUT /taxableprofile/web/:profileId/personal-info
+ * Body: { tin, residencyStatus, fullName, dateOfBirth, streetAddress, city, state }
+ */
+const updatePersonalInfo = async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const userId = req.user?.userId;
+    const { profileId } = req.params;
+    const {
+      tin,
+      residencyStatus,
+      fullName,
+      dateOfBirth,
+      streetAddress,
+      city,
+      state
+    } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    // Find profile (user must own it)
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    // Update User model with fullName if provided
+    if (fullName) {
+      const nameParts = fullName.trim().split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      await User.findByIdAndUpdate(userId, {
+        firstName,
+        lastName,
+        updatedAt: Date.now()
+      });
+    }
+
+    // Update TaxableProfile fields
+    if (tin !== undefined) {
+      const tinStr = String(tin || '').replace(/[^0-9]/g, '');
+      if (tinStr && (tinStr.length < 10 || tinStr.length > 12)) {
+        return res.status(400).json({
+          success: false,
+          message: 'TIN must be 10-12 digits'
+        });
+      }
+      profile.primaryTIN = tinStr || null;
+    }
+
+    if (residencyStatus !== undefined) {
+      // Map residencyStatus to residency183Days
+      // Assuming residencyStatus values: 'resident', 'non-resident', 'part-year'
+      if (residencyStatus === 'resident') {
+        profile.residency183Days = true;
+      } else if (residencyStatus === 'non-resident') {
+        profile.residency183Days = false;
+      } else if (residencyStatus === 'part-year') {
+        // For part-year residents, we might need additional logic
+        profile.residency183Days = true; // Default to true for part-year
+      }
+    }
+
+    if (dateOfBirth !== undefined) {
+      profile.dob = dateOfBirth ? new Date(dateOfBirth) : null;
+    }
+
+    if (streetAddress !== undefined) {
+      profile.street = streetAddress;
+    }
+
+    if (city !== undefined) {
+      profile.city = city;
+    }
+
+    if (state !== undefined) {
+      profile.state = state;
+    }
+
+    await profile.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Personal information updated successfully',
+      data: {
+        profileId: profile.profileId,
+        updatedFields: Object.keys(req.body).filter(key => req.body[key] !== undefined),
+        personalInfo: {
+          tin: profile.primaryTIN,
+          residencyStatus: profile.residency183Days ? 'resident' : 'non-resident',
+          fullName: fullName ? `${profile.user?.firstName || ''} ${profile.user?.lastName || ''}`.trim() : undefined,
+          dateOfBirth: profile.dob,
+          streetAddress: profile.street,
+          city: profile.city,
+          state: profile.state
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Update personal info error:', error);
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: Object.values(error.errors).map(err => err.message)
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while updating personal information',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createWebProfile,
   completeProfile,
@@ -508,5 +715,7 @@ module.exports = {
   submitProfileForReview,
   fileTax,
   getAllowedYears,
-  getIncomeSources
+  getIncomeSources,
+  updatePersonalInfo,
+  downloadTaxReturn
 };

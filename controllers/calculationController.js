@@ -399,10 +399,143 @@ const getTaxSummary = async (req, res) => {
   }
 };
 
+/**
+ * Web-specific tax calculation with PDF-expected format
+ * GET /taxableprofile/web/:profileId/calculate
+ */
+const calculateWebTax = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { profileId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    // Find profile (user must own it)
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tax profile not found'
+      });
+    }
+
+    const taxYear = profile.year;
+
+    // Get all income sources
+    const incomeSources = await IncomeSource.find({ 
+      profileId: profile._id,
+      'period.year': taxYear 
+    }).lean();
+
+    // Get all deductions
+    const deductions = await Deduction.find({ 
+      profileId: profile._id,
+      'period.year': taxYear 
+    }).lean();
+
+    // Calculate gross income
+    const grossIncome = incomeSources.reduce((sum, source) => sum + (source.totalAmount || 0), 0);
+
+    // Calculate total deductions (only verified deductions)
+    const verifiedDeductions = deductions.filter(d => d.verificationStatus === 'verified');
+    const totalDeductions = verifiedDeductions.reduce((sum, deduction) => sum + (deduction.amount || 0), 0);
+
+    // Calculate total reliefs (all deductions regardless of verification)
+    const totalReliefs = deductions.reduce((sum, deduction) => sum + (deduction.amount || 0), 0);
+
+    // Calculate taxable income
+    const taxableIncome = Math.max(0, grossIncome - totalDeductions);
+
+    // Calculate tax brackets (simplified Nigerian tax brackets for 2025)
+    const taxBrackets = [
+      { from: 0, to: 300000, rate: 0.07, amount: 0 },
+      { from: 300001, to: 600000, rate: 0.11, amount: 0 },
+      { from: 600001, to: 1100000, rate: 0.15, amount: 0 },
+      { from: 1100001, to: 1600000, rate: 0.19, amount: 0 },
+      { from: 1600001, to: 3200000, rate: 0.21, amount: 0 },
+      { from: 3200001, to: Infinity, rate: 0.24, amount: 0 }
+    ];
+
+    // Calculate tax for each bracket
+    let remainingIncome = taxableIncome;
+    let grossTax = 0;
+    
+    taxBrackets.forEach(bracket => {
+      if (remainingIncome <= 0) return;
+      
+      const bracketRange = bracket.to === Infinity ? remainingIncome : Math.min(bracket.to - bracket.from + 1, remainingIncome);
+      const taxableInBracket = Math.min(bracketRange, remainingIncome);
+      const taxInBracket = taxableInBracket * bracket.rate;
+      
+      bracket.amount = taxInBracket;
+      grossTax += taxInBracket;
+      remainingIncome -= taxableInBracket;
+    });
+
+    // Calculate net tax payable (gross tax - tax credits/withholdings)
+    // For simplicity, assume no tax credits for now
+    const netTaxPayable = grossTax;
+
+    // Prepare response in PDF-expected format
+    const response = {
+      success: true,
+      data: {
+        profile: {
+          profileId: profile.profileId,
+          year: profile.year,
+          profileType: profile.profileType,
+          primaryTIN: profile.primaryTIN,
+          primaryNIN: profile.primaryNIN
+        },
+        calculation: {
+          grossIncome,
+          totalDeductions,
+          totalReliefs,
+          taxableIncome,
+          taxBrackets: taxBrackets.filter(bracket => bracket.amount > 0),
+          grossTax,
+          netTaxPayable,
+          calculationDate: new Date().toISOString()
+        },
+        summary: {
+          incomeSources: incomeSources.map(source => ({
+            type: source.incomeType,
+            category: source.category,
+            amount: source.totalAmount,
+            netAmount: source.netAmount,
+            period: source.period
+          })),
+          deductions: deductions.map(deduction => ({
+            type: deduction.deductionType,
+            amount: deduction.amount,
+            verificationStatus: deduction.verificationStatus,
+            period: deduction.period
+          }))
+        }
+      }
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    console.error('Calculate web tax error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while calculating tax',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   calculateTax,
   getBreakdown,
   getCalculationHistory,
-  getTaxSummary
+  getTaxSummary,
+  calculateWebTax
 };
 
