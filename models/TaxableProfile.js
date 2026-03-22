@@ -192,6 +192,59 @@ const taxableProfileSchema = new mongoose.Schema({
     match: [/^[0-9]{10,12}$/, 'TIN must be 10-12 digits'],
     required: false // Collected after base questions, optional
   },
+  /** Business company information (for Business profiles) */
+  businessCompanyInfo: {
+    companyName: { type: String, trim: true },
+    TIN: { 
+      type: String,
+      match: [/^[0-9]{10,12}$/, 'TIN must be 10-12 digits']
+    },
+    RCNumber: { type: String, trim: true },
+    natureOfBusiness: { type: String, trim: true },
+    businessAddress: {
+      street: { type: String, trim: true },
+      city: { type: String, trim: true },
+      state: { type: String, trim: true },
+      country: { type: String, trim: true, default: 'Nigeria' }
+    },
+    email: { 
+      type: String,
+      trim: true,
+      lowercase: true
+    },
+    phoneNumber: { type: String, trim: true },
+    website: { type: String, trim: true }
+  },
+  /** Business setup configuration (for Business profiles) */
+  businessSetup: {
+    setupCompleted: { type: Boolean, default: false },
+    payeEnabled: { type: Boolean, default: false },
+    vatEnabled: { type: Boolean, default: false },
+    whtEnabled: { type: Boolean, default: false },
+    citEnabled: { type: Boolean, default: false },
+    filingFrequency: {
+      type: String,
+      enum: ['monthly', 'quarterly', 'annually'],
+      default: 'annually'
+    },
+    financialYearEnd: {
+      type: String,
+      enum: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
+      default: 'December'
+    },
+    accountingMethod: {
+      type: String,
+      enum: ['cash', 'accrual'],
+      default: 'cash'
+    },
+    currency: {
+      type: String,
+      default: 'NGN'
+    },
+    hasEmployees: { type: Boolean, default: false },
+    numberOfEmployees: { type: Number, min: 0, default: 0 },
+    averageMonthlySalary: { type: Number, min: 0, default: 0 }
+  },
   status: {
     type: String,
     enum: ['draft', 'active', 'completed', 'archived'],
