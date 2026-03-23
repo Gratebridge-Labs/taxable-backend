@@ -105,9 +105,12 @@ const personalInfoValidation = [
     .isLength({ max: 100 }).withMessage('State cannot exceed 100 characters')
 ];
 
+// Helper endpoints (public)
+router.get('/allowed-years', getAllowedYears);
+router.get('/income-sources', getIncomeSources);
+
 // Profile listing and retrieval
 router.get('/', authenticate, checkEmailVerified, getWebProfiles); // List all profiles for web
-router.get('/:profileId', authenticate, checkEmailVerified, getWebProfileById); // Get single profile for web
 
 // Profile creation and management
 router.post('/create', authenticate, checkEmailVerified, createWebProfileValidation, createWebProfile);
@@ -125,8 +128,7 @@ router.post('/nin/verify', authenticate, checkEmailVerified, verifyNIN);
 router.get('/nin/status/:nin', authenticate, checkEmailVerified, getNINStatus);
 router.post('/nin/verify-bulk', authenticate, checkEmailVerified, verifyNINBulk);
 
-// Helper endpoints (no auth required for some)
-router.get('/allowed-years', getAllowedYears); // Public
-router.get('/income-sources', getIncomeSources); // Public
+// Keep dynamic route last so static paths above are not shadowed.
+router.get('/:profileId', authenticate, checkEmailVerified, getWebProfileById); // Get single profile for web
 
 module.exports = router;

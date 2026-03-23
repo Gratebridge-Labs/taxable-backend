@@ -781,15 +781,10 @@ const getWebProfileById = async (req, res) => {
       });
     }
 
-    // Try to find by custom profileId first, then by MongoDB _id
-    let profile = await TaxableProfile.findOne({
-      $or: [
-        { profileId: profileId, user: userId },
-        { _id: profileId, user: userId }
-      ]
-    })
-    .select('-__v')
-    .lean();
+    // Use safe helper to avoid ObjectId cast errors for custom profile IDs.
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId)
+      .select('-__v')
+      .lean();
 
     if (!profile) {
       return res.status(404).json({
@@ -872,13 +867,8 @@ const deleteWebProfile = async (req, res) => {
       });
     }
 
-    // Try to find by custom profileId first, then by MongoDB _id
-    const profile = await TaxableProfile.findOne({
-      $or: [
-        { profileId: profileId, user: userId },
-        { _id: profileId, user: userId }
-      ]
-    });
+    // Use safe helper to avoid ObjectId cast errors for custom profile IDs.
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
