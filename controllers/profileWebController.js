@@ -855,6 +855,106 @@ const getWebProfileById = async (req, res) => {
   }
 };
 
+/**
+ * Delete a profile for web interface
+ * DELETE /api/taxableprofile/web/:profileId
+ * Supports both MongoDB _id and custom profileId
+ */
+const deleteWebProfile = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { profileId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    // Try to find by custom profileId first, then by MongoDB _id
+    const profile = await TaxableProfile.findOne({
+      $or: [
+        { profileId: profileId, user: userId },
+        { _id: profileId, user: userId }
+      ]
+    });
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Profile not found'
+      });
+    }
+
+    // Check if profile can be deleted (only draft or pending_upload profiles can be deleted)
+    const deletableStatuses = ['draft', 'pending_upload'];
+    const deletableFilingStatuses = ['pending_upload'];
+    
+    if (!deletableStatuses.includes(profile.status) && 
+        !deletableFilingStatuses.includes(profile.filingStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Profile cannot be deleted. Only draft profiles or profiles with pending upload status can be deleted.',
+        currentStatus: profile.status,
+        currentFilingStatus: profile.filingStatus,
+        deletableStatuses,
+        deletableFilingStatuses
+      });
+    }
+
+    // Store profile info for response before deletion
+    const deletedProfileInfo = {
+      id: profile._id,
+      profileId: profile.profileId,
+      year: profile.year,
+      profileType: profile.profileType,
+      status: profile.status,
+      filingStatus: profile.filingStatus
+    };
+
+    // Delete the profile
+    await TaxableProfile.findByIdAndDelete(profile._id);
+
+    // Also delete associated data (optional - cascade delete)
+    try {
+      const Deduction = require('../models/Deduction');
+      const Document = require('../models/Document');
+      const IncomeSource = require('../models/IncomeSource');
+      
+      // Delete associated deductions
+      await Deduction.deleteMany({ profileId: profile._id });
+      
+      // Delete associated documents
+      await Document.deleteMany({ 'linkedTo.profileId': profile._id });
+      
+      // Delete associated income sources
+      await IncomeSource.deleteMany({ profile: profile._id });
+      
+      console.log(`[ProfileWeb] Deleted profile ${profile._id} with associated data`);
+    } catch (cascadeError) {
+      console.error('[ProfileWeb] Cascade delete error:', cascadeError.message);
+      // Continue even if cascade delete fails - main profile is deleted
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile deleted successfully',
+      data: {
+        deletedProfile: deletedProfileInfo,
+        deletedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('[ProfileWeb] Delete profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while deleting the profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createWebProfile,
   completeProfile,
@@ -866,5 +966,6 @@ module.exports = {
   updatePersonalInfo,
   downloadTaxReturn,
   getWebProfiles,
-  getWebProfileById
+  getWebProfileById,
+  deleteWebProfile
 };

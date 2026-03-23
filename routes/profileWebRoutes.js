@@ -12,7 +12,8 @@ const {
   updatePersonalInfo,
   downloadTaxReturn,
   getWebProfiles,
-  getWebProfileById
+  getWebProfileById,
+  deleteWebProfile
 } = require('../controllers/profileWebController');
 const { calculateWebTax } = require('../controllers/calculationController');
 const { verifyNIN, getNINStatus, verifyNINBulk } = require('../controllers/ninController');
@@ -117,6 +118,7 @@ router.post('/:profileId/submit', authenticate, checkEmailVerified, submitProfil
 router.post('/:profileId/file', authenticate, checkEmailVerified, fileTax);
 router.get('/:profileId/calculate', authenticate, checkEmailVerified, calculateWebTax);
 router.get('/:profileId/download', authenticate, checkEmailVerified, downloadTaxReturn);
+router.delete('/:profileId', authenticate, checkEmailVerified, deleteWebProfile); // Delete profile
 
 // NIN verification endpoints (stub)
 router.post('/nin/verify', authenticate, checkEmailVerified, verifyNIN);
