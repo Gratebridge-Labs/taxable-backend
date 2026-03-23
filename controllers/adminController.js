@@ -1,9 +1,22 @@
+const mongoose = require('mongoose');
 const Admin = require('../models/Admin');
 const User = require('../models/User');
 const TaxableProfile = require('../models/TaxableProfile');
 const { createFilingPaymentLink } = require('./paystackController');
 const ProfileReview = require('../models/ProfileReview');
 const TaxUpdate = require('../models/TaxUpdate');
+const Document = require('../models/Document');
+const Upload = require('../models/Upload');
+const Deduction = require('../models/Deduction');
+const IncomeSource = require('../models/IncomeSource');
+const Employee = require('../models/Employee');
+const Notification = require('../models/Notification');
+const Subscription = require('../models/Subscription');
+const FilingPayment = require('../models/FilingPayment');
+const MonoLink = require('../models/MonoLink');
+const WhatsAppSession = require('../models/WhatsAppSession');
+const WhatsAppErrorLog = require('../models/WhatsAppErrorLog');
+const OTP = require('../models/OTP');
 const { generateToken } = require('../utils/jwt');
 const { validationResult, body } = require('express-validator');
 const { generateUniqueAdminCode } = require('../utils/adminCodeGenerator');
@@ -696,6 +709,143 @@ const generateFilingPaymentLinkForAdmin = async (req, res) => {
   }
 };
 
+/**
+ * Delete a user (admin only)
+ * Cascade deletes all associated data
+ */
+const deleteUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid user ID is required'
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if user has any submitted/approved profiles
+    const submittedProfiles = await TaxableProfile.find({
+      user: userId,
+      status: { $in: ['submitted', 'approved'] }
+    });
+
+    if (submittedProfiles.length > 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot delete user with submitted or approved tax profiles',
+        details: {
+          submittedProfiles: submittedProfiles.length,
+          profileIds: submittedProfiles.map(p => p._id)
+        }
+      });
+    }
+
+    // Start a session for atomic operations
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // Delete all associated data in parallel
+      await Promise.all([
+        // Delete user's taxable profiles
+        TaxableProfile.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's documents
+        Document.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's uploads
+        Upload.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's deductions
+        Deduction.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's income sources
+        IncomeSource.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's business tax profiles (profileType = 'business')
+        TaxableProfile.deleteMany({ user: userId, profileType: 'business' }).session(session),
+        
+        // Delete user's paye employees
+        Employee.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's profile reviews
+        ProfileReview.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's notifications
+        Notification.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's subscriptions
+        Subscription.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's filing payments
+        FilingPayment.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's mono links
+        MonoLink.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's WhatsApp sessions
+        WhatsAppSession.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's WhatsApp error logs
+        WhatsAppErrorLog.deleteMany({ user: userId }).session(session),
+        
+        // Delete user's OTPs
+        OTP.deleteMany({ email: user.email }).session(session)
+      ]);
+
+      // Finally delete the user
+      await User.findByIdAndDelete(userId).session(session);
+
+      // Commit the transaction
+      await session.commitTransaction();
+      session.endSession();
+
+      res.status(200).json({
+        success: true,
+        message: 'User and all associated data deleted successfully',
+        data: {
+          userId,
+          email: user.email,
+          name: `${user.firstName} ${user.lastName}`
+        }
+      });
+
+    } catch (error) {
+      // Rollback on error
+      await session.abortTransaction();
+      session.endSession();
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('Delete user error:', error);
+    
+    if (error.name === 'TransactionError') {
+      return res.status(500).json({
+        success: false,
+        message: 'Transaction failed while deleting user',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting user',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createAdmin,
   adminLogin,
@@ -707,6 +857,7 @@ module.exports = {
   addProfileNotes,
   updateTaxFilingStatus,
   approveNIN,
-  generateFilingPaymentLinkForAdmin
+  generateFilingPaymentLinkForAdmin,
+  deleteUser
 };
 

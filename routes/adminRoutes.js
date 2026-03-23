@@ -12,7 +12,8 @@ const {
   addProfileNotes,
   updateTaxFilingStatus,
   approveNIN,
-  generateFilingPaymentLinkForAdmin
+  generateFilingPaymentLinkForAdmin,
+  deleteUser
 } = require('../controllers/adminController');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 
@@ -124,6 +125,7 @@ const ninApprovalValidation = [
 // Protected routes (require admin authentication)
 router.post('/change-password', authenticateAdmin, changePasswordValidation, changeAdminPassword);
 router.get('/users', authenticateAdmin, getAllUsers);
+router.delete('/users/:userId', authenticateAdmin, deleteUser); // Delete user and all associated data
 router.get('/taxable-profiles', authenticateAdmin, getAllTaxableProfiles);
 router.get('/filled-profiles', authenticateAdmin, getFilledProfiles); // Get all submitted/filled profiles
 router.get('/profile-reviews', authenticateAdmin, getAllProfileReviews);
