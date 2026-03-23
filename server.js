@@ -80,6 +80,7 @@ app.post('/api/health/email-test', async (req, res) => {
 // API Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes')); // Admin routes
+app.use('/api/admin', require('./routes/adminErrorLogRoutes')); // Admin error log monitoring
 app.use('/api/taxableprofile', require('./routes/profileRoutes'));
 app.use('/api/taxableprofile/web', require('./routes/profileWebRoutes')); // Web-specific profile endpoints
 app.use('/api/taxableprofile/web', require('./routes/incomeRoutes')); // Income CRUD endpoints
