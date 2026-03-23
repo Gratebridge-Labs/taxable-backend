@@ -269,9 +269,70 @@ const verifyDeduction = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/deductions/:profileId?year=2025
+ * Alternative endpoint using path parameter for profileId
+ * If year is not provided, returns deductions for all years for that profile
+ */
+const listDeductionsByProfileId = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { profileId: profileIdStr } = req.params;
+    const { year } = req.query;
+    
+    if (!profileIdStr) {
+      return res.status(400).json({
+        success: false,
+        message: 'Profile ID is required in path parameter'
+      });
+    }
+
+    const profile = await getProfileForUser(profileIdStr, userId);
+    if (!profile) {
+      return res.status(404).json({ success: false, message: 'Tax profile not found' });
+    }
+
+    // Build query
+    const query = { profileId: profile._id };
+    if (year) {
+      query['period.year'] = Number(year);
+    }
+
+    const list = await Deduction.find(query).sort({ 'period.year': -1, createdAt: -1 }).lean();
+
+    // Group by year for better organization
+    const deductionsByYear = {};
+    list.forEach(deduction => {
+      const year = deduction.period?.year || 'unknown';
+      if (!deductionsByYear[year]) {
+        deductionsByYear[year] = [];
+      }
+      deductionsByYear[year].push(deduction);
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        profileId: profile.profileId,
+        profileYear: profile.year,
+        deductions: list,
+        deductionsByYear,
+        count: list.length,
+        yearFilter: year ? Number(year) : 'all'
+      }
+    });
+  } catch (err) {
+    console.error('[Deduction] list by profileId error:', err.message);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to list deductions' });
+  }
+};
+
 module.exports = {
   createDeduction,
   listDeductions,
+  listDeductionsByProfileId,
   getDeductionById,
   updateDeduction,
   deleteDeduction,

@@ -708,6 +708,153 @@ const updatePersonalInfo = async (req, res) => {
   }
 };
 
+/**
+ * Get user's profiles for web interface
+ * GET /api/taxableprofile/web
+ * Returns all profiles for the authenticated user with web-optimized format
+ */
+const getWebProfiles = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    const profiles = await TaxableProfile.find({ user: userId })
+      .sort({ year: -1, createdAt: -1 })
+      .select('-__v')
+      .lean();
+
+    // Format for web interface
+    const formattedProfiles = profiles.map(profile => ({
+      id: profile._id,
+      profileId: profile.profileId,
+      year: profile.year,
+      profileType: profile.profileType,
+      status: profile.status,
+      filingStatus: profile.filingStatus,
+      primaryNIN: profile.primaryNIN,
+      createdAt: profile.createdAt,
+      updatedAt: profile.updatedAt,
+      // Include basic info for display
+      displayName: `${profile.profileType} - ${profile.year}`,
+      isComplete: profile.status === 'active' || profile.status === 'submitted',
+      canFile: profile.filingStatus === 'tax_agent_approved' || profile.filingStatus === 'pending_filing_payment'
+    }));
+
+    res.status(200).json({
+      success: true,
+      message: 'Profiles retrieved successfully',
+      data: {
+        profiles: formattedProfiles,
+        count: formattedProfiles.length
+      }
+    });
+  } catch (error) {
+    console.error('[ProfileWeb] Get profiles error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while retrieving your profiles',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get a specific profile by ID for web interface
+ * GET /api/taxableprofile/web/:profileId
+ * Supports both MongoDB _id and custom profileId
+ */
+const getWebProfileById = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { profileId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized'
+      });
+    }
+
+    // Try to find by custom profileId first, then by MongoDB _id
+    let profile = await TaxableProfile.findOne({
+      $or: [
+        { profileId: profileId, user: userId },
+        { _id: profileId, user: userId }
+      ]
+    })
+    .select('-__v')
+    .lean();
+
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Profile not found'
+      });
+    }
+
+    // Format for web interface
+    const formattedProfile = {
+      id: profile._id,
+      profileId: profile.profileId,
+      year: profile.year,
+      profileType: profile.profileType,
+      status: profile.status,
+      filingStatus: profile.filingStatus,
+      primaryNIN: profile.primaryNIN,
+      // Personal information
+      primaryIncomeSources: profile.primaryIncomeSources || [],
+      residency183Days: profile.residency183Days,
+      state: profile.state,
+      paysRent: profile.paysRent,
+      rentAnnualAmount: profile.rentAnnualAmount,
+      rentMonthlyAmount: profile.rentMonthlyAmount,
+      hasHealthInsurance: profile.hasHealthInsurance,
+      healthInsuranceAnnualAmount: profile.healthInsuranceAnnualAmount,
+      healthInsuranceMonthlyAmount: profile.healthInsuranceMonthlyAmount,
+      hasPension: profile.hasPension,
+      pensionAnnualAmount: profile.pensionAnnualAmount,
+      pensionMonthlyAmount: profile.pensionMonthlyAmount,
+      paysMortgage: profile.paysMortgage,
+      mortgageAnnualAmount: profile.mortgageAnnualAmount,
+      mortgageMonthlyAmount: profile.mortgageMonthlyAmount,
+      filingPreference: profile.filingPreference,
+      // Additional info
+      dob: profile.dob,
+      street: profile.street,
+      city: profile.city,
+      incomeDetails: profile.incomeDetails,
+      deductiblesDetails: profile.deductiblesDetails,
+      // Timestamps
+      createdAt: profile.createdAt,
+      updatedAt: profile.updatedAt,
+      // Metadata
+      adminMetadata: profile.adminMetadata,
+      intent: profile.intent
+    };
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile retrieved successfully',
+      data: {
+        profile: formattedProfile
+      }
+    });
+  } catch (error) {
+    console.error('[ProfileWeb] Get profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while retrieving the profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   createWebProfile,
   completeProfile,
@@ -717,5 +864,7 @@ module.exports = {
   getAllowedYears,
   getIncomeSources,
   updatePersonalInfo,
-  downloadTaxReturn
+  downloadTaxReturn,
+  getWebProfiles,
+  getWebProfileById
 };

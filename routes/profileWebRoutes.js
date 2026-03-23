@@ -10,7 +10,9 @@ const {
   getAllowedYears,
   getIncomeSources,
   updatePersonalInfo,
-  downloadTaxReturn
+  downloadTaxReturn,
+  getWebProfiles,
+  getWebProfileById
 } = require('../controllers/profileWebController');
 const { calculateWebTax } = require('../controllers/calculationController');
 const { verifyNIN, getNINStatus, verifyNINBulk } = require('../controllers/ninController');
@@ -101,6 +103,10 @@ const personalInfoValidation = [
     .trim()
     .isLength({ max: 100 }).withMessage('State cannot exceed 100 characters')
 ];
+
+// Profile listing and retrieval
+router.get('/', authenticate, checkEmailVerified, getWebProfiles); // List all profiles for web
+router.get('/:profileId', authenticate, checkEmailVerified, getWebProfileById); // Get single profile for web
 
 // Profile creation and management
 router.post('/create', authenticate, checkEmailVerified, createWebProfileValidation, createWebProfile);
