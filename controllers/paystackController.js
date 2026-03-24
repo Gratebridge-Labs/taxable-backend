@@ -3,6 +3,8 @@ const Subscription = require('../models/Subscription');
 const User = require('../models/User');
 const TaxableProfile = require('../models/TaxableProfile');
 const FilingPayment = require('../models/FilingPayment');
+const IncomeData = require('../models/IncomeData');
+const Deduction = require('../models/Deduction');
 const { initializeTransaction, verifyTransaction, verifyWebhookSignature } = require('../services/paystackService');
 const { sendSubscriptionActiveEmail } = require('../utils/emailService');
 
@@ -115,6 +117,94 @@ async function createFilingPaymentLink(userId, profileId, type = 'accountant_rev
   };
 }
 
+function toNum(v) {
+  return (typeof v === 'number' && Number.isFinite(v)) ? v : Number(v) || 0;
+}
+
+async function calculateTaxForPayment(profile, month) {
+  const filingPreference = profile.filingPreference;
+  const requestedMonth = month == null ? null : Number(month);
+  if (!['monthly', 'annual'].includes(filingPreference)) {
+    throw new Error('Insufficient data: filingPreference must be monthly or annual');
+  }
+  if (filingPreference === 'monthly' && (!requestedMonth || requestedMonth < 1 || requestedMonth > 12)) {
+    throw new Error('For monthly filing, provide a valid month (1-12)');
+  }
+
+  const incomeData = await IncomeData.findOne({ profileId: profile._id, year: profile.year }).lean();
+  if (!incomeData) throw new Error('Insufficient data: income data not found');
+
+  const deductions = await Deduction.find({ profileId: profile._id, 'period.year': profile.year }).lean();
+  if (!deductions.length) throw new Error('Insufficient data: deductions data not found');
+
+  const incomeItems = (() => {
+    if (filingPreference === 'annual') return Array.isArray(incomeData.annualIncomes) ? incomeData.annualIncomes : [];
+    const monthlyMap = incomeData.monthlyIncomes || {};
+    const monthItems = monthlyMap[String(requestedMonth)] || [];
+    return Array.isArray(monthItems) ? monthItems : [];
+  })();
+  if (!incomeItems.length) throw new Error('Insufficient data: no income data found for requested period');
+
+  const periodDeductions = (() => {
+    if (filingPreference === 'annual') return deductions.filter((d) => d.frequency === 'annual' || d.month == null);
+    return deductions.filter((d) => {
+      if (d.frequency === 'monthly') return d.month === requestedMonth;
+      return d.month == null || d.frequency === 'annual';
+    });
+  })();
+  if (!periodDeductions.length) throw new Error('Insufficient data: no deductions data found for requested period');
+
+  const totalIncome = incomeItems.reduce((sum, item) => {
+    const type = String(item?.type || '').toLowerCase();
+    if (type === 'employment') return sum + toNum(item.grossSalary) + toNum(item.bonuses) + toNum(item.commissions);
+    if (type === 'digital_assets' || type === 'freelance') return sum + toNum(item.value);
+    return sum + toNum(item.value || item.amount || item.grossSalary);
+  }, 0);
+
+  const totalCalculatedRelief = periodDeductions.reduce((sum, d) => {
+    const amount = toNum(d.amount);
+    if (filingPreference === 'monthly' && d.frequency === 'annual') return sum + (amount / 12);
+    return sum + amount;
+  }, 0);
+
+  const taxableIncome = Math.max(0, totalIncome - totalCalculatedRelief);
+  const brackets = [
+    { from: 0, to: 300000, rate: 0.07 },
+    { from: 300001, to: 600000, rate: 0.11 },
+    { from: 600001, to: 1100000, rate: 0.15 },
+    { from: 1100001, to: 1600000, rate: 0.19 },
+    { from: 1600001, to: 3200000, rate: 0.21 },
+    { from: 3200001, to: Infinity, rate: 0.24 }
+  ];
+  const computeTax = (baseIncome) => {
+    let remaining = baseIncome;
+    let tax = 0;
+    for (const b of brackets) {
+      if (remaining <= 0) break;
+      const range = b.to === Infinity ? remaining : Math.min(b.to - b.from + 1, remaining);
+      const taxableInBracket = Math.min(range, remaining);
+      tax += taxableInBracket * b.rate;
+      remaining -= taxableInBracket;
+    }
+    return tax;
+  };
+
+  const annualizedTaxableIncome = filingPreference === 'monthly' ? taxableIncome * 12 : taxableIncome;
+  const annualTaxAmount = computeTax(annualizedTaxableIncome);
+  const monthlyTax = annualTaxAmount / 12;
+  const totalTaxAmount = filingPreference === 'monthly' ? monthlyTax : annualTaxAmount;
+
+  return {
+    filingPreference,
+    month: filingPreference === 'monthly' ? requestedMonth : null,
+    totalIncome,
+    totalCalculatedRelief,
+    taxableIncome,
+    totalTaxAmount,
+    monthlyTax
+  };
+}
+
 /**
  * POST /api/paystack/create-link
  * Create a Paystack payment link for subscription. Auth required.
@@ -197,13 +287,21 @@ const handleWebhook = async (req, res) => {
             { status: 'completed', updatedAt: new Date() }
           );
           // When accountant_review is paid, profile moves into tax_agent_review.
-          // When filing_fee is paid, profile is filed (sync filingStatus + filed/filedAt).
-          const newStatus = filingPayment.type === 'accountant_review' ? 'tax_agent_review' : 'filed';
+          // For annual filing_fee, profile is filed.
+          // For monthly filing_fee, keep profile active in monthly mode.
+          const isMonthlyFilingPayment = filingPayment.type === 'filing_fee' && filingPayment.paymentFor === 'monthly';
+          const newStatus = filingPayment.type === 'accountant_review'
+            ? 'tax_agent_review'
+            : (isMonthlyFilingPayment ? 'monthly_active' : 'filed');
           const update = { filingStatus: newStatus, updatedAt: new Date() };
           if (filingPayment.type === 'filing_fee') {
-            update.filed = true;
-            update.filedAt = new Date();
-            update.status = 'completed';
+            if (!isMonthlyFilingPayment) {
+              update.filed = true;
+              update.filedAt = new Date();
+              update.status = 'completed';
+            } else {
+              update.status = 'active';
+            }
           }
           await TaxableProfile.updateOne(
             { _id: filingPayment.profileId },
@@ -386,11 +484,167 @@ const createUserFilingPaymentLink = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/paystack/tax-agent/link
+ * Body: { profileId: string }
+ */
+const createTaxAgentPaymentForWeb = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { profileId } = req.body || {};
+    if (!profileId) return res.status(400).json({ success: false, message: 'profileId is required' });
+
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
+    if (!profile) return res.status(404).json({ success: false, message: 'Tax profile not found or access denied' });
+
+    const data = await createFilingPaymentLink(userId, profile._id, 'accountant_review');
+    return res.status(200).json({ success: true, message: 'Tax agent payment link created', data });
+  } catch (error) {
+    console.error('[Paystack] createTaxAgentPaymentForWeb error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Error creating tax agent payment link' });
+  }
+};
+
+/**
+ * POST /api/paystack/filing/link
+ * Body: { profileId: string, month?: number }
+ * Filing amount is based on calculated tax data.
+ */
+const createCalculatedFilingPaymentForWeb = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { profileId, month } = req.body || {};
+    if (!profileId) return res.status(400).json({ success: false, message: 'profileId is required' });
+
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
+    if (!profile) return res.status(404).json({ success: false, message: 'Tax profile not found or access denied' });
+
+    const calc = await calculateTaxForPayment(profile, month);
+    const amountKobo = Math.max(100, Math.round(calc.totalTaxAmount * 100));
+    const ref = `filing_${new mongoose.Types.ObjectId()}_${Date.now()}`;
+
+    const user = await User.findById(userId).select('email').lean();
+    if (!user?.email) return res.status(400).json({ success: false, message: 'User email not found' });
+
+    const filingPayment = await FilingPayment.create({
+      user: userId,
+      profileId: profile._id,
+      type: 'filing_fee',
+      paymentFor: calc.filingPreference === 'monthly' ? 'monthly' : 'annual',
+      month: calc.month,
+      year: profile.year,
+      amountKobo,
+      calculationSnapshot: {
+        totalIncome: calc.totalIncome,
+        totalCalculatedRelief: calc.totalCalculatedRelief,
+        taxableIncome: calc.taxableIncome,
+        totalTaxAmount: calc.totalTaxAmount,
+        monthlyTax: calc.monthlyTax
+      },
+      paystackReference: ref,
+      status: 'pending'
+    });
+
+    const result = await initializeTransaction({
+      email: user.email,
+      amount: amountKobo,
+      callback_url: 'https://dashboard.gettaxable.com',
+      metadata: {
+        user_id: String(userId),
+        profile_id: String(profile._id),
+        payment_type: 'filing_fee',
+        filing_payment_id: String(filingPayment._id),
+        payment_for: filingPayment.paymentFor,
+        month: filingPayment.month,
+        year: filingPayment.year
+      },
+      reference: ref
+    });
+
+    if (result.reference && result.reference !== ref) {
+      filingPayment.paystackReference = result.reference;
+      await filingPayment.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Calculated filing payment link created',
+      data: {
+        authorization_url: result.authorization_url,
+        reference: result.reference || ref,
+        amountNaira: amountKobo / 100,
+        paymentFor: filingPayment.paymentFor,
+        month: filingPayment.month,
+        year: filingPayment.year,
+        taxSummary: filingPayment.calculationSnapshot
+      }
+    });
+  } catch (error) {
+    console.error('[Paystack] createCalculatedFilingPaymentForWeb error:', error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || 'Error creating calculated filing payment link'
+    });
+  }
+};
+
+/**
+ * GET /api/paystack/filing/payments?profileId=TPxxxx(optional)
+ */
+const getFilingPaymentsForWeb = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { profileId } = req.query || {};
+    const query = { user: userId };
+    let profile = null;
+    if (profileId) {
+      profile = await TaxableProfile.findByProfileIdOrId(profileId, userId).select('_id profileId year').lean();
+      if (!profile) return res.status(404).json({ success: false, message: 'Tax profile not found or access denied' });
+      query.profileId = profile._id;
+    }
+
+    const payments = await FilingPayment.find(query).sort({ createdAt: -1 }).lean();
+    return res.status(200).json({
+      success: true,
+      data: {
+        profileId: profile?.profileId || null,
+        count: payments.length,
+        payments: payments.map((p) => ({
+          id: p._id,
+          type: p.type,
+          paymentFor: p.paymentFor || 'annual',
+          month: p.month ?? null,
+          year: p.year ?? null,
+          amountKobo: p.amountKobo,
+          amountNaira: p.amountKobo / 100,
+          status: p.status,
+          paystackReference: p.paystackReference,
+          calculationSnapshot: p.calculationSnapshot || null,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('[Paystack] getFilingPaymentsForWeb error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Error retrieving filing payments' });
+  }
+};
+
 module.exports = {
   createPaymentLink,
   createSubscriptionLinkForUser,
   createFilingPaymentLink,
   createUserFilingPaymentLink,
+  createTaxAgentPaymentForWeb,
+  createCalculatedFilingPaymentForWeb,
+  getFilingPaymentsForWeb,
   handleWebhook,
   getSubscriptionStatus,
   verifyPaymentDone,

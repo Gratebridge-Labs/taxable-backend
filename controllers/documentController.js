@@ -196,15 +196,8 @@ const deleteDocument = async (req, res) => {
  */
 const serveDocument = async (req, res) => {
   try {
-    const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-
     const doc = await Document.findById(req.params.id).lean();
     if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
-    const profile = await TaxableProfile.findById(doc.profileId).select('user').lean();
-    if (!profile || profile.user.toString() !== userId) {
-      return res.status(403).json({ success: false, message: 'Forbidden' });
-    }
     if (!doc.filePath) {
       return res.status(400).json({ success: false, message: 'File not stored locally; use fileUrl' });
     }

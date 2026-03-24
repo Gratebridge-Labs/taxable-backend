@@ -8,7 +8,9 @@ const {
   uploadFile,
   uploadDeductionDocument,
   resolveUploadForUpload,
+  resolveSimpleUploadUser,
   uploadMulter,
+  uploadSimpleFile,
   getReliefDocumentStatus,
   listBanks
 } = require('../controllers/uploadController');
@@ -34,6 +36,15 @@ router.post(
   resolveUploadForUpload,
   uploadMulter.single('file'),
   uploadFile
+);
+
+// Simple generic upload (auth required): multipart file only
+router.post(
+  '/upload/simple',
+  authenticate,
+  resolveSimpleUploadUser,
+  uploadMulter.single('file'),
+  uploadSimpleFile
 );
 
 // Deduction document upload (auth required)

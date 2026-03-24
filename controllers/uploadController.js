@@ -279,6 +279,17 @@ const resolveUploadForUpload = async (req, res, next) => {
 };
 
 /**
+ * Middleware for simple upload endpoint.
+ * Sets upload user context for multer destination.
+ */
+const resolveSimpleUploadUser = async (req, res, next) => {
+  const userId = req.user?.userId;
+  if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+  req.uploadUserId = String(userId);
+  next();
+};
+
+/**
  * POST /api/upload
  * Multipart form: file + uploadId + optional kind/bankId/deductionId
  */
@@ -342,6 +353,62 @@ const uploadFile = async (req, res) => {
 };
 
 /**
+ * POST /api/upload/simple
+ * Multipart form: file
+ * Returns: { url, documentId }
+ */
+const uploadSimpleFile = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    // Document model requires a profileId, so use the user's latest profile.
+    const profile = await TaxableProfile.findOne({ user: userId }).sort({ createdAt: -1 }).select('_id').lean();
+    if (!profile) {
+      return res.status(400).json({
+        success: false,
+        message: 'No tax profile found for this user. Create a profile before uploading files.'
+      });
+    }
+
+    const id = new mongoose.Types.ObjectId();
+    const fileName = req.file.filename;
+    const originalFileName = req.file.originalname || fileName;
+    const fileUrl = `${API_BASE_URL.replace(/\/$/, '')}/documents/serve/${id}`;
+
+    const doc = await Document.create({
+      _id: id,
+      profileId: profile._id,
+      documentType: 'other',
+      category: 'other',
+      fileName,
+      originalFileName,
+      fileUrl,
+      filePath: path.join('uploads', 'documents', String(userId), fileName),
+      fileSize: req.file.size || 0,
+      mimeType: req.file.mimetype || 'application/octet-stream',
+      description: 'Uploaded via simple upload endpoint',
+      uploadedBy: userId
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        url: doc.fileUrl,
+        documentId: doc._id
+      }
+    });
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    console.error('[Upload] uploadSimpleFile error:', err.message);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to upload file' });
+  }
+};
+
+/**
  * GET /api/uploads/relief-document-status?profileId=TPxxxxx or ObjectId
  */
 const getReliefDocumentStatus = async (req, res) => {
@@ -395,8 +462,10 @@ module.exports = {
   getUploadByUploadId,
   updateUploadBanks,
   resolveUploadForUpload,
+  resolveSimpleUploadUser,
   uploadMulter,
   uploadFile,
+  uploadSimpleFile,
   uploadDeductionDocument,
   getReliefDocumentStatus,
   listBanks

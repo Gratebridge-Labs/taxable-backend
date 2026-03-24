@@ -1,5 +1,6 @@
 const TaxCalculation = require('../models/TaxCalculation');
 const IncomeSource = require('../models/IncomeSource');
+const IncomeData = require('../models/IncomeData');
 const Deduction = require('../models/Deduction');
 const TaxableProfile = require('../models/TaxableProfile');
 const { 
@@ -407,6 +408,8 @@ const calculateWebTax = async (req, res) => {
   try {
     const userId = req.user?.userId;
     const { profileId } = req.params;
+    const monthQuery = req.query?.month;
+    const requestedMonth = monthQuery !== undefined ? Number(monthQuery) : null;
 
     if (!userId) {
       return res.status(401).json({
@@ -424,103 +427,168 @@ const calculateWebTax = async (req, res) => {
       });
     }
 
-    const taxYear = profile.year;
-
-    // Get all income sources
-    const incomeSources = await IncomeSource.find({ 
-      profileId: profile._id,
-      'period.year': taxYear 
-    }).lean();
-
-    // Get all deductions
-    const deductions = await Deduction.find({ 
-      profileId: profile._id,
-      'period.year': taxYear 
-    }).lean();
-
-    // Calculate gross income
-    const grossIncome = incomeSources.reduce((sum, source) => sum + (source.totalAmount || 0), 0);
-
-    // Calculate total deductions (only verified deductions)
-    const verifiedDeductions = deductions.filter(d => d.verificationStatus === 'verified');
-    const totalDeductions = verifiedDeductions.reduce((sum, deduction) => sum + (deduction.amount || 0), 0);
-
-    // Calculate total reliefs (all deductions regardless of verification)
-    const totalReliefs = deductions.reduce((sum, deduction) => sum + (deduction.amount || 0), 0);
-
-    // Calculate taxable income
-    const taxableIncome = Math.max(0, grossIncome - totalDeductions);
-
-    // Calculate tax brackets (simplified Nigerian tax brackets for 2025)
-    const taxBrackets = [
-      { from: 0, to: 300000, rate: 0.07, amount: 0 },
-      { from: 300001, to: 600000, rate: 0.11, amount: 0 },
-      { from: 600001, to: 1100000, rate: 0.15, amount: 0 },
-      { from: 1100001, to: 1600000, rate: 0.19, amount: 0 },
-      { from: 1600001, to: 3200000, rate: 0.21, amount: 0 },
-      { from: 3200001, to: Infinity, rate: 0.24, amount: 0 }
+    // Profile completeness check for the 12 flow fields
+    const requiredProfileFields = [
+      'primaryNIN',
+      'primaryIncomeSources',
+      'residency183Days',
+      'paysRent',
+      'hasHealthInsurance',
+      'hasPension',
+      'paysMortgage',
+      'filingPreference',
+      'dob',
+      'street',
+      'city',
+      'state'
     ];
+    const missingProfileFields = requiredProfileFields.filter((field) => profile[field] === undefined);
+    if (missingProfileFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient data: tax profile is not complete',
+        data: { missingProfileFields }
+      });
+    }
 
-    // Calculate tax for each bracket
-    let remainingIncome = taxableIncome;
-    let grossTax = 0;
-    
-    taxBrackets.forEach(bracket => {
-      if (remainingIncome <= 0) return;
-      
-      const bracketRange = bracket.to === Infinity ? remainingIncome : Math.min(bracket.to - bracket.from + 1, remainingIncome);
-      const taxableInBracket = Math.min(bracketRange, remainingIncome);
-      const taxInBracket = taxableInBracket * bracket.rate;
-      
-      bracket.amount = taxInBracket;
-      grossTax += taxInBracket;
-      remainingIncome -= taxableInBracket;
-    });
+    const taxYear = profile.year;
+    const filingPreference = profile.filingPreference;
+    if (!['monthly', 'annual'].includes(filingPreference)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient data: filingPreference must be monthly or annual'
+      });
+    }
 
-    // Calculate net tax payable (gross tax - tax credits/withholdings)
-    // For simplicity, assume no tax credits for now
-    const netTaxPayable = grossTax;
+    if (filingPreference === 'monthly' && (!requestedMonth || requestedMonth < 1 || requestedMonth > 12)) {
+      return res.status(400).json({
+        success: false,
+        message: 'For monthly filing, provide a valid month query (1-12)'
+      });
+    }
 
-    // Prepare response in PDF-expected format
-    const response = {
-      success: true,
-      data: {
-        profile: {
-          profileId: profile.profileId,
-          year: profile.year,
-          profileType: profile.profileType,
-          primaryTIN: profile.primaryTIN,
-          primaryNIN: profile.primaryNIN
-        },
-        calculation: {
-          grossIncome,
-          totalDeductions,
-          totalReliefs,
-          taxableIncome,
-          taxBrackets: taxBrackets.filter(bracket => bracket.amount > 0),
-          grossTax,
-          netTaxPayable,
-          calculationDate: new Date().toISOString()
-        },
-        summary: {
-          incomeSources: incomeSources.map(source => ({
-            type: source.incomeType,
-            category: source.category,
-            amount: source.totalAmount,
-            netAmount: source.netAmount,
-            period: source.period
-          })),
-          deductions: deductions.map(deduction => ({
-            type: deduction.deductionType,
-            amount: deduction.amount,
-            verificationStatus: deduction.verificationStatus,
-            period: deduction.period
-          }))
-        }
+    const incomeData = await IncomeData.findOne({
+      profileId: profile._id,
+      year: taxYear
+    }).lean();
+    if (!incomeData) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient data: income data not found'
+      });
+    }
+
+    const allDeductions = await Deduction.find({
+      profileId: profile._id,
+      'period.year': taxYear
+    }).lean();
+    if (!allDeductions.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient data: deductions data not found'
+      });
+    }
+
+    const incomeItemsForPeriod = (() => {
+      if (filingPreference === 'annual') {
+        return Array.isArray(incomeData.annualIncomes) ? incomeData.annualIncomes : [];
       }
+      const monthlyMap = incomeData.monthlyIncomes || {};
+      const monthItems = monthlyMap[String(requestedMonth)] || [];
+      return Array.isArray(monthItems) ? monthItems : [];
+    })();
+
+    if (!incomeItemsForPeriod.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient data: no income data found for requested period'
+      });
+    }
+
+    const deductionItemsForPeriod = (() => {
+      if (filingPreference === 'annual') {
+        return allDeductions.filter((d) => d.frequency === 'annual' || d.month == null);
+      }
+      return allDeductions.filter((d) => {
+        if (d.frequency === 'monthly') return d.month === requestedMonth;
+        return d.month == null || d.frequency === 'annual';
+      });
+    })();
+
+    if (!deductionItemsForPeriod.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient data: no deductions data found for requested period'
+      });
+    }
+
+    const toNum = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
+    const incomeAmount = incomeItemsForPeriod.reduce((sum, item) => {
+      const type = String(item?.type || '').toLowerCase();
+      if (type === 'employment') {
+        return sum + toNum(item.grossSalary) + toNum(item.bonuses) + toNum(item.commissions);
+      }
+      if (type === 'digital_assets' || type === 'freelance') {
+        return sum + toNum(item.value);
+      }
+      return sum + toNum(item.value || item.amount || item.grossSalary);
+    }, 0);
+
+    const totalCalculatedRelief = deductionItemsForPeriod.reduce((sum, d) => {
+      const amount = toNum(d.amount);
+      if (filingPreference === 'monthly' && d.frequency === 'annual') {
+        return sum + (amount / 12);
+      }
+      return sum + amount;
+    }, 0);
+
+    const taxableIncome = Math.max(0, incomeAmount - totalCalculatedRelief);
+
+    const computeProgressiveTax = (baseIncome) => {
+      const brackets = [
+        { from: 0, to: 300000, rate: 0.07 },
+        { from: 300001, to: 600000, rate: 0.11 },
+        { from: 600001, to: 1100000, rate: 0.15 },
+        { from: 1100001, to: 1600000, rate: 0.19 },
+        { from: 1600001, to: 3200000, rate: 0.21 },
+        { from: 3200001, to: Infinity, rate: 0.24 }
+      ];
+
+      let remaining = baseIncome;
+      let tax = 0;
+      for (const bracket of brackets) {
+        if (remaining <= 0) break;
+        const range = bracket.to === Infinity
+          ? remaining
+          : Math.min(bracket.to - bracket.from + 1, remaining);
+        const taxableInBracket = Math.min(range, remaining);
+        tax += taxableInBracket * bracket.rate;
+        remaining -= taxableInBracket;
+      }
+      return tax;
     };
 
-    res.status(200).json(response);
+    const annualizedTaxableIncome = filingPreference === 'monthly' ? taxableIncome * 12 : taxableIncome;
+    const annualTaxAmount = computeProgressiveTax(annualizedTaxableIncome);
+    const monthlyTax = annualTaxAmount / 12;
+    const totalTaxAmount = filingPreference === 'monthly' ? monthlyTax : annualTaxAmount;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        profileId: profile.profileId,
+        year: taxYear,
+        filingPreference,
+        month: filingPreference === 'monthly' ? requestedMonth : null,
+        taxSummary: {
+          totalIncome: incomeAmount,
+          totalCalculatedRelief,
+          taxableIncome,
+          totalTaxAmount,
+          monthlyTax
+        }
+      }
+    });
   } catch (error) {
     console.error('Calculate web tax error:', error);
     res.status(500).json({

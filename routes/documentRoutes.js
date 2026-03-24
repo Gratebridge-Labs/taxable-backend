@@ -12,7 +12,7 @@ const {
 
 router.post('/', authenticate, checkEmailVerified, createDocument);
 router.get('/', authenticate, checkEmailVerified, listDocuments);
-router.get('/serve/:id', authenticate, checkEmailVerified, serveDocument);
+router.get('/serve/:id', serveDocument);
 router.get('/:id', authenticate, checkEmailVerified, getDocumentById);
 router.delete('/:id', authenticate, checkEmailVerified, deleteDocument);
 
