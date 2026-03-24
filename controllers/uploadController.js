@@ -95,145 +95,242 @@ const createUploadSession = async (req, res) => {
 };
 
 /**
- * GET /api/uploads/:uploadId — Get upload session (no auth; link is secret).
- * Returns: upload session, banks list, reliefDocumentStatus (if profileId set).
+ * POST /api/upload/deduction — Upload deduction document (auth required).
+ * Multipart form: file, profileId (string), deductionType, year
+ * Returns: { url, documentId } — url is e.g. https://api.gettaxable.com/api/documents/serve/:id
+ */
+const uploadDeductionDocument = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+    const { profileId: profileIdStr, deductionType, year } = req.body || {};
+    
+    if (!profileIdStr) return res.status(400).json({ success: false, message: 'profileId is required' });
+    if (!deductionType) return res.status(400).json({ success: false, message: 'deductionType is required' });
+    if (!year) return res.status(400).json({ success: false, message: 'year is required' });
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+
+    // Validate profile belongs to user
+    const profile = await TaxableProfile.findOne({ 
+      profileId: profileIdStr, 
+      user: userId 
+    }).select('_id profileId year').lean();
+    
+    if (!profile) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Tax profile not found or access denied' 
+      });
+    }
+
+    // Validate deduction type
+    const validDeductionTypes = ['nhf', 'nhis', 'pension', 'life_insurance', 'mortgage_interest', 'rent_relief', 'transport_allowance', 'other'];
+    if (!validDeductionTypes.includes(deductionType)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid deduction type. Must be one of: ${validDeductionTypes.join(', ')}`
+      });
+    }
+
+    // Create document record
+    const id = new mongoose.Types.ObjectId();
+    const fileName = req.file.filename;
+    const originalFileName = req.file.originalname || fileName;
+    const fileUrl = `${API_BASE_URL.replace(/\/$/, '')}/documents/serve/${id}`;
+
+    const doc = new Document({
+      _id: id,
+      profileId: profile._id,
+      documentType: 'receipt',
+      category: 'deduction',
+      fileName,
+      originalFileName,
+      fileUrl,
+      filePath: path.join('uploads', 'documents', userId, fileName),
+      fileSize: req.file.size || 0,
+      mimeType: req.file.mimetype || 'application/octet-stream',
+      description: `${deductionType} deduction document for ${year}`,
+      uploadedBy: userId
+    });
+
+    await doc.save();
+
+    return res.status(201).json({
+      success: true,
+      data: { 
+        url: doc.fileUrl, 
+        documentId: doc._id,
+        profileId: profileIdStr,
+        deductionType,
+        year: Number(year)
+      }
+    });
+
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    console.error('[Upload] uploadDeductionDocument error:', err.message);
+    return res.status(500).json({ 
+      success: false, 
+      message: err.message || 'Failed to upload deduction document' 
+    });
+  }
+};
+
+/**
+ * Internal helper used by web/WhatsApp flows to create upload sessions.
+ */
+const createUploadSessionForUser = async (userId, profileId, year, type = 'general') => {
+  const uploadId = generateUploadId();
+  const upload = await Upload.create({
+    uploadId,
+    user: userId,
+    profileId: profileId || undefined,
+    year: year !== undefined && year !== null ? Number(year) : undefined,
+    type,
+    status: 'pending',
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  });
+
+  return {
+    uploadId: upload.uploadId,
+    uploadUrl: `${UPLOAD_PAGE_BASE}/uploads/${upload.uploadId}`,
+    upload
+  };
+};
+
+/**
+ * GET /api/uploads/:uploadId
  */
 const getUploadByUploadId = async (req, res) => {
   try {
     const { uploadId } = req.params;
-    const upload = await Upload.findOne({ uploadId })
-      .populate('profileId', 'year profileId')
-      .lean();
+    const upload = await Upload.findOne({ uploadId }).lean();
     if (!upload) return res.status(404).json({ success: false, message: 'Upload session not found' });
-    if (upload.expiresAt && new Date(upload.expiresAt) < new Date()) {
-      return res.status(410).json({ success: false, message: 'Upload session has expired' });
-    }
-
-    let reliefDocumentStatus = null;
-    let reliefSummary = null;
-    if (upload.profileId) {
-      const reliefData = await getReliefDocumentStatusForProfile(upload.profileId._id, upload.year || upload.profileId.year);
-      if (reliefData) {
-        reliefDocumentStatus = reliefData.items;
-        reliefSummary = reliefData.summary;
-      }
-    }
 
     return res.status(200).json({
       success: true,
       data: {
         uploadId: upload.uploadId,
-        status: upload.status,
+        profileId: upload.profileId,
+        year: upload.year,
         type: upload.type,
-        year: upload.year || upload.profileId?.year,
-        profileId: upload.profileId?._id?.toString(),
+        status: upload.status,
         selectedBanks: upload.selectedBanks || [],
         files: upload.files || [],
-        reliefDocumentStatus,
-        reliefSummary,
-        banks: NIGERIAN_BANKS
+        expiresAt: upload.expiresAt,
+        createdAt: upload.createdAt
       }
     });
   } catch (err) {
-    if (err.name === 'CastError') return res.status(400).json({ success: false, message: 'Invalid upload id' });
-    console.error('[Upload] getByUploadId error:', err.message);
-    return res.status(500).json({ success: false, message: err.message || 'Failed to get upload session' });
+    console.error('[Upload] getUploadByUploadId error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve upload session' });
   }
 };
 
 /**
- * PATCH /api/uploads/:uploadId — Update selected banks (optional; no auth).
+ * PATCH /api/uploads/:uploadId
  * Body: { selectedBanks: string[] }
  */
 const updateUploadBanks = async (req, res) => {
   try {
     const { uploadId } = req.params;
-    const { selectedBanks } = req.body || {};
+    const selectedBanks = Array.isArray(req.body?.selectedBanks) ? req.body.selectedBanks : [];
+
     const upload = await Upload.findOne({ uploadId });
     if (!upload) return res.status(404).json({ success: false, message: 'Upload session not found' });
-    if (upload.expiresAt && new Date(upload.expiresAt) < new Date()) {
-      return res.status(410).json({ success: false, message: 'Upload session has expired' });
-    }
-    if (Array.isArray(selectedBanks)) {
-      upload.selectedBanks = selectedBanks.filter(b => typeof b === 'string');
-      await upload.save();
-    }
-    return res.status(200).json({ success: true, data: { selectedBanks: upload.selectedBanks } });
+
+    upload.selectedBanks = selectedBanks.map((bank) => String(bank).trim()).filter(Boolean);
+    await upload.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Selected banks updated',
+      data: { uploadId: upload.uploadId, selectedBanks: upload.selectedBanks }
+    });
   } catch (err) {
-    console.error('[Upload] updateBanks error:', err.message);
-    return res.status(500).json({ success: false, message: err.message || 'Failed to update' });
+    console.error('[Upload] updateUploadBanks error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to update selected banks' });
   }
 };
 
 /**
- * POST /api/upload — Upload file (multipart).
- * Query or body (form): uploadId, kind (bank_statement|relief), bankId?, deductionId?.
- * File field: "file".
- * No auth; uploadId identifies the session.
- * Returns: { url, documentId } — url is e.g. https://api.gettaxable.com/api/documents/serve/:id
+ * Middleware for /api/upload multipart endpoint.
+ * Resolves upload session and attaches user/profile context before multer runs.
+ */
+const resolveUploadForUpload = async (req, res, next) => {
+  try {
+    const uploadId = req.body?.uploadId || req.query?.uploadId;
+    if (!uploadId) return res.status(400).json({ success: false, message: 'uploadId is required' });
+
+    const upload = await Upload.findOne({ uploadId }).lean();
+    if (!upload) return res.status(404).json({ success: false, message: 'Upload session not found' });
+
+    req.uploadSession = upload;
+    req.uploadUserId = String(upload.user);
+    req.uploadProfileId = upload.profileId ? String(upload.profileId) : null;
+    next();
+  } catch (err) {
+    console.error('[Upload] resolveUploadForUpload error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to resolve upload session' });
+  }
+};
+
+/**
+ * POST /api/upload
+ * Multipart form: file + uploadId + optional kind/bankId/deductionId
  */
 const uploadFile = async (req, res) => {
   try {
-    const uploadId = (req.body?.uploadId || req.query?.uploadId || '').trim();
-    const kind = (req.body?.kind || req.query?.kind || 'bank_statement').trim();
-    const bankId = req.body?.bankId || req.query?.bankId;
-    const deductionIdStr = req.body?.deductionId || req.query?.deductionId;
-
-    if (!uploadId) return res.status(400).json({ success: false, message: 'uploadId is required' });
+    if (!req.uploadSession) return res.status(400).json({ success: false, message: 'Invalid upload session context' });
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
-
-    const upload = await Upload.findOne({ uploadId });
-    if (!upload) return res.status(404).json({ success: false, message: 'Upload session not found' });
-    if (upload.expiresAt && new Date(upload.expiresAt) < new Date()) {
-      return res.status(410).json({ success: false, message: 'Upload session has expired' });
-    }
-
-    const userId = upload.user.toString();
-    const profileId = upload.profileId;
-    if (!profileId) return res.status(400).json({ success: false, message: 'Upload session has no profile; add a profile first' });
-
-    let deductionId = null;
-    if (deductionIdStr && kind === 'relief') {
-      const deduction = await Deduction.findOne({ _id: deductionIdStr, profileId }).lean();
-      if (!deduction) return res.status(400).json({ success: false, message: 'Deduction not found' });
-      deductionId = deduction._id;
-    }
 
     const id = new mongoose.Types.ObjectId();
     const fileName = req.file.filename;
     const originalFileName = req.file.originalname || fileName;
-    const filePathForDoc = path.join(UPLOADS_DIR, userId, fileName);
-    const absolutePath = path.isAbsolute(filePathForDoc) ? filePathForDoc : path.join(UPLOADS_DIR, userId, fileName);
     const fileUrl = `${API_BASE_URL.replace(/\/$/, '')}/documents/serve/${id}`;
 
-    const doc = new Document({
+    const doc = await Document.create({
       _id: id,
-      profileId,
-      documentType: kind === 'bank_statement' ? 'bank_statement' : 'receipt',
-      category: 'deduction',
+      profileId: req.uploadSession.profileId,
+      documentType: 'other',
+      category: 'proof',
       fileName,
       originalFileName,
       fileUrl,
-      filePath: UPLOADS_BASE !== process.cwd() ? absolutePath : path.join('uploads', 'documents', userId, fileName),
+      filePath: path.join('uploads', 'documents', String(req.uploadSession.user), fileName),
       fileSize: req.file.size || 0,
       mimeType: req.file.mimetype || 'application/octet-stream',
-      linkedTo: deductionId ? { deductionId } : {},
-      uploadedBy: userId
+      description: 'Uploaded via upload session',
+      uploadedBy: req.uploadSession.user
     });
-    await doc.save();
 
-    upload.files.push({
-      documentId: doc._id,
-      fileUrl: doc.fileUrl,
-      kind: kind === 'relief' ? 'relief' : 'bank_statement',
-      bankId: bankId || undefined,
-      deductionId: deductionId || undefined
-    });
-    await upload.save();
+    await Upload.updateOne(
+      { _id: req.uploadSession._id },
+      {
+        $push: {
+          files: {
+            documentId: doc._id,
+            fileUrl: doc.fileUrl,
+            kind: req.body?.kind === 'bank_statement' ? 'bank_statement' : 'relief',
+            bankId: req.body?.bankId ? String(req.body.bankId) : undefined,
+            deductionId: req.body?.deductionId || undefined,
+            uploadedAt: new Date()
+          }
+        },
+        $set: { status: 'completed', updatedAt: new Date() }
+      }
+    );
 
     return res.status(201).json({
       success: true,
-      data: { url: doc.fileUrl, documentId: doc._id }
+      data: {
+        url: doc.fileUrl,
+        documentId: doc._id,
+        uploadId: req.uploadSession.uploadId
+      }
     });
   } catch (err) {
     if (err.name === 'ValidationError') {
@@ -244,227 +341,63 @@ const uploadFile = async (req, res) => {
   }
 };
 
-/** Middleware: resolve uploadId and set req.uploadUserId for multer destination */
-const resolveUploadForUpload = async (req, res, next) => {
-  const uploadId = (req.body?.uploadId || req.query?.uploadId || '').trim();
-  if (!uploadId) return next();
-  try {
-    const upload = await Upload.findOne({ uploadId }).select('user').lean();
-    if (upload) req.uploadUserId = upload.user.toString();
-  } catch (e) { /* ignore */ }
-  next();
-};
-
 /**
- * Ensure Deduction records exist for profile-level reliefs (paysRent, hasHealthInsurance, hasPension, paysMortgage)
- * so upload session can show reliefDocumentStatus and user can upload supporting docs.
- * Rent = annual only. Health, pension, mortgage = stored monthly on profile → we use monthly * 12 for annual relief.
- */
-async function ensureProfileReliefDeductions(profileId, year) {
-  const profile = await TaxableProfile.findById(profileId)
-    .select('year paysRent rentMonthlyAmount rentAnnualAmount hasHealthInsurance healthInsuranceMonthlyAmount healthInsuranceAnnualAmount hasPension pensionMonthlyAmount pensionAnnualAmount paysMortgage mortgageMonthlyAmount mortgageAnnualAmount')
-    .lean();
-  if (!profile) return;
-  const y = year || profile.year;
-  const period = { year: y, startDate: new Date(y, 0, 1), endDate: new Date(y, 11, 31) };
-
-  // Rent: collected as annual
-  const rentAnnual = profile.rentAnnualAmount ?? (profile.rentMonthlyAmount != null ? profile.rentMonthlyAmount * 12 : 0);
-  // Health, pension, mortgage: collected as monthly → annual = monthly * 12 for relief/session
-  const healthAnnual = profile.healthInsuranceAnnualAmount ?? (profile.healthInsuranceMonthlyAmount != null ? profile.healthInsuranceMonthlyAmount * 12 : 0);
-  const pensionAnnual = profile.pensionAnnualAmount ?? (profile.pensionMonthlyAmount != null ? profile.pensionMonthlyAmount * 12 : 0);
-  const mortgageAnnual = profile.mortgageAnnualAmount ?? (profile.mortgageMonthlyAmount != null ? profile.mortgageMonthlyAmount * 12 : 0);
-
-  if (profile.paysRent && rentAnnual > 0) {
-    const exists = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'rent_relief' }).select('_id').lean();
-    if (!exists) {
-      await Deduction.create({
-        profileId,
-        deductionType: 'rent_relief',
-        period,
-        amount: 0,
-        rentRelief: { annualRent: rentAnnual }
-      });
-    }
-  }
-  if (profile.hasHealthInsurance && healthAnnual > 0) {
-    const existing = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'nhis' });
-    if (!existing) {
-      await Deduction.create({
-        profileId,
-        deductionType: 'nhis',
-        period,
-        amount: healthAnnual,
-        nhis: { contribution: healthAnnual }
-      });
-    } else if (existing.amount !== healthAnnual) {
-      existing.amount = healthAnnual;
-      if (existing.nhis) existing.nhis.contribution = healthAnnual;
-      else existing.nhis = { contribution: healthAnnual };
-      await existing.save();
-    }
-  }
-  if (profile.hasPension && pensionAnnual > 0) {
-    const existing = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'pension' });
-    if (!existing) {
-      await Deduction.create({
-        profileId,
-        deductionType: 'pension',
-        period,
-        amount: pensionAnnual,
-        pension: { contribution: pensionAnnual }
-      });
-    } else if (existing.amount !== pensionAnnual) {
-      existing.amount = pensionAnnual;
-      if (existing.pension) existing.pension.contribution = pensionAnnual;
-      else existing.pension = { contribution: pensionAnnual };
-      await existing.save();
-    }
-  }
-  if (profile.paysMortgage && mortgageAnnual > 0) {
-    const existing = await Deduction.findOne({ profileId, 'period.year': y, deductionType: 'mortgage_interest' });
-    if (!existing) {
-      await Deduction.create({
-        profileId,
-        deductionType: 'mortgage_interest',
-        period,
-        amount: mortgageAnnual,
-        mortgageInterest: { interestPaid: mortgageAnnual }
-      });
-    } else if (existing.amount !== mortgageAnnual) {
-      existing.amount = mortgageAnnual;
-      if (existing.mortgageInterest) existing.mortgageInterest.interestPaid = mortgageAnnual;
-      else existing.mortgageInterest = { interestPaid: mortgageAnnual };
-      await existing.save();
-    }
-  }
-}
-
-const RELIEF_LABELS = {
-  nhf: 'NHF',
-  nhis: 'NHIS',
-  pension: 'Pension',
-  life_insurance: 'Life Insurance',
-  mortgage_interest: 'Mortgage Interest',
-  rent_relief: 'Rent Relief',
-  transport_allowance: 'Transport Allowance',
-  other: 'Other'
-};
-
-/** Rent relief is 20% of annual rent, capped at ₦500,000 (FIRS). */
-const RENT_RELIEF_CAP = 500000;
-
-/**
- * Get relief document status for a profile: which reliefs user has declared and whether each has supporting docs.
- * Returns { items, summary } for UI: items have amount (annual), amountMonthly, and summary has totals and insights.
- */
-async function getReliefDocumentStatusForProfile(profileId, year) {
-  const profile = await TaxableProfile.findById(profileId).lean();
-  if (!profile) return null;
-
-  await ensureProfileReliefDeductions(profileId, year || profile.year);
-
-  const deductions = await Deduction.find({ profileId, 'period.year': year || profile.year }).lean();
-  const deductionIds = deductions.map(d => d._id);
-  const docsByDeduction = await Document.find({ 'linkedTo.deductionId': { $in: deductionIds } })
-    .select('linkedTo.deductionId')
-    .lean();
-
-  const hasDoc = new Set(docsByDeduction.map(d => d.linkedTo?.deductionId?.toString()).filter(Boolean));
-
-  const items = deductions.map(d => {
-    const amountAnnual = Number(d.amount) || 0;
-    return {
-      deductionId: d._id,
-      deductionType: d.deductionType,
-      label: RELIEF_LABELS[d.deductionType] || d.deductionType,
-      amount: amountAnnual,
-      amountAnnual,
-      amountMonthly: amountAnnual > 0 ? Math.round(amountAnnual / 12) : 0,
-      hasSupportingDocument: hasDoc.has(d._id.toString())
-    };
-  });
-
-  const totalAnnualRelief = items.reduce((sum, i) => sum + (i.amountAnnual || 0), 0);
-  const rentItem = items.find(i => i.deductionType === 'rent_relief');
-  const insuranceItems = items.filter(i => i.deductionType === 'nhis' || i.deductionType === 'life_insurance');
-  const pensionItem = items.find(i => i.deductionType === 'pension');
-  const mortgageItem = items.find(i => i.deductionType === 'mortgage_interest');
-
-  const summary = {
-    totalAnnualRelief,
-    rentReliefAmount: rentItem ? rentItem.amountAnnual : 0,
-    rentReliefCap: RENT_RELIEF_CAP,
-    insuranceAmount: insuranceItems.reduce((s, i) => s + (i.amountAnnual || 0), 0),
-    pensionAmount: pensionItem ? pensionItem.amountAnnual : 0,
-    mortgageAmount: mortgageItem ? mortgageItem.amountAnnual : 0,
-    otherAmount: items
-      .filter(i => !['rent_relief', 'nhis', 'life_insurance', 'pension', 'mortgage_interest'].includes(i.deductionType))
-      .reduce((s, i) => s + (i.amountAnnual || 0), 0),
-    itemsWithoutDocument: items.filter(i => !i.hasSupportingDocument).length,
-    uploadRequiredMessage: 'Upload supporting documents for each relief below to qualify. Documents are required before filing.'
-  };
-
-  return { items, summary };
-}
-
-/**
- * GET /api/uploads/relief-document-status?profileId=xxx&year=2025
- * Returns which reliefs the user has declared and whether each has a supporting document.
+ * GET /api/uploads/relief-document-status?profileId=TPxxxxx or ObjectId
  */
 const getReliefDocumentStatus = async (req, res) => {
   try {
     const userId = req.user?.userId;
+    const profileId = req.query?.profileId;
     if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
-
-    const profileId = req.query.profileId;
-    const year = req.query.year ? Number(req.query.year) : null;
     if (!profileId) return res.status(400).json({ success: false, message: 'profileId is required' });
 
-    const profile = await TaxableProfile.findOne({ _id: profileId, user: userId }).select('_id year').lean();
-    if (!profile) return res.status(404).json({ success: false, message: 'Profile not found' });
+    const profile = await TaxableProfile.findByProfileIdOrId(String(profileId), userId).select('_id').lean();
+    if (!profile) return res.status(404).json({ success: false, message: 'Tax profile not found' });
 
-    const status = await getReliefDocumentStatusForProfile(profile._id, year || profile.year);
-    return res.status(200).json({ success: true, data: status });
+    const docs = await Document.find({ profileId: profile._id, category: 'deduction' })
+      .select('_id originalFileName createdAt linkedTo.deductionId')
+      .lean();
+    const deductions = await Deduction.find({ profileId: profile._id })
+      .select('_id deductionType verificationStatus amount')
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        profileId,
+        deductionCount: deductions.length,
+        documentCount: docs.length,
+        deductions,
+        documents: docs
+      }
+    });
   } catch (err) {
-    if (err.name === 'CastError') return res.status(400).json({ success: false, message: 'Invalid profile id' });
-    console.error('[Upload] reliefDocumentStatus error:', err.message);
-    return res.status(500).json({ success: false, message: err.message || 'Failed to get relief document status' });
+    console.error('[Upload] getReliefDocumentStatus error:', err.message);
+    return res.status(500).json({ success: false, message: 'Failed to get relief document status' });
   }
 };
 
-/** GET /api/uploads/banks — List banks (no auth) */
-const listBanks = (req, res) => {
-  return res.status(200).json({ success: true, data: NIGERIAN_BANKS });
-};
-
 /**
- * Create an upload session for a user (e.g. from WhatsApp). Returns { uploadId, uploadUrl }.
+ * GET /api/uploads/banks
  */
-async function createUploadSessionForUser(userId, profileId, year) {
-  const uploadId = generateUploadId();
-  const upload = new Upload({
-    uploadId,
-    user: userId,
-    profileId: profileId || undefined,
-    year: year ? Number(year) : undefined,
-    type: 'general',
-    status: 'pending',
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+const listBanks = async (req, res) => {
+  return res.status(200).json({
+    success: true,
+    data: {
+      banks: Array.isArray(NIGERIAN_BANKS) ? NIGERIAN_BANKS : []
+    }
   });
-  await upload.save();
-  return { uploadId, uploadUrl: `${UPLOAD_PAGE_BASE}/uploads/${uploadId}` };
-}
+};
 
 module.exports = {
   createUploadSession,
+  createUploadSessionForUser,
   getUploadByUploadId,
   updateUploadBanks,
-  uploadFile,
   resolveUploadForUpload,
   uploadMulter,
+  uploadFile,
+  uploadDeductionDocument,
   getReliefDocumentStatus,
-  getReliefDocumentStatusForProfile,
-  listBanks,
-  createUploadSessionForUser
+  listBanks
 };

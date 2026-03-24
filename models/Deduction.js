@@ -10,7 +10,7 @@ const deductionSchema = new mongoose.Schema({
   deductionType: {
     type: String,
     required: [true, 'Deduction type is required'],
-    enum: ['nhf', 'nhis', 'pension', 'life_insurance', 'mortgage_interest', 'rent_relief', 'transport_allowance', 'other'],
+    enum: ['rent_relief', 'pension', 'mortgage', 'insurance'],
     index: true
   },
   // NHF Contribution
@@ -127,6 +127,19 @@ const deductionSchema = new mongoose.Schema({
       required: true
     }
   },
+  // Frequency: annual or monthly
+  frequency: {
+    type: String,
+    enum: ['annual', 'monthly'],
+    default: 'annual'
+  },
+  // For monthly deductions, store month number (1-12)
+  month: {
+    type: Number,
+    min: 1,
+    max: 12,
+    default: null
+  },
   // Verification workflow
   verificationStatus: {
     type: String,
@@ -136,6 +149,14 @@ const deductionSchema = new mongoose.Schema({
   documentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Document'
+  },
+  documentUrl: {
+    type: String,
+    default: null
+  },
+  metadata: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   },
   verificationNotes: String,
   verifiedBy: {

@@ -6,6 +6,7 @@ const {
   getUploadByUploadId,
   updateUploadBanks,
   uploadFile,
+  uploadDeductionDocument,
   resolveUploadForUpload,
   uploadMulter,
   getReliefDocumentStatus,
@@ -33,6 +34,14 @@ router.post(
   resolveUploadForUpload,
   uploadMulter.single('file'),
   uploadFile
+);
+
+// Deduction document upload (auth required)
+router.post(
+  '/upload/deduction',
+  authenticate,
+  uploadMulter.single('file'),
+  uploadDeductionDocument
 );
 
 module.exports = router;

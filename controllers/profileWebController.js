@@ -148,26 +148,19 @@ const completeProfile = async (req, res) => {
     const userId = req.user?.userId;
     const { profileId } = req.params;
     const {
-      primaryNIN,
+      nin,
       primaryIncomeSources,
       residency183Days,
-      state,
       paysRent,
-      rentAnnualAmount,
-      rentMonthlyAmount,
       hasHealthInsurance,
-      healthInsuranceAnnualAmount,
-      healthInsuranceMonthlyAmount,
       hasPension,
-      pensionAnnualAmount,
-      pensionMonthlyAmount,
-      paysMortgage,
-      mortgageAnnualAmount,
-      mortgageMonthlyAmount,
+      hasMortgage,
+      Hasmortgage,
       filingPreference,
       dob,
       street,
-      city
+      city,
+      state
     } = req.body;
 
     if (!userId) {
@@ -186,25 +179,16 @@ const completeProfile = async (req, res) => {
       });
     }
 
-    // Validate filing preference based on year
-    if (filingPreference) {
-      if (profile.year === 2025 && filingPreference !== 'annual') {
-        return res.status(400).json({
-          success: false,
-          message: 'For tax year 2025, only annual filing is allowed'
-        });
-      }
-      if (profile.year === 2026 && !['monthly', 'annual'].includes(filingPreference)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Filing preference must be "monthly" or "annual" for 2026'
-        });
-      }
+    if (filingPreference !== undefined && filingPreference !== null && !['monthly', 'annual'].includes(filingPreference)) {
+      return res.status(400).json({
+        success: false,
+        message: 'filingPreference must be "monthly" or "annual"'
+      });
     }
 
-    // Update fields if provided
-    if (primaryNIN !== undefined) {
-      const ninStr = String(primaryNIN || '').replace(/[^0-9]/g, '');
+    // Update only the specified step-5 fields (all nullable)
+    if (nin !== undefined) {
+      const ninStr = String(nin || '').replace(/[^0-9]/g, '');
       if (ninStr && ninStr.length !== 11) {
         return res.status(400).json({
           success: false,
@@ -215,40 +199,29 @@ const completeProfile = async (req, res) => {
     }
 
     if (primaryIncomeSources !== undefined) {
-      const validSources = ['Salary / Employment', 'Business/Self-employment', 'Freelance/Consulting', 'Investment income', 'Rental income', 'Digital Assets/Crypto'];
-      if (Array.isArray(primaryIncomeSources)) {
-        const invalid = primaryIncomeSources.find(s => !validSources.includes(s));
-        if (invalid) {
-          return res.status(400).json({
-            success: false,
-            message: `Invalid income source: ${invalid}. Must be one of: ${validSources.join(', ')}`
-          });
-        }
-        profile.primaryIncomeSources = primaryIncomeSources;
-      } else if (primaryIncomeSources === null) {
+      if (primaryIncomeSources === null) {
         profile.primaryIncomeSources = undefined;
+      } else if (Array.isArray(primaryIncomeSources)) {
+        profile.primaryIncomeSources = primaryIncomeSources;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'primaryIncomeSources must be an array or null'
+        });
       }
     }
 
-    // Update boolean fields
     if (residency183Days !== undefined) profile.residency183Days = residency183Days;
-    if (state !== undefined) profile.state = state;
     if (paysRent !== undefined) profile.paysRent = paysRent;
-    if (rentAnnualAmount !== undefined) profile.rentAnnualAmount = rentAnnualAmount;
-    if (rentMonthlyAmount !== undefined) profile.rentMonthlyAmount = rentMonthlyAmount;
     if (hasHealthInsurance !== undefined) profile.hasHealthInsurance = hasHealthInsurance;
-    if (healthInsuranceAnnualAmount !== undefined) profile.healthInsuranceAnnualAmount = healthInsuranceAnnualAmount;
-    if (healthInsuranceMonthlyAmount !== undefined) profile.healthInsuranceMonthlyAmount = healthInsuranceMonthlyAmount;
     if (hasPension !== undefined) profile.hasPension = hasPension;
-    if (pensionAnnualAmount !== undefined) profile.pensionAnnualAmount = pensionAnnualAmount;
-    if (pensionMonthlyAmount !== undefined) profile.pensionMonthlyAmount = pensionMonthlyAmount;
-    if (paysMortgage !== undefined) profile.paysMortgage = paysMortgage;
-    if (mortgageAnnualAmount !== undefined) profile.mortgageAnnualAmount = mortgageAnnualAmount;
-    if (mortgageMonthlyAmount !== undefined) profile.mortgageMonthlyAmount = mortgageMonthlyAmount;
+    const mortgageValue = hasMortgage !== undefined ? hasMortgage : Hasmortgage;
+    if (mortgageValue !== undefined) profile.paysMortgage = mortgageValue;
     if (filingPreference !== undefined) profile.filingPreference = filingPreference;
-    if (dob !== undefined) profile.dob = dob ? new Date(dob) : null;
+    if (dob !== undefined) profile.dob = dob || null;
     if (street !== undefined) profile.street = street;
     if (city !== undefined) profile.city = city;
+    if (state !== undefined) profile.state = state;
 
     await profile.save();
 
