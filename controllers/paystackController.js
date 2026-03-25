@@ -161,7 +161,16 @@ async function calculateTaxForPayment(profile, month) {
     return sum + toNum(item.value || item.amount || item.grossSalary);
   }, 0);
 
+  const computeRentReliefAnnual = (annualRent) => Math.min(toNum(annualRent) * 0.2, 500000);
+
   const totalCalculatedRelief = periodDeductions.reduce((sum, d) => {
+    const type = String(d?.deductionType || '').toLowerCase();
+
+    if (type === 'rent_relief') {
+      const annualRelief = computeRentReliefAnnual(d.amount);
+      return sum + (filingPreference === 'monthly' ? (annualRelief / 12) : annualRelief);
+    }
+
     const amount = toNum(d.amount);
     if (filingPreference === 'monthly' && d.frequency === 'annual') return sum + (amount / 12);
     return sum + amount;

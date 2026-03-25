@@ -534,11 +534,21 @@ const calculateWebTax = async (req, res) => {
       return sum + toNum(item.value || item.amount || item.grossSalary);
     }, 0);
 
+    const computeRentReliefAnnual = (annualRent) => Math.min(toNum(annualRent) * 0.2, 500000);
+
     const totalCalculatedRelief = deductionItemsForPeriod.reduce((sum, d) => {
-      const amount = toNum(d.amount);
-      if (filingPreference === 'monthly' && d.frequency === 'annual') {
-        return sum + (amount / 12);
+      const type = String(d?.deductionType || '').toLowerCase();
+
+      // Rent is always treated as annual rent value; relief is capped and spread across months
+      if (type === 'rent_relief') {
+        const annualRelief = computeRentReliefAnnual(d.amount);
+        return sum + (filingPreference === 'monthly' ? (annualRelief / 12) : annualRelief);
       }
+
+      // Other relief types are treated as entered values.
+      // If a deduction is annual and we are calculating a month, prorate it.
+      const amount = toNum(d.amount);
+      if (filingPreference === 'monthly' && d.frequency === 'annual') return sum + (amount / 12);
       return sum + amount;
     }, 0);
 
