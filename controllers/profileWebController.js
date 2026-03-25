@@ -774,6 +774,7 @@ const getWebProfileById = async (req, res) => {
       profileType: profile.profileType,
       status: profile.status,
       filingStatus: profile.filingStatus,
+      nin: profile.primaryNIN ?? null,
       primaryNIN: profile.primaryNIN,
       // Personal information
       primaryIncomeSources: profile.primaryIncomeSources || [],
