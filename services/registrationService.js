@@ -37,12 +37,12 @@ async function resendOTP(email, firstName) {
 }
 
 /**
- * @param {Object} data - { firstName, lastName, email, phone, password }
+ * @param {Object} data - { firstName, lastName, email, phone, password, receiveTaxDeadlineReminders? }
  * @returns {Promise<{ user, otpCode }>}
  * @throws if email exists or email send fails
  */
 async function registerUser(data) {
-  const { firstName, lastName, email, phone, password } = data;
+  const { firstName, lastName, email, phone, password, receiveTaxDeadlineReminders } = data;
   const emailLower = email.toLowerCase().trim();
 
   const existingUser = await User.findOne({ email: emailLower });
@@ -78,7 +78,8 @@ async function registerUser(data) {
     email: emailLower,
     phone: phone.trim(),
     password,
-    emailVerified: false
+    emailVerified: false,
+    receiveTaxDeadlineReminders: receiveTaxDeadlineReminders === true
   });
 
   try {

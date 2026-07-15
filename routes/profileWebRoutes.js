@@ -6,6 +6,7 @@ const {
   completeProfile, 
   createProfileUploadSession,
   submitProfileForReview,
+  submitTaxFiling,
   fileTax,
   getAllowedYears,
   getIncomeSources,
@@ -84,6 +85,7 @@ router.put('/:profileId/complete', authenticate, checkEmailVerified, completePro
 router.put('/:profileId/personal-info', authenticate, checkEmailVerified, personalInfoValidation, updatePersonalInfo);
 router.post('/:profileId/upload-session', authenticate, checkEmailVerified, createProfileUploadSession);
 router.post('/:profileId/submit', authenticate, checkEmailVerified, submitProfileForReview);
+router.post('/:profileId/filing/submit', authenticate, checkEmailVerified, submitTaxFiling);
 router.post('/:profileId/file', authenticate, checkEmailVerified, fileTax);
 router.get('/:profileId/calculate', authenticate, checkEmailVerified, calculateWebTax);
 router.get('/:profileId/download', authenticate, checkEmailVerified, downloadTaxReturn);

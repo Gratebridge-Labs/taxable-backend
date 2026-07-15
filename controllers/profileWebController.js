@@ -5,6 +5,8 @@
 
 const TaxableProfile = require('../models/TaxableProfile');
 const User = require('../models/User');
+const IncomeData = require('../models/IncomeData');
+const Deduction = require('../models/Deduction');
 const { validateYear, validateProfileType } = require('../utils/profileValidation');
 const { validationResult } = require('express-validator');
 const { sendTaxProfileCreatedEmail } = require('../utils/emailService');
@@ -416,6 +418,162 @@ const fileTax = async (req, res) => {
       success: false,
       message: 'Error filing tax',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+function normalizeMonthNumber(m) {
+  if (m === undefined || m === null || m === '') return null;
+  const n = Number(m);
+  return Number.isInteger(n) && n >= 1 && n <= 12 ? n : NaN;
+}
+
+async function assertProfileIncomeAndDeductionsComplete(profile, userId, month) {
+  const requiredProfileFields = [
+    'primaryNIN',
+    'primaryIncomeSources',
+    'residency183Days',
+    'paysRent',
+    'hasHealthInsurance',
+    'hasPension',
+    'paysMortgage',
+    'filingPreference',
+    'dob',
+    'street',
+    'city',
+    'state'
+  ];
+  const missingProfileFields = requiredProfileFields.filter((field) => profile[field] === undefined);
+  if (missingProfileFields.length) {
+    const err = new Error('Insufficient data: tax profile is not complete');
+    err.statusCode = 400;
+    err.data = { missingProfileFields };
+    throw err;
+  }
+
+  if (!['monthly', 'annual'].includes(profile.filingPreference)) {
+    const err = new Error('Insufficient data: filingPreference must be monthly or annual');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const requestedMonth = profile.filingPreference === 'monthly' ? normalizeMonthNumber(month) : null;
+  if (profile.filingPreference === 'monthly' && (!requestedMonth || Number.isNaN(requestedMonth))) {
+    const err = new Error('For monthly filing, a valid month (1-12) is required');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const incomeData = await IncomeData.findOne({ profileId: profile._id, year: profile.year }).lean();
+  if (!incomeData) {
+    const err = new Error('Insufficient data: income data not found');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const deductions = await Deduction.find({ profileId: profile._id, 'period.year': profile.year }).lean();
+  if (!deductions.length) {
+    const err = new Error('Insufficient data: deductions data not found');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const incomeItems = (() => {
+    if (profile.filingPreference === 'annual') return Array.isArray(incomeData.annualIncomes) ? incomeData.annualIncomes : [];
+    const monthlyMap = incomeData.monthlyIncomes || {};
+    const monthItems = monthlyMap[String(requestedMonth)] || [];
+    return Array.isArray(monthItems) ? monthItems : [];
+  })();
+  if (!incomeItems.length) {
+    const err = new Error('Insufficient data: income data is not complete for requested period');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const deductionItems = (() => {
+    if (profile.filingPreference === 'annual') return deductions.filter((d) => d.frequency === 'annual' || d.month == null);
+    return deductions.filter((d) => {
+      if (d.frequency === 'monthly') return d.month === requestedMonth;
+      return d.month == null || d.frequency === 'annual';
+    });
+  })();
+  if (!deductionItems.length) {
+    const err = new Error('Insufficient data: deductions data is not complete for requested period');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return { month: requestedMonth };
+}
+
+/**
+ * Submit tax filing (web)
+ * POST /api/taxableprofile/web/:profileId/filing/submit
+ * Body: { status: 'submitted' | 'filed', month?: number } (month required for monthly profiles)
+ */
+const submitTaxFiling = async (req, res) => {
+  try {
+    const userId = req.user?.userId;
+    const { profileId } = req.params;
+    const { status, month } = req.body || {};
+
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!['submitted', 'filed'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'status must be "submitted" or "filed"' });
+    }
+
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
+    if (!profile) return res.status(404).json({ success: false, message: 'Tax profile not found' });
+
+    const { month: normalizedMonth } = await assertProfileIncomeAndDeductionsComplete(profile, userId, month);
+
+    // Update status based on filing preference and requested status
+    if (profile.filingPreference === 'annual') {
+      if (status === 'submitted') {
+        profile.submitted = true;
+        profile.submittedAt = new Date();
+        profile.status = 'active';
+      } else {
+        profile.filed = true;
+        profile.filedAt = new Date();
+        profile.filingStatus = 'filed';
+        profile.status = 'completed';
+      }
+    } else {
+      // Monthly: store month-level filing info in adminMetadata
+      profile.adminMetadata = profile.adminMetadata || {};
+      profile.adminMetadata.monthlyFilings = profile.adminMetadata.monthlyFilings || {};
+      const key = `${profile.year}`;
+      profile.adminMetadata.monthlyFilings[key] = profile.adminMetadata.monthlyFilings[key] || {};
+      profile.adminMetadata.monthlyFilings[key][String(normalizedMonth)] = status;
+      profile.status = 'active';
+      profile.filingStatus = status === 'filed' ? 'monthly_active' : 'monthly_pending';
+    }
+
+    await profile.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Tax filing ${status} successfully`,
+      data: {
+        profileId: profile.profileId,
+        year: profile.year,
+        filingPreference: profile.filingPreference,
+        month: profile.filingPreference === 'monthly' ? normalizedMonth : null,
+        status,
+        profileStatus: profile.status,
+        filingStatus: profile.filingStatus,
+        submitted: !!profile.submitted,
+        filed: !!profile.filed
+      }
+    });
+  } catch (error) {
+    console.error('Submit tax filing error:', error);
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({
+      success: false,
+      message: error.message || 'Error submitting tax filing',
+      data: error.data || undefined
     });
   }
 };
@@ -924,6 +1082,7 @@ module.exports = {
   completeProfile,
   createProfileUploadSession,
   submitProfileForReview,
+  submitTaxFiling,
   fileTax,
   getAllowedYears,
   getIncomeSources,

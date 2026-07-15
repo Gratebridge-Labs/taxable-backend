@@ -27,7 +27,7 @@ const register = async (req, res) => {
       });
     }
 
-    const { firstName, lastName, email, phone, password } = req.body;
+    const { firstName, lastName, email, phone, password, receiveTaxDeadlineReminders } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -70,7 +70,8 @@ const register = async (req, res) => {
       email: email.toLowerCase(),
       phone,
       password,
-      emailVerified: false
+      emailVerified: false,
+      receiveTaxDeadlineReminders: receiveTaxDeadlineReminders === true
     });
 
     // Send OTP email
@@ -96,7 +97,8 @@ const register = async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        emailVerified: user.emailVerified
+        emailVerified: user.emailVerified,
+        receiveTaxDeadlineReminders: user.receiveTaxDeadlineReminders
       }
     });
   } catch (error) {
@@ -823,6 +825,7 @@ const getMyProfile = async (req, res) => {
           phone: user.phone,
           emailVerified: user.emailVerified,
           twoFactorEnabled: user.twoFactorEnabled,
+          receiveTaxDeadlineReminders: user.receiveTaxDeadlineReminders,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt
         }
@@ -854,7 +857,7 @@ const updateProfile = async (req, res) => {
     }
 
     const userId = req.user?.userId;
-    const { firstName, lastName, phone } = req.body;
+    const { firstName, lastName, phone, receiveTaxDeadlineReminders } = req.body;
 
     if (!userId) {
       return res.status(401).json({
@@ -875,6 +878,9 @@ const updateProfile = async (req, res) => {
     if (firstName !== undefined) user.firstName = firstName;
     if (lastName !== undefined) user.lastName = lastName;
     if (phone !== undefined) user.phone = phone;
+    if (receiveTaxDeadlineReminders !== undefined) {
+      user.receiveTaxDeadlineReminders = receiveTaxDeadlineReminders === true;
+    }
 
     await user.save();
 

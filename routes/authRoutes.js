@@ -32,7 +32,11 @@ const registerValidation = [
   body('password')
     .notEmpty().withMessage('Password is required')
     .isLength({ min: 8 }).withMessage('Password must be at least 8 characters long')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
+
+  body('receiveTaxDeadlineReminders')
+    .optional()
+    .isBoolean().withMessage('receiveTaxDeadlineReminders must be a boolean')
 ];
 
 // Validation rules for OTP verification
@@ -150,7 +154,11 @@ const updateProfileValidation = [
     .optional()
     .trim()
     .notEmpty().withMessage('Phone number cannot be empty')
-    .matches(/^(\+?234[\s-]?)?[0-9]{3}[\s-]?[0-9]{3}[\s-]?[0-9]{4}$|^0?[0-9]{10}$/).withMessage('Please provide a valid phone number (e.g., +2348012345678, +234 801 234 5678, or 08012345678)')
+    .matches(/^(\+?234[\s-]?)?[0-9]{3}[\s-]?[0-9]{3}[\s-]?[0-9]{4}$|^0?[0-9]{10}$/).withMessage('Please provide a valid phone number (e.g., +2348012345678, +234 801 234 5678, or 08012345678)'),
+
+  body('receiveTaxDeadlineReminders')
+    .optional()
+    .isBoolean().withMessage('receiveTaxDeadlineReminders must be a boolean')
 ];
 
 // Public routes

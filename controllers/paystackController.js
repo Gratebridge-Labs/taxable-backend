@@ -533,7 +533,9 @@ const createCalculatedFilingPaymentForWeb = async (req, res) => {
     if (!profile) return res.status(404).json({ success: false, message: 'Tax profile not found or access denied' });
 
     const calc = await calculateTaxForPayment(profile, month);
-    const amountKobo = Math.max(100, Math.round(calc.totalTaxAmount * 100));
+    const serviceFeeNaira = calc.filingPreference === 'monthly' ? 5000 : 0;
+    const amountNaira = toNum(calc.totalTaxAmount) + serviceFeeNaira;
+    const amountKobo = Math.max(100, Math.round(amountNaira * 100));
     const ref = `filing_${new mongoose.Types.ObjectId()}_${Date.now()}`;
 
     const user = await User.findById(userId).select('email').lean();
@@ -586,6 +588,7 @@ const createCalculatedFilingPaymentForWeb = async (req, res) => {
         authorization_url: result.authorization_url,
         reference: result.reference || ref,
         amountNaira: amountKobo / 100,
+        serviceFeeNaira,
         paymentFor: filingPayment.paymentFor,
         month: filingPayment.month,
         year: filingPayment.year,
