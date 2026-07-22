@@ -201,10 +201,13 @@ const taxableProfileSchema = new mongoose.Schema({
     },
     RCNumber: { type: String, trim: true },
     natureOfBusiness: { type: String, trim: true },
+    industrySector: { type: String, trim: true },
+    dateOfIncorporation: { type: Date },
     businessAddress: {
       street: { type: String, trim: true },
       city: { type: String, trim: true },
       state: { type: String, trim: true },
+      lga: { type: String, trim: true },
       country: { type: String, trim: true, default: 'Nigeria' }
     },
     email: { 
@@ -245,9 +248,15 @@ const taxableProfileSchema = new mongoose.Schema({
     numberOfEmployees: { type: Number, min: 0, default: 0 },
     averageMonthlySalary: { type: Number, min: 0, default: 0 }
   },
+  /**
+   * Normal status.
+   * - Individual profiles: draft | active | completed | archived (existing behavior)
+   * - Business profiles: tracks the current section the user is on
+   *   (companyinformation | paye | vat | wht | cit)
+   */
   status: {
     type: String,
-    enum: ['draft', 'active', 'completed', 'archived'],
+    enum: ['draft', 'active', 'completed', 'archived', 'companyinformation', 'paye', 'vat', 'wht', 'cit'],
     default: 'draft'
   },
   baseQuestionsAnswered: {
@@ -282,6 +291,7 @@ const taxableProfileSchema = new mongoose.Schema({
   filingStatus: {
     type: String,
     enum: [
+      // Individual / WhatsApp flow lifecycle
       'pending_upload',
       'upload_done',
       'pending_accountant_payment',
@@ -290,7 +300,13 @@ const taxableProfileSchema = new mongoose.Schema({
       'pending_filing_payment',
       'filed',
       'monthly_active',
-      'monthly_pending'
+      'monthly_pending',
+      // Business flow lifecycle
+      'draft',      // default on creation
+      'ready',      // set once status reaches the cit section
+      'submitted',
+      'review',
+      'success'
     ],
     default: null
   },
@@ -392,6 +408,13 @@ taxableProfileSchema.pre('validate', async function(next) {
 // Update updatedAt on save
 taxableProfileSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
+
+  // Business: once the user reaches the CIT (final) section, the filing is
+  // ready to submit. Don't override a further lifecycle state.
+  if (this.profileType === 'Business' && this.status === 'cit' && this.filingStatus === 'draft') {
+    this.filingStatus = 'ready';
+  }
+
   next();
 });
 

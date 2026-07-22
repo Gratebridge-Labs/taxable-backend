@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const { register, verifyOTP, setup2FA, enable2FA, login, forgotPassword, verifyResetOTP, resetPassword, changePassword, getMyProfile, updateProfile } = require('../controllers/authController');
+const { register, verifyOTP, resendOTP, setup2FA, enable2FA, login, forgotPassword, verifyResetOTP, resetPassword, changePassword, getMyProfile, updateProfile } = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 
 // Validation rules for registration
@@ -52,6 +52,15 @@ const verifyOTPValidation = [
     .notEmpty().withMessage('OTP code is required')
     .isLength({ min: 6, max: 6 }).withMessage('OTP code must be 6 digits')
     .isNumeric().withMessage('OTP code must contain only numbers')
+];
+
+// Validation rules for resending OTP
+const resendOTPValidation = [
+  body('email')
+    .trim()
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Please provide a valid email address')
+    .normalizeEmail()
 ];
 
 // Validation rules for login
@@ -164,6 +173,7 @@ const updateProfileValidation = [
 // Public routes
 router.post('/register', registerValidation, register);
 router.post('/verify-otp', verifyOTPValidation, verifyOTP);
+router.post('/resend-otp', resendOTPValidation, resendOTP);
 router.post('/login', loginValidation, login);
 router.post('/forgot-password', forgotPasswordValidation, forgotPassword);
 router.post('/verify-reset-otp', verifyResetOTPValidation, verifyResetOTP);

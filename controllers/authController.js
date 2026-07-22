@@ -91,7 +91,7 @@ const register = async (req, res) => {
     // Return success response (don't send password or sensitive data)
     res.status(201).json({
       success: true,
-      message: 'Registration successful! Please check your email to verify your account.',
+      message: 'Registration successful! We have sent a 6-digit verification code to your email. Please enter it to verify your account.',
       data: {
         userId: user._id,
         email: user.email,
@@ -213,6 +213,90 @@ const verifyOTP = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'An error occurred during OTP verification',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Resend OTP - Generate and send a new email verification OTP
+ * Used when a user did not receive or let their signup OTP expire
+ */
+const resendOTP = async (req, res) => {
+  try {
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { email } = req.body;
+    const emailLower = email.toLowerCase();
+
+    // Find the user
+    const user = await User.findOne({ email: emailLower });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this email address'
+      });
+    }
+
+    // If already verified, there's nothing to resend
+    if (user.emailVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is already verified. Please log in.'
+      });
+    }
+
+    // Generate a new OTP
+    const otpCode = generateOTP();
+
+    // Update the existing email verification OTP or create a new one
+    const existingOTP = await OTP.findOne({
+      email: emailLower,
+      purpose: 'email_verification'
+    });
+
+    if (existingOTP) {
+      existingOTP.code = otpCode;
+      existingOTP.expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      existingOTP.verified = false;
+      await existingOTP.save();
+    } else {
+      await OTP.create({
+        email: emailLower,
+        code: otpCode,
+        purpose: 'email_verification',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+      });
+    }
+
+    // Send the OTP email
+    try {
+      await sendOTPEmail(emailLower, user.firstName, otpCode);
+    } catch (emailError) {
+      console.error('Failed to resend verification email:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send verification email. Please try again.'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'A new 6-digit verification code has been sent to your email.'
+    });
+  } catch (error) {
+    console.error('Resend OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while resending the verification code',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -908,6 +992,7 @@ const updateProfile = async (req, res) => {
 module.exports = {
   register,
   verifyOTP,
+  resendOTP,
   setup2FA,
   enable2FA,
   login,

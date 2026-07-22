@@ -49,6 +49,8 @@ const citReturnSchema = new mongoose.Schema({
     paidAt: { type: Date },
     deferredAt: { type: Date }
   }],
+  estimatedGrossRevenue: { type: Number, default: 0, min: 0 },
+  estimatedProfitMargin: { type: Number, default: 0, min: 0, max: 100 }, // percentage
   estimatedAnnualProfit: { type: Number, default: 0, min: 0 },
   payCitQuarterly: { type: Boolean, default: false },
   // Computed fields

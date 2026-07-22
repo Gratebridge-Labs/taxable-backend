@@ -16,7 +16,8 @@ const requireBusinessProfile = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'profileId is required' });
     }
 
-    const profile = await TaxableProfile.findOne({ _id: profileId, user: userId });
+    // Accept either the custom profileId (e.g. TP437322778) or the Mongo _id
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
     if (!profile) {
       return res.status(404).json({ success: false, message: 'Tax profile not found or access denied' });
     }

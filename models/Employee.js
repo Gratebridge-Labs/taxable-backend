@@ -7,6 +7,18 @@ const employeeSchema = new mongoose.Schema({
     required: [true, 'Profile ID is required'],
     index: true
   },
+  // PAYE is managed per month, so business payroll employees are scoped to a
+  // specific month + tax year. (Left optional for the legacy web master-roster flow.)
+  month: {
+    type: Number,
+    min: 1,
+    max: 12,
+    index: true
+  },
+  year: {
+    type: Number,
+    index: true
+  },
   // Employee identification
   employeeId: {
     type: String,
@@ -32,13 +44,11 @@ const employeeSchema = new mongoose.Schema({
     maxlength: [50, 'Middle name cannot exceed 50 characters']
   },
   dateOfBirth: {
-    type: Date,
-    required: [true, 'Date of birth is required']
+    type: Date
   },
   gender: {
     type: String,
-    enum: ['male', 'female', 'other'],
-    required: [true, 'Gender is required']
+    enum: ['male', 'female', 'other']
   },
   maritalStatus: {
     type: String,
@@ -91,7 +101,7 @@ const employeeSchema = new mongoose.Schema({
   },
   employmentStartDate: {
     type: Date,
-    required: [true, 'Employment start date is required']
+    default: Date.now
   },
   employmentEndDate: Date,
   isActive: {
@@ -103,6 +113,13 @@ const employeeSchema = new mongoose.Schema({
     type: String,
     trim: true,
     match: [/^[0-9]{10,12}$/, 'TIN must be 10-12 digits']
+  },
+  // JTB (Joint Tax Board) Tax ID as entered on the PAYE form. Kept free-form
+  // since JTB ids are not always plain 10-12 digit TINs.
+  jtbTaxId: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'JTB Tax ID cannot exceed 50 characters']
   },
   nin: {
     type: String,
@@ -151,6 +168,19 @@ const employeeSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'Life insurance premium cannot be negative']
+  },
+  // Which statutory deductions the employer opted the employee into (PAYE form
+  // toggles). The contribution amounts above are computed from these.
+  statutoryDeductions: {
+    pension: { type: Boolean, default: false },  // 8% of salary
+    nhf: { type: Boolean, default: false },      // 2.5% of salary
+    hmo: { type: Boolean, default: false },      // 5% of salary
+    annualRent: { type: Boolean, default: false } // claims rent relief
+  },
+  annualRentAmount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Annual rent amount cannot be negative']
   },
   // Bank details for payment
   bankDetails: {
@@ -258,6 +288,7 @@ employeeSchema.index({ profileId: 1, isActive: 1 });
 employeeSchema.index({ profileId: 1, employeeId: 1 });
 employeeSchema.index({ profileId: 1, email: 1 });
 employeeSchema.index({ profileId: 1, status: 1 });
+employeeSchema.index({ profileId: 1, year: 1, month: 1 });
 employeeSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Employee', employeeSchema);

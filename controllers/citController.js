@@ -4,9 +4,81 @@
  */
 const CITReturn = require('../models/CITReturn');
 const WHTCredit = require('../models/WHTCredit');
+const { CIT_RATE } = require('../config/constants');
 
-const CIT_RATE = 0.30; // 30% CIT
 const EDU_TAX_RATE = 0.03; // 3% Tertiary Education Tax (on assessable profit)
+
+const QUARTER_LABELS = ['Q1', 'Q2', 'Q3', 'Q4'];
+
+/** Quarterly CIT due dates for a given year. */
+function quarterDueDates(year) {
+  return [
+    new Date(year, 2, 31),  // Q1: March 31
+    new Date(year, 5, 30),  // Q2: June 30
+    new Date(year, 8, 30),  // Q3: September 30
+    new Date(year, 11, 31)  // Q4: December 31
+  ];
+}
+
+/**
+ * Build the full quarterly-assessment view: estimates, installments (with
+ * display statuses), and payment totals — everything the screen needs.
+ */
+function buildQuarterlyView(cit, year) {
+  const estimatedGrossRevenue = cit.estimatedGrossRevenue || 0;
+  const estimatedProfitMargin = cit.estimatedProfitMargin || 0;
+
+  // Prefer revenue x margin; fall back to a directly-set estimatedAnnualProfit
+  const derivedProfit = Math.round(estimatedGrossRevenue * (estimatedProfitMargin / 100));
+  const estimatedAnnualProfit = derivedProfit > 0 ? derivedProfit : (cit.estimatedAnnualProfit || 0);
+
+  const estimatedAnnualCit = Math.round(estimatedAnnualProfit * CIT_RATE);
+  const perQuarter = Math.round(estimatedAnnualCit / 4);
+
+  const installments = (cit.quarterlyAssessments && cit.quarterlyAssessments.length === 4)
+    ? cit.quarterlyAssessments
+    : quarterDueDates(year).map((dueDate, i) => ({ quarter: i + 1, dueDate, amount: perQuarter, status: 'pending' }));
+
+  // Display status: paid/deferred as stored; otherwise the earliest unpaid = "pending", the rest "upcoming"
+  let firstUnpaidSeen = false;
+  const rows = installments.map((inst, i) => {
+    let displayStatus;
+    if (inst.status === 'paid') displayStatus = 'paid';
+    else if (inst.status === 'deferred') displayStatus = 'deferred';
+    else if (!firstUnpaidSeen) { displayStatus = 'pending'; firstUnpaidSeen = true; }
+    else displayStatus = 'upcoming';
+
+    return {
+      quarter: inst.quarter,
+      label: `${QUARTER_LABELS[inst.quarter - 1]} ${year}`,
+      dueDate: inst.dueDate,
+      amount: inst.amount || perQuarter,
+      status: displayStatus,
+      paidAt: inst.paidAt || null,
+      deferredAt: inst.deferredAt || null
+    };
+  });
+
+  const totalPaid = installments.filter(i => i.status === 'paid').reduce((s, i) => s + (i.amount || 0), 0);
+  const remaining = Math.max(0, estimatedAnnualCit - totalPaid);
+  const percentPaid = estimatedAnnualCit > 0 ? Math.round((totalPaid / estimatedAnnualCit) * 100) : 0;
+
+  return {
+    year,
+    estimates: {
+      estimatedAnnualRevenue: estimatedGrossRevenue,
+      profitMargin: estimatedProfitMargin,
+      estimatedAnnualProfit,
+      citRatePercent: Math.round(CIT_RATE * 100),
+      estimatedAnnualCit,
+      perQuarter
+    },
+    installments: rows,
+    totals: { totalPaid, remaining, percentPaid },
+    payCitQuarterly: cit.payCitQuarterly || false,
+    reconciliationNote: `When you file your annual CIT in June ${year + 1}, we'll reconcile based on your actual profit. You may owe more or get a refund.`
+  };
+}
 
 /**
  * Helper: get or create CIT return for a profile+year
@@ -148,39 +220,22 @@ const getQuarterlyAssessments = async (req, res) => {
 
     const cit = await getOrCreateCit(profile._id, year);
 
-    // If no installments yet, generate from estimated profit
-    if (!cit.quarterlyAssessments || cit.quarterlyAssessments.length === 0) {
-      if (cit.estimatedAnnualProfit > 0) {
-        const { estimatedCIT, installments } = generateInstallments(cit.estimatedAnnualProfit, year, []);
-        cit.quarterlyAssessments = installments;
-        await cit.save();
+    // Derive the estimated profit (revenue x margin, or a directly-set value)
+    const derivedProfit = Math.round((cit.estimatedGrossRevenue || 0) * ((cit.estimatedProfitMargin || 0) / 100));
+    const estimatedAnnualProfit = derivedProfit > 0 ? derivedProfit : (cit.estimatedAnnualProfit || 0);
 
-        return res.status(200).json({
-          success: true,
-          message: 'CIT quarterly assessments retrieved',
-          data: { profileId: profile._id, year, estimatedAnnualProfit: cit.estimatedAnnualProfit, estimatedCIT, installments }
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        message: 'No quarterly assessments configured. Set estimatedAnnualProfit first.',
-        data: { profileId: profile._id, year, estimatedAnnualProfit: 0, estimatedCIT: 0, installments: [] }
-      });
+    // Lay out the 4 installments if not present (or amounts are stale)
+    if (estimatedAnnualProfit > 0) {
+      const { installments } = generateInstallments(estimatedAnnualProfit, year, cit.quarterlyAssessments);
+      cit.quarterlyAssessments = installments;
+      cit.estimatedAnnualProfit = estimatedAnnualProfit;
+      await cit.save();
     }
-
-    const estimatedCIT = Math.round((cit.estimatedAnnualProfit || 0) * CIT_RATE);
 
     return res.status(200).json({
       success: true,
       message: 'CIT quarterly assessments retrieved',
-      data: {
-        profileId: profile._id,
-        year,
-        estimatedAnnualProfit: cit.estimatedAnnualProfit || 0,
-        estimatedCIT,
-        installments: cit.quarterlyAssessments
-      }
+      data: { profileId: profile._id, ...buildQuarterlyView(cit, year) }
     });
   } catch (error) {
     console.error('[CIT] getQuarterlyAssessments error:', error);
@@ -195,26 +250,44 @@ const getQuarterlyAssessments = async (req, res) => {
 const updateQuarterlyAssessment = async (req, res) => {
   try {
     const profile = req.businessProfile;
-    const { estimatedAnnualProfit, payCitQuarterly } = req.body;
-
-    if (typeof estimatedAnnualProfit !== 'number' || estimatedAnnualProfit < 0) {
-      return res.status(400).json({ success: false, message: 'estimatedAnnualProfit must be a non-negative number' });
-    }
+    const { estimatedGrossRevenue, estimatedProfitMargin, estimatedAnnualProfit, payCitQuarterly } = req.body;
 
     const year = profile.year;
     const cit = await getOrCreateCit(profile._id, year);
 
-    cit.estimatedAnnualProfit = estimatedAnnualProfit;
+    // Accept either revenue + margin (preferred, from "Edit Estimates") or a direct profit
+    if (estimatedGrossRevenue !== undefined) {
+      if (typeof estimatedGrossRevenue !== 'number' || estimatedGrossRevenue < 0) {
+        return res.status(400).json({ success: false, message: 'estimatedGrossRevenue must be a non-negative number' });
+      }
+      cit.estimatedGrossRevenue = estimatedGrossRevenue;
+    }
+    if (estimatedProfitMargin !== undefined) {
+      if (typeof estimatedProfitMargin !== 'number' || estimatedProfitMargin < 0 || estimatedProfitMargin > 100) {
+        return res.status(400).json({ success: false, message: 'estimatedProfitMargin must be between 0 and 100' });
+      }
+      cit.estimatedProfitMargin = estimatedProfitMargin;
+    }
+    if (estimatedAnnualProfit !== undefined) {
+      if (typeof estimatedAnnualProfit !== 'number' || estimatedAnnualProfit < 0) {
+        return res.status(400).json({ success: false, message: 'estimatedAnnualProfit must be a non-negative number' });
+      }
+    }
     if (payCitQuarterly !== undefined) cit.payCitQuarterly = payCitQuarterly;
 
-    const { estimatedCIT, installments } = generateInstallments(estimatedAnnualProfit, year, cit.quarterlyAssessments);
+    // Recompute the profit used for installments
+    const derivedProfit = Math.round((cit.estimatedGrossRevenue || 0) * ((cit.estimatedProfitMargin || 0) / 100));
+    const profitForInstallments = derivedProfit > 0 ? derivedProfit : (estimatedAnnualProfit ?? cit.estimatedAnnualProfit ?? 0);
+    cit.estimatedAnnualProfit = profitForInstallments;
+
+    const { installments } = generateInstallments(profitForInstallments, year, cit.quarterlyAssessments);
     cit.quarterlyAssessments = installments;
     await cit.save();
 
     return res.status(200).json({
       success: true,
       message: 'Quarterly CIT assessment updated',
-      data: { estimatedAnnualProfit, estimatedCIT, installments }
+      data: { profileId: profile._id, ...buildQuarterlyView(cit, year) }
     });
   } catch (error) {
     console.error('[CIT] updateQuarterlyAssessment error:', error);
@@ -250,7 +323,7 @@ const payQuarterlyInstallment = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: `CIT quarterly installment Q${quarter} marked as paid`,
-      data: { quarter, amount: inst.amount, status: 'paid', paidAt: inst.paidAt }
+      data: { profileId: profile._id, paidQuarter: quarter, ...buildQuarterlyView(cit, profile.year) }
     });
   } catch (error) {
     console.error('[CIT] payQuarterlyInstallment error:', error);
@@ -286,7 +359,7 @@ const deferQuarterlyInstallment = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: `CIT quarterly installment Q${quarter} deferred to annual filing`,
-      data: { quarter, amount: inst.amount, status: 'deferred', deferredAt: inst.deferredAt }
+      data: { profileId: profile._id, deferredQuarter: quarter, ...buildQuarterlyView(cit, profile.year) }
     });
   } catch (error) {
     console.error('[CIT] deferQuarterlyInstallment error:', error);

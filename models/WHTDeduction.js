@@ -9,13 +9,14 @@ const whtDeductionSchema = new mongoose.Schema({
   },
   payeeName: { type: String, required: true, trim: true },
   payeeTin: { type: String, trim: true },
-  transactionDate: { type: Date, required: true },
-  whtType: { type: String, required: true, trim: true },
+  transactionDate: { type: Date },
+  whtType: { type: String, required: true, trim: true }, // payment category
   grossAmount: { type: Number, required: true, min: 0 },
   whtRate: { type: Number, required: true, min: 0, max: 100 },
   whtDeducted: { type: Number, required: true, min: 0 },
   netPaid: { type: Number, required: true, min: 0 },
-  month: { type: Number, min: 1, max: 12 },
+  documentId: { type: String }, // uploaded invoice / payment receipt
+  month: { type: Number, min: 1, max: 12, required: true },
   year: { type: Number, required: true, min: 2020, max: 2100 },
   status: {
     type: String,
@@ -28,7 +29,7 @@ const whtDeductionSchema = new mongoose.Schema({
 whtDeductionSchema.index({ profileId: 1, year: 1 });
 whtDeductionSchema.index({ profileId: 1, year: 1, month: 1 });
 
-// Derive month from transactionDate if not set
+// Derive month from transactionDate if not explicitly set
 whtDeductionSchema.pre('save', function (next) {
   if (!this.month && this.transactionDate) {
     this.month = new Date(this.transactionDate).getMonth() + 1;

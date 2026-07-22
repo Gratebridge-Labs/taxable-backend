@@ -32,7 +32,36 @@ const createWebProfileValidation = [
   body('profileType')
     .trim()
     .notEmpty().withMessage('Profile type is required')
-    .isIn(['Individual', 'Business']).withMessage('Profile type must be either Individual or Business')
+    .isIn(['Individual', 'Business']).withMessage('Profile type must be either Individual or Business'),
+
+  body('intent')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isIn(['file_returns', 'calculate_paye']).withMessage('intent must be file_returns or calculate_paye'),
+
+  // Tax ID (RC/BN) — stored on the business company info
+  body('taxId')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ max: 50 }).withMessage('taxId must be less than 50 characters'),
+
+  // What the business needs to do (maps to businessSetup toggles).
+  // Note: `vatWht` is a single UI checkbox that enables both VAT and WHT.
+  body('taxTypes')
+    .optional({ values: 'falsy' })
+    .isObject().withMessage('taxTypes must be an object'),
+
+  body('taxTypes.paye')
+    .optional()
+    .isBoolean().withMessage('taxTypes.paye must be true or false'),
+
+  body('taxTypes.vatWht')
+    .optional()
+    .isBoolean().withMessage('taxTypes.vatWht must be true or false'),
+
+  body('taxTypes.cit')
+    .optional()
+    .isBoolean().withMessage('taxTypes.cit must be true or false')
 ];
 
 // Validation for personal info

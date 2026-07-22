@@ -4,86 +4,203 @@
  */
 
 const TaxableProfile = require('../models/TaxableProfile');
+const CITReturn = require('../models/CITReturn');
 const { validationResult } = require('express-validator');
+const { CIT_RATE } = require('../config/constants');
 
 /**
- * Update business company information for a Business profile
+ * Build a CIT installment estimate from an estimated gross revenue + profit margin.
+ * Returns the estimated annual profit, estimated CIT, and the per-quarter amount.
+ */
+function computeCitEstimate(grossRevenue = 0, profitMarginPercent = 0) {
+  const estimatedAnnualProfit = Math.max(0, Math.round((grossRevenue || 0) * ((profitMarginPercent || 0) / 100)));
+  const estimatedAnnualCit = Math.round(estimatedAnnualProfit * CIT_RATE);
+  const quarterlyInstallment = Math.round(estimatedAnnualCit / 4);
+  return { estimatedAnnualProfit, estimatedAnnualCit, quarterlyInstallment };
+}
+
+/** Generate the 4 quarterly installment rows, preserving existing paid/deferred status. */
+function buildQuarterlyInstallments(quarterlyInstallment, year, existing) {
+  const dueDates = [
+    new Date(year, 2, 31),  // Q1: Mar 31
+    new Date(year, 5, 30),  // Q2: Jun 30
+    new Date(year, 8, 30),  // Q3: Sep 30
+    new Date(year, 11, 31)  // Q4: Dec 31
+  ];
+  const installments = [];
+  for (let q = 1; q <= 4; q++) {
+    const prev = (existing || []).find(i => i.quarter === q);
+    installments.push({
+      quarter: q,
+      dueDate: dueDates[q - 1],
+      amount: quarterlyInstallment,
+      status: prev ? prev.status : 'pending',
+      paidAt: prev ? prev.paidAt : undefined,
+      deferredAt: prev ? prev.deferredAt : undefined
+    });
+  }
+  return installments;
+}
+
+/** Load a Business profile owned by the user, or send the appropriate error response. */
+async function loadBusinessProfile(req, res) {
+  const userId = req.user?.userId;
+  const { profileId } = req.params;
+
+  // Accept either the custom profileId (e.g. TP437322778) or the Mongo _id
+  const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
+  if (!profile) {
+    res.status(404).json({ success: false, message: 'Tax profile not found or access denied' });
+    return null;
+  }
+  if (profile.profileType !== 'Business') {
+    res.status(400).json({ success: false, message: 'This action is only available for Business profiles' });
+    return null;
+  }
+  return profile;
+}
+
+/**
+ * Update the "Company Information" section for a Business profile.
+ *
+ * This is a partial-merge save: send only the fields the user changed and the
+ * rest are left untouched, so the frontend can safely auto-save the whole
+ * section (or a single field) with one call. It also handles the CIT
+ * "pay in quarterly installments" block shown on the same screen and returns
+ * the live CIT estimate so the UI can render it without a second request.
+ *
  * PUT /api/taxableprofile/business/:profileId/company-info
- * Body: { companyName, TIN, RCNumber, natureOfBusiness, businessAddress: { street, city, state, country }, email, phoneNumber, website }
+ * Body (all optional):
+ *   companyName, TIN, RCNumber, natureOfBusiness, industrySector,
+ *   dateOfIncorporation, email, phoneNumber, website,
+ *   businessAddress: { street, city, state, lga, country },
+ *   payCitQuarterly, estimatedGrossRevenue, estimatedProfitMargin
  */
 const updateBusinessCompanyInfo = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
     }
 
-    const userId = req.user?.userId;
-    const { profileId } = req.params;
-    
-    // Verify profile exists and belongs to user
-    const profile = await TaxableProfile.findOne({
-      _id: profileId,
-      user: userId
-    });
+    const profile = await loadBusinessProfile(req, res);
+    if (!profile) return;
 
-    if (!profile) {
-      return res.status(404).json({
-        success: false,
-        message: 'Tax profile not found or access denied'
-      });
+    const {
+      companyName, TIN, RCNumber, natureOfBusiness, industrySector,
+      dateOfIncorporation, email, phoneNumber, website, businessAddress,
+      payCitQuarterly, estimatedGrossRevenue, estimatedProfitMargin
+    } = req.body;
+
+    // Merge only the top-level fields that were actually provided
+    const info = profile.businessCompanyInfo || {};
+    const topLevel = { companyName, TIN, RCNumber, natureOfBusiness, industrySector, dateOfIncorporation, email, phoneNumber, website };
+    for (const [key, value] of Object.entries(topLevel)) {
+      if (value !== undefined) info[key] = value;
     }
 
-    // Ensure profile is Business type
-    if (profile.profileType !== 'Business') {
-      return res.status(400).json({
-        success: false,
-        message: 'Business company info can only be updated for Business profiles'
-      });
+    // Merge nested address fields without wiping the ones not sent
+    if (businessAddress && typeof businessAddress === 'object') {
+      info.businessAddress = { ...(info.businessAddress || {}) };
+      for (const key of ['street', 'city', 'state', 'lga', 'country']) {
+        if (businessAddress[key] !== undefined) info.businessAddress[key] = businessAddress[key];
+      }
     }
 
-    // Update business company info
-    const updateData = {
-      businessCompanyInfo: req.body
-    };
+    profile.businessCompanyInfo = info;
+    profile.markModified('businessCompanyInfo');
+    await profile.save();
 
-    // Ensure required fields are present
-    if (!req.body.companyName) {
-      return res.status(400).json({
-        success: false,
-        message: 'companyName is required'
-      });
+    // ── CIT quarterly installment block (same screen) ──
+    let citEstimate = null;
+    const touchesCit = payCitQuarterly !== undefined ||
+                       estimatedGrossRevenue !== undefined ||
+                       estimatedProfitMargin !== undefined;
+
+    if (touchesCit) {
+      let cit = await CITReturn.findOne({ profileId: profile._id, year: profile.year });
+      if (!cit) cit = new CITReturn({ profileId: profile._id, year: profile.year });
+
+      if (payCitQuarterly !== undefined) cit.payCitQuarterly = !!payCitQuarterly;
+      if (estimatedGrossRevenue !== undefined) cit.estimatedGrossRevenue = estimatedGrossRevenue;
+      if (estimatedProfitMargin !== undefined) cit.estimatedProfitMargin = estimatedProfitMargin;
+
+      const { estimatedAnnualProfit, estimatedAnnualCit, quarterlyInstallment } =
+        computeCitEstimate(cit.estimatedGrossRevenue, cit.estimatedProfitMargin);
+      cit.estimatedAnnualProfit = estimatedAnnualProfit;
+
+      // Only lay out quarterly installments when the user opts into quarterly payment
+      if (cit.payCitQuarterly) {
+        cit.quarterlyAssessments = buildQuarterlyInstallments(quarterlyInstallment, profile.year, cit.quarterlyAssessments);
+      }
+      await cit.save();
+
+      citEstimate = {
+        payCitQuarterly: cit.payCitQuarterly,
+        estimatedGrossRevenue: cit.estimatedGrossRevenue,
+        estimatedProfitMargin: cit.estimatedProfitMargin,
+        estimatedAnnualProfit,
+        estimatedAnnualCit,
+        quarterlyInstallment
+      };
     }
-
-    // TIN validation (10-12 digits)
-    if (req.body.TIN && !/^[0-9]{10,12}$/.test(req.body.TIN)) {
-      return res.status(400).json({
-        success: false,
-        message: 'TIN must be 10-12 digits'
-      });
-    }
-
-    // Update profile
-    const updatedProfile = await TaxableProfile.findByIdAndUpdate(
-      profileId,
-      { $set: updateData },
-      { new: true, runValidators: true }
-    ).select('-__v');
 
     return res.status(200).json({
       success: true,
-      message: 'Business company information updated',
-      profile: updatedProfile
+      message: 'Company information saved',
+      data: {
+        profileId: profile._id,
+        companyInfo: profile.businessCompanyInfo,
+        citEstimate
+      }
     });
   } catch (error) {
     console.error('[BusinessProfile] updateBusinessCompanyInfo error:', error);
     return res.status(500).json({
       success: false,
       message: 'Error updating business company information',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * Get the "Company Information" section (prefill on load).
+ * Returns the saved company info plus the current CIT installment estimate.
+ * GET /api/taxableprofile/business/:profileId/company-info
+ */
+const getBusinessCompanyInfo = async (req, res) => {
+  try {
+    const profile = await loadBusinessProfile(req, res);
+    if (!profile) return;
+
+    const cit = await CITReturn.findOne({ profileId: profile._id, year: profile.year }).lean();
+    const grossRevenue = cit?.estimatedGrossRevenue || 0;
+    const profitMargin = cit?.estimatedProfitMargin || 0;
+    const { estimatedAnnualProfit, estimatedAnnualCit, quarterlyInstallment } = computeCitEstimate(grossRevenue, profitMargin);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Company information retrieved',
+      data: {
+        profileId: profile._id,
+        year: profile.year,
+        companyInfo: profile.businessCompanyInfo || {},
+        citEstimate: {
+          payCitQuarterly: cit?.payCitQuarterly || false,
+          estimatedGrossRevenue: grossRevenue,
+          estimatedProfitMargin: profitMargin,
+          estimatedAnnualProfit,
+          estimatedAnnualCit,
+          quarterlyInstallment
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[BusinessProfile] getBusinessCompanyInfo error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error retrieving business company information',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -109,10 +226,7 @@ const updateBusinessSetup = async (req, res) => {
     const { profileId } = req.params;
     
     // Verify profile exists and belongs to user
-    const profile = await TaxableProfile.findOne({
-      _id: profileId,
-      user: userId
-    });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
@@ -143,9 +257,9 @@ const updateBusinessSetup = async (req, res) => {
       businessSetup: setupData
     };
 
-    // Update profile
+    // Update profile (use the resolved _id, since profileId may be a custom id)
     const updatedProfile = await TaxableProfile.findByIdAndUpdate(
-      profileId,
+      profile._id,
       { $set: updateData },
       { new: true, runValidators: true }
     ).select('-__v');
@@ -175,10 +289,7 @@ const getBusinessProfileSummary = async (req, res) => {
     const { profileId } = req.params;
     
     // Verify profile exists and belongs to user
-    const profile = await TaxableProfile.findOne({
-      _id: profileId,
-      user: userId
-    });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
@@ -289,10 +400,7 @@ const getBusinessPaymentEligibility = async (req, res) => {
     const { profileId } = req.params;
     
     // Verify profile exists and belongs to user
-    const profile = await TaxableProfile.findOne({
-      _id: profileId,
-      user: userId
-    });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
@@ -371,7 +479,7 @@ const getBusinessTaxSummary = async (req, res) => {
     const userId = req.user?.userId;
     const { profileId } = req.params;
 
-    const profile = await TaxableProfile.findOne({ _id: profileId, user: userId });
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
     if (!profile) {
       return res.status(404).json({ success: false, message: 'Tax profile not found or access denied' });
     }
@@ -480,6 +588,7 @@ const getBusinessTaxSummary = async (req, res) => {
 
 module.exports = {
   updateBusinessCompanyInfo,
+  getBusinessCompanyInfo,
   updateBusinessSetup,
   getBusinessProfileSummary,
   getBusinessPaymentEligibility,

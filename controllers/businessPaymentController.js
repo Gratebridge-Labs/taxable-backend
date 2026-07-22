@@ -28,11 +28,8 @@ const createBusinessTaxAgentPaymentLink = async (req, res) => {
       });
     }
 
-    // Verify profile exists and belongs to user
-    const profile = await TaxableProfile.findOne({
-      _id: profileId,
-      user: userId
-    });
+    // Verify profile exists and belongs to user (accepts custom profileId or Mongo _id)
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
@@ -137,11 +134,8 @@ const createBusinessFilingFeePaymentLink = async (req, res) => {
       });
     }
 
-    // Verify profile exists and belongs to user
-    const profile = await TaxableProfile.findOne({
-      _id: profileId,
-      user: userId
-    });
+    // Verify profile exists and belongs to user (accepts custom profileId or Mongo _id)
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({
@@ -237,11 +231,8 @@ const getBusinessPaymentOptions = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    // Verify profile exists and belongs to user
-    const profile = await TaxableProfile.findOne({
-      _id: profileId,
-      user: userId
-    });
+    // Verify profile exists and belongs to user (accepts custom profileId or Mongo _id)
+    const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
 
     if (!profile) {
       return res.status(404).json({

@@ -30,7 +30,7 @@ const createWebProfile = async (req, res) => {
     }
 
     const userId = req.user?.userId;
-    const { year, profileType } = req.body;
+    const { year, profileType, intent, taxId, taxTypes } = req.body;
 
     // Convert year to number
     const yearNum = typeof year === 'string' ? parseInt(year, 10) : year;
@@ -66,15 +66,40 @@ const createWebProfile = async (req, res) => {
       });
     }
 
-    // Build minimal profile payload
+    // Build minimal profile payload.
+    // Business filings track section progress in `status` (starting at the
+    // company information section) and lifecycle in `filingStatus` (draft).
+    // Individual filings keep the existing draft + pending_upload defaults.
+    const isBusiness = profileType === 'Business';
     const profilePayload = {
       user: userId,
       author: userId,
       year: yearNum,
       profileType: profileType,
-      status: 'draft',
-      filingStatus: 'pending_upload' // Start with pending upload
+      status: isBusiness ? 'companyinformation' : 'draft',
+      filingStatus: isBusiness ? 'draft' : 'pending_upload'
     };
+
+    // Optional: what the user wants to do with this profile
+    if (intent) {
+      profilePayload.intent = intent;
+    }
+
+    // Business-only: capture Tax ID (RC/BN) and the tax types to file.
+    // The `vatWht` UI checkbox is a single control that enables both VAT and WHT.
+    if (isBusiness) {
+      if (taxId) {
+        profilePayload.businessCompanyInfo = { RCNumber: taxId };
+      }
+
+      const selected = taxTypes || {};
+      profilePayload.businessSetup = {
+        payeEnabled: !!selected.paye,
+        vatEnabled: !!selected.vatWht,
+        whtEnabled: !!selected.vatWht,
+        citEnabled: !!selected.cit
+      };
+    }
 
     const profile = await TaxableProfile.create(profilePayload);
 
@@ -106,11 +131,25 @@ const createWebProfile = async (req, res) => {
         id: profile._id,
         year: profile.year,
         profileType: profile.profileType,
+        intent: profile.intent,
         status: profile.status,
         filingStatus: profile.filingStatus,
         createdAt: profile.createdAt
       }
     };
+
+    // Echo back business selections so the frontend can confirm what was stored
+    if (profile.profileType === 'Business') {
+      response.data.businessCompanyInfo = {
+        RCNumber: profile.businessCompanyInfo?.RCNumber || null
+      };
+      response.data.businessSetup = {
+        payeEnabled: profile.businessSetup?.payeEnabled || false,
+        vatEnabled: profile.businessSetup?.vatEnabled || false,
+        whtEnabled: profile.businessSetup?.whtEnabled || false,
+        citEnabled: profile.businessSetup?.citEnabled || false
+      };
+    }
 
     // Add upload session to response if created
     if (uploadSession) {
