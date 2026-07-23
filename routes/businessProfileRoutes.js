@@ -16,9 +16,31 @@ const {
 } = require('../controllers/businessPaymentController');
 const { upsertMonthlyPaye, getPayeRecords, getAnnualPayeSummary, submitAnnualPaye } = require('../controllers/payeController');
 const { listBusinessEmployees, addBusinessEmployee, bulkAddEmployees, updateBusinessEmployee, deleteEmployee, getEmployeeById } = require('../controllers/payeEmployeeController');
-const { upsertMonthlyVat, getVatReturnByMonth, getVatRecords, verifyVatReturn } = require('../controllers/vatController');
-const { getWhtCategories, addWhtDeduction, updateWhtDeduction, deleteWhtDeduction, addWhtCredit, getWhtRecords, getWhtByMonth, remitWht } = require('../controllers/whtController');
-const { getCitRecords, getQuarterlyAssessments, updateQuarterlyAssessment, payQuarterlyInstallment, deferQuarterlyInstallment, saveCitFinancials, saveCitAdjustments, getCitComputation, submitCitReturn } = require('../controllers/citController');
+const { getVat, upsertVat, fileVat, deleteVat } = require('../controllers/vatController');
+const {
+  getWhtCategories,
+  listWhtDeductions,
+  addWhtDeduction,
+  updateWhtDeduction,
+  deleteWhtDeduction,
+  fileWhtMonth,
+  listWhtCredits,
+  addWhtCredit,
+  updateWhtCredit,
+  deleteWhtCredit
+} = require('../controllers/whtController');
+const {
+  getAnnual,
+  upsertAnnual,
+  fileAnnual,
+  listCitWhtCredits,
+  createCitWhtCredit,
+  updateCitWhtCredit,
+  deleteCitWhtCredit,
+  getQuarterly,
+  payQuarter,
+  deferQuarter
+} = require('../controllers/citController');
 const { authenticate } = require('../middleware/auth');
 const { checkEmailVerified } = require('../middleware/profileAuth');
 const { requireBusinessProfile } = require('../middleware/businessAuth');
@@ -280,21 +302,23 @@ router.get('/:profileId/paye', authenticate, checkEmailVerified, requireBusiness
 router.get('/:profileId/paye/annual', authenticate, checkEmailVerified, requireBusinessProfile, getAnnualPayeSummary);
 router.post('/:profileId/paye/annual-submit', authenticate, checkEmailVerified, requireBusinessProfile, submitAnnualPaye);
 
-// ── VAT Routes (monthly return wizard) ──
-router.get('/:profileId/vat', authenticate, checkEmailVerified, requireBusinessProfile, getVatRecords);
-router.get('/:profileId/vat/:month', authenticate, checkEmailVerified, requireBusinessProfile, getVatReturnByMonth);
-router.put('/:profileId/vat/:month', authenticate, checkEmailVerified, requireBusinessProfile, upsertMonthlyVat);
-router.post('/:profileId/vat/:month/verify', authenticate, checkEmailVerified, requireBusinessProfile, verifyVatReturn);
+// ── VAT Routes (month-scoped; year/month via query or body) ──
+router.get('/:profileId/vat', authenticate, checkEmailVerified, requireBusinessProfile, getVat);
+router.put('/:profileId/vat', authenticate, checkEmailVerified, requireBusinessProfile, upsertVat);
+router.post('/:profileId/vat/file', authenticate, checkEmailVerified, requireBusinessProfile, fileVat);
+router.delete('/:profileId/vat', authenticate, checkEmailVerified, requireBusinessProfile, deleteVat);
 
-// ── WHT Routes (deductions managed per month) ──
-router.get('/:profileId/wht', authenticate, checkEmailVerified, requireBusinessProfile, getWhtRecords);
+// ── WHT Routes (month-scoped deductions; year/month via query or body) ──
 router.get('/:profileId/wht/categories', authenticate, checkEmailVerified, requireBusinessProfile, getWhtCategories);
+router.get('/:profileId/wht/deductions', authenticate, checkEmailVerified, requireBusinessProfile, listWhtDeductions);
 router.post('/:profileId/wht/deductions', authenticate, checkEmailVerified, requireBusinessProfile, addWhtDeduction);
 router.put('/:profileId/wht/deductions/:deductionId', authenticate, checkEmailVerified, requireBusinessProfile, updateWhtDeduction);
 router.delete('/:profileId/wht/deductions/:deductionId', authenticate, checkEmailVerified, requireBusinessProfile, deleteWhtDeduction);
+router.post('/:profileId/wht/file', authenticate, checkEmailVerified, requireBusinessProfile, fileWhtMonth);
+router.get('/:profileId/wht/credits', authenticate, checkEmailVerified, requireBusinessProfile, listWhtCredits);
 router.post('/:profileId/wht/credits', authenticate, checkEmailVerified, requireBusinessProfile, addWhtCredit);
-router.post('/:profileId/wht/remit', authenticate, checkEmailVerified, requireBusinessProfile, remitWht);
-router.get('/:profileId/wht/:month', authenticate, checkEmailVerified, requireBusinessProfile, getWhtByMonth);
+router.put('/:profileId/wht/credits/:creditId', authenticate, checkEmailVerified, requireBusinessProfile, updateWhtCredit);
+router.delete('/:profileId/wht/credits/:creditId', authenticate, checkEmailVerified, requireBusinessProfile, deleteWhtCredit);
 
 // ── CIT Routes ──
 router.get('/:profileId/cit', authenticate, checkEmailVerified, requireBusinessProfile, getCitRecords);

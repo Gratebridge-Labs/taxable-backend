@@ -1,88 +1,84 @@
 /**
  * CIT Controller
- * Handles Company Income Tax: quarterly assessments, financials, adjustments, computation, filing
+ * Year-scoped Company Income Tax matching the frontend contract:
+ *   GET    /cit?year=                          → annual return + computed
+ *   PUT    /cit                                → upsert annual (year in body)
+ *   POST   /cit/file                           → file annual return
+ *   GET    /cit/wht-credits?year=              → list CIT WHT credits
+ *   POST   /cit/wht-credits                    → create credit
+ *   PUT    /cit/wht-credits/:creditId          → update credit
+ *   DELETE /cit/wht-credits/:creditId          → delete credit
+ *   GET    /cit/quarterly?year=                → quarterly installments
+ *   POST   /cit/quarterly/pay                  → pay a quarter
+ *   POST   /cit/quarterly/defer                → defer a quarter (typically Q4)
  */
 const CITReturn = require('../models/CITReturn');
-const WHTCredit = require('../models/WHTCredit');
-const { CIT_RATE } = require('../config/constants');
+const CITWhtCredit = require('../models/CITWhtCredit');
 
-const EDU_TAX_RATE = 0.03; // 3% Tertiary Education Tax (on assessable profit)
+const FINANCIAL_FIELDS = [
+  'totalRevenue',
+  'cogs',
+  'opex',
+  'govFines',
+  'accountingDepreciation',
+  'generalProvisions'
+];
 
-const QUARTER_LABELS = ['Q1', 'Q2', 'Q3', 'Q4'];
+const CA_FIELDS = ['class1Assets', 'class2Assets', 'class3Assets'];
 
-/** Quarterly CIT due dates for a given year. */
+function resolveYear(req, profile) {
+  const fromQuery = parseInt(req.query.year, 10);
+  const fromBody = parseInt(req.body?.year, 10);
+  if (Number.isFinite(fromQuery)) return fromQuery;
+  if (Number.isFinite(fromBody)) return fromBody;
+  return profile.year;
+}
+
+function parseQuarter(value) {
+  const q = parseInt(value, 10);
+  return Number.isFinite(q) && q >= 1 && q <= 4 ? q : null;
+}
+
 function quarterDueDates(year) {
   return [
-    new Date(year, 2, 31),  // Q1: March 31
-    new Date(year, 5, 30),  // Q2: June 30
-    new Date(year, 8, 30),  // Q3: September 30
-    new Date(year, 11, 31)  // Q4: December 31
+    new Date(year, 2, 31),
+    new Date(year, 5, 30),
+    new Date(year, 8, 30),
+    new Date(year, 11, 31)
   ];
 }
 
-/**
- * Build the full quarterly-assessment view: estimates, installments (with
- * display statuses), and payment totals — everything the screen needs.
- */
-function buildQuarterlyView(cit, year) {
-  const estimatedGrossRevenue = cit.estimatedGrossRevenue || 0;
-  const estimatedProfitMargin = cit.estimatedProfitMargin || 0;
-
-  // Prefer revenue x margin; fall back to a directly-set estimatedAnnualProfit
-  const derivedProfit = Math.round(estimatedGrossRevenue * (estimatedProfitMargin / 100));
-  const estimatedAnnualProfit = derivedProfit > 0 ? derivedProfit : (cit.estimatedAnnualProfit || 0);
-
-  const estimatedAnnualCit = Math.round(estimatedAnnualProfit * CIT_RATE);
-  const perQuarter = Math.round(estimatedAnnualCit / 4);
-
-  const installments = (cit.quarterlyAssessments && cit.quarterlyAssessments.length === 4)
-    ? cit.quarterlyAssessments
-    : quarterDueDates(year).map((dueDate, i) => ({ quarter: i + 1, dueDate, amount: perQuarter, status: 'pending' }));
-
-  // Display status: paid/deferred as stored; otherwise the earliest unpaid = "pending", the rest "upcoming"
-  let firstUnpaidSeen = false;
-  const rows = installments.map((inst, i) => {
-    let displayStatus;
-    if (inst.status === 'paid') displayStatus = 'paid';
-    else if (inst.status === 'deferred') displayStatus = 'deferred';
-    else if (!firstUnpaidSeen) { displayStatus = 'pending'; firstUnpaidSeen = true; }
-    else displayStatus = 'upcoming';
-
-    return {
-      quarter: inst.quarter,
-      label: `${QUARTER_LABELS[inst.quarter - 1]} ${year}`,
-      dueDate: inst.dueDate,
-      amount: inst.amount || perQuarter,
-      status: displayStatus,
-      paidAt: inst.paidAt || null,
-      deferredAt: inst.deferredAt || null
-    };
-  });
-
-  const totalPaid = installments.filter(i => i.status === 'paid').reduce((s, i) => s + (i.amount || 0), 0);
-  const remaining = Math.max(0, estimatedAnnualCit - totalPaid);
-  const percentPaid = estimatedAnnualCit > 0 ? Math.round((totalPaid / estimatedAnnualCit) * 100) : 0;
-
-  return {
-    year,
-    estimates: {
-      estimatedAnnualRevenue: estimatedGrossRevenue,
-      profitMargin: estimatedProfitMargin,
-      estimatedAnnualProfit,
-      citRatePercent: Math.round(CIT_RATE * 100),
-      estimatedAnnualCit,
-      perQuarter
-    },
-    installments: rows,
-    totals: { totalPaid, remaining, percentPaid },
-    payCitQuarterly: cit.payCitQuarterly || false,
-    reconciliationNote: `When you file your annual CIT in June ${year + 1}, we'll reconcile based on your actual profit. You may owe more or get a refund.`
-  };
+/** Estimated annual CIT (base only) from gross revenue + profit margin %. */
+function computeCitEstimate(grossRevenue = 0, profitMarginPercent = 0) {
+  const estimatedAnnualProfit = Math.max(
+    0,
+    Math.round((grossRevenue || 0) * ((profitMarginPercent || 0) / 100))
+  );
+  const rate = CITReturn.bracketRateForTurnover(grossRevenue);
+  const estimatedAnnualCit = Math.round(estimatedAnnualProfit * rate);
+  const quarterlyInstallment = Math.round(estimatedAnnualCit / 4);
+  return { estimatedAnnualProfit, estimatedAnnualCit, quarterlyInstallment, bracketRate: rate };
 }
 
-/**
- * Helper: get or create CIT return for a profile+year
- */
+/** Lay out 4 quarters, preserving paid/deferred state and amounts paid. */
+function buildQuarterlyInstallments(quarterlyInstallment, year, existing) {
+  const dueDates = quarterDueDates(year);
+  const installments = [];
+  for (let q = 1; q <= 4; q++) {
+    const prev = (existing || []).find((i) => i.quarter === q);
+    installments.push({
+      quarter: q,
+      dueDate: dueDates[q - 1],
+      amountDue: quarterlyInstallment,
+      amountPaid: prev ? (prev.amountPaid || 0) : 0,
+      status: prev ? prev.status : 'pending',
+      paidAt: prev ? prev.paidAt : undefined,
+      deferredAt: prev ? prev.deferredAt : undefined
+    });
+  }
+  return installments;
+}
+
 async function getOrCreateCit(profileId, year) {
   let cit = await CITReturn.findOne({ profileId, year });
   if (!cit) {
@@ -91,490 +87,742 @@ async function getOrCreateCit(profileId, year) {
   return cit;
 }
 
-/**
- * Helper: generate quarterly installments from estimated profit
- */
-function generateInstallments(estimatedAnnualProfit, year, existing) {
-  const estimatedCIT = Math.round(estimatedAnnualProfit * CIT_RATE);
-  const quarterlyAmount = Math.round(estimatedCIT / 4);
-  const dueDates = [
-    new Date(year, 2, 31),  // Q1: March 31
-    new Date(year, 5, 30),  // Q2: June 30
-    new Date(year, 8, 30),  // Q3: September 30
-    new Date(year, 11, 31)  // Q4: December 31
-  ];
-
-  const installments = [];
-  for (let q = 1; q <= 4; q++) {
-    const prev = (existing || []).find(i => i.quarter === q);
-    installments.push({
-      quarter: q,
-      dueDate: dueDates[q - 1],
-      amount: quarterlyAmount,
-      status: prev ? prev.status : 'pending',
-      paidAt: prev ? prev.paidAt : undefined,
-      deferredAt: prev ? prev.deferredAt : undefined
-    });
-  }
-  return { estimatedCIT, installments };
+async function sumCitWhtCredits(profileId, year) {
+  const credits = await CITWhtCredit.find({ profileId, year }).lean();
+  return credits.reduce((s, c) => s + (c.withheldAmount || 0), 0);
 }
 
-/**
- * Helper: compute CIT from financials + adjustments + credits
- */
-function computeCit(cit, whtCreditsTotal) {
-  const f = cit.financials || {};
-  const totalRevenue = (f.revenue || 0) + (f.otherIncome || 0);
-  const totalExpenses = (f.costOfSales || 0) + (f.operatingExpenses || 0) + (f.depreciation || 0) + (f.interestPaid || 0) + (f.otherExpenses || 0);
-  const accountingProfit = totalRevenue - totalExpenses;
-
-  const adj = cit.taxAdjustments || {};
-  const totalDisallowable = (adj.disallowableExpenses || []).reduce((s, e) => s + (e.amount || 0), 0);
-  const totalCapitalAllowances = (adj.capitalAllowances || []).reduce((s, e) => s + (e.amount || 0), 0);
-  const pioneerRelief = adj.pioneerRelief || 0;
-  const otherDeductions = adj.otherDeductions || 0;
-
-  const adjustedTaxableProfit = Math.max(0, accountingProfit + totalDisallowable - totalCapitalAllowances - pioneerRelief - otherDeductions);
-
-  const grossCitOwed = Math.round(adjustedTaxableProfit * CIT_RATE);
-  const tertiaryEducationTax = Math.round(adjustedTaxableProfit * EDU_TAX_RATE);
-
-  const quarterlyInstallmentsPaid = (cit.quarterlyAssessments || [])
-    .filter(i => i.status === 'paid')
-    .reduce((s, i) => s + (i.amount || 0), 0);
-
-  const netCitPayable = Math.max(0, grossCitOwed + tertiaryEducationTax - whtCreditsTotal - quarterlyInstallmentsPaid);
-
+function formatCredit(credit) {
   return {
-    accountingProfit,
-    totalDisallowable,
-    totalCapitalAllowances,
-    adjustedTaxableProfit,
-    citTaxRate: CIT_RATE * 100,
-    grossCitOwed,
-    tertiaryEducationTax,
-    totalWhtCreditsApplied: whtCreditsTotal,
-    quarterlyInstallmentsPaid,
-    netCitPayable,
-    // Extra breakdown for frontend
-    totalRevenue,
-    totalExpenses
+    id: credit._id,
+    year: credit.year,
+    clientName: credit.clientName,
+    clientTIN: credit.clientTIN || null,
+    creditRef: credit.creditRef,
+    grossValue: credit.grossValue || 0,
+    withheldAmount: credit.withheldAmount || 0,
+    createdAt: credit.createdAt || null,
+    updatedAt: credit.updatedAt || null
   };
 }
 
+function emptyAnnual(profile, year) {
+  return {
+    _id: null,
+    profileId: profile._id,
+    year,
+    status: 'draft',
+    filed: false,
+    financials: {
+      totalRevenue: 0,
+      cogs: 0,
+      opex: 0,
+      govFines: 0,
+      accountingDepreciation: 0,
+      generalProvisions: 0
+    },
+    capitalAllowances: {
+      class1Assets: 0,
+      class2Assets: 0,
+      class3Assets: 0
+    },
+    documents: {
+      auditedFinancialsUrl: null,
+      trialBalanceUrl: null
+    },
+    settlementPreference: null,
+    quarterlyAssessments: [],
+    accountingProfit: 0,
+    nonDeductibleTotal: 0,
+    totalCapitalAllowances: 0,
+    assessableProfit: 0,
+    bracketRate: CITReturn.CIT_RATE_STANDARD,
+    baseCIT: 0,
+    developmentLevy: 0,
+    totalObligation: 0,
+    totalWhtCredits: 0,
+    totalQuarterlyPaid: 0,
+    finalPosition: 0,
+    filedAt: null,
+    filingId: null,
+    updatedAt: null,
+    createdAt: null
+  };
+}
+
+function formatAnnual(profile, record, computed) {
+  const f = record.financials || {};
+  const ca = record.capitalAllowances || {};
+  const docs = record.documents || {};
+  const c = computed || CITReturn.computeCitFields(record, record.totalWhtCredits || 0);
+
+  return {
+    profileId: profile.profileId || profile._id,
+    year: record.year,
+    status: record.status || 'draft',
+    filed: record.status === 'filed' || !!record.filed,
+    financials: {
+      totalRevenue: f.totalRevenue || 0,
+      cogs: f.cogs || 0,
+      opex: f.opex || 0,
+      govFines: f.govFines || 0,
+      accountingDepreciation: f.accountingDepreciation || 0,
+      generalProvisions: f.generalProvisions || 0
+    },
+    capitalAllowances: {
+      class1Assets: ca.class1Assets || 0,
+      class2Assets: ca.class2Assets || 0,
+      class3Assets: ca.class3Assets || 0
+    },
+    documents: {
+      auditedFinancialsUrl: docs.auditedFinancialsUrl || null,
+      trialBalanceUrl: docs.trialBalanceUrl || null
+    },
+    settlementPreference: record.settlementPreference || null,
+    computed: {
+      accountingProfit: c.accountingProfit,
+      nonDeductibleTotal: c.nonDeductibleTotal,
+      totalCapitalAllowances: c.totalCapitalAllowances,
+      assessableProfit: c.assessableProfit,
+      bracketRate: c.bracketRate,
+      baseCIT: c.baseCIT,
+      developmentLevy: c.developmentLevy,
+      totalObligation: c.totalObligation,
+      totalWhtCredits: c.totalWhtCredits,
+      totalQuarterlyPaid: c.totalQuarterlyPaid,
+      finalPosition: c.finalPosition
+    },
+    filedAt: record.filedAt || null,
+    filingId: record.filingId || null,
+    updatedAt: record.updatedAt || null,
+    createdAt: record.createdAt || null
+  };
+}
+
+function formatQuarterly(cit, year) {
+  const gross = cit.estimatedGrossRevenue || 0;
+  const margin = cit.estimatedProfitMargin || 0;
+  const { estimatedAnnualProfit, estimatedAnnualCit, quarterlyInstallment } =
+    computeCitEstimate(gross, margin);
+
+  const rows = (cit.quarterlyAssessments && cit.quarterlyAssessments.length === 4)
+    ? cit.quarterlyAssessments
+    : buildQuarterlyInstallments(quarterlyInstallment, year, []);
+
+  const quarters = rows.map((inst) => ({
+    quarter: inst.quarter,
+    status: inst.status || 'pending',
+    amountDue: inst.amountDue != null ? inst.amountDue : quarterlyInstallment,
+    amountPaid: inst.amountPaid || 0,
+    paidAt: inst.paidAt || null,
+    deferredAt: inst.deferredAt || null,
+    dueDate: inst.dueDate || null
+  }));
+
+  const totalPaid = quarters
+    .filter((q) => q.status === 'paid')
+    .reduce((s, q) => s + (q.amountPaid || q.amountDue || 0), 0);
+
+  return {
+    year,
+    payCitQuarterly: !!cit.payCitQuarterly,
+    estimatedGrossRevenue: gross,
+    estimatedProfitMargin: margin,
+    estimatedAnnualProfit,
+    estimatedAnnualCit,
+    quarterlyInstallment,
+    quarters,
+    summary: {
+      totalPaid,
+      remaining: Math.max(0, estimatedAnnualCit - totalPaid)
+    }
+  };
+}
+
+function validateNonNegative(body, fields) {
+  for (const field of fields) {
+    if (body[field] !== undefined) {
+      const value = Number(body[field]);
+      if (!Number.isFinite(value) || value < 0) {
+        return `${field} must be a non-negative number`;
+      }
+    }
+  }
+  return null;
+}
+
 /**
- * Get CIT records (full state)
- * GET /api/taxableprofile/business/:profileId/cit
+ * GET /cit?year=
  */
-const getCitRecords = async (req, res) => {
+const getAnnual = async (req, res) => {
   try {
     const profile = req.businessProfile;
-    const year = parseInt(req.query.year) || profile.year;
+    const year = resolveYear(req, profile);
 
-    const cit = await CITReturn.findOne({ profileId: profile._id, year }).lean();
+    let record = await CITReturn.findOne({ profileId: profile._id, year });
+    const whtTotal = await sumCitWhtCredits(profile._id, year);
 
-    if (!cit) {
+    if (!record) {
+      const empty = emptyAnnual(profile, year);
+      const computed = CITReturn.computeCitFields(empty, whtTotal);
       return res.status(200).json({
         success: true,
-        message: 'No CIT records found for this year',
-        data: { profileId: profile._id, year, financials: null, adjustments: null, computation: null, quarterlyAssessments: null, status: 'not_started', filed: false }
+        message: `CIT return for ${year} (new)`,
+        data: formatAnnual(profile, empty, { ...computed, totalWhtCredits: whtTotal })
       });
     }
 
-    const whtCredits = await WHTCredit.find({ profileId: profile._id, year }).lean();
-    const whtCreditsTotal = whtCredits.reduce((s, c) => s + (c.whtAmount || 0), 0);
-    const computation = computeCit(cit, whtCreditsTotal);
-
+    const computed = CITReturn.computeCitFields(record, whtTotal);
     return res.status(200).json({
       success: true,
-      message: 'CIT records retrieved',
-      data: {
-        profileId: profile._id,
-        year,
-        financials: cit.financials,
-        taxAdjustments: cit.taxAdjustments,
-        computation,
-        quarterlyAssessments: cit.quarterlyAssessments,
-        estimatedAnnualProfit: cit.estimatedAnnualProfit,
-        payCitQuarterly: cit.payCitQuarterly,
-        status: cit.status,
-        filed: cit.filed,
-        filedAt: cit.filedAt,
-        filingId: cit.filingId
-      }
+      message: `CIT return for ${year} retrieved`,
+      data: formatAnnual(profile, record, computed)
     });
   } catch (error) {
-    console.error('[CIT] getCitRecords error:', error);
-    return res.status(500).json({ success: false, message: 'Error retrieving CIT records' });
+    console.error('[CIT] getAnnual error:', error);
+    return res.status(500).json({ success: false, message: 'Error retrieving CIT return' });
   }
 };
 
 /**
- * Get quarterly assessment status
- * GET /api/taxableprofile/business/:profileId/cit/assessments
+ * PUT /cit
+ * Upsert annual financials + capital allowances + docs. year required in body.
  */
-const getQuarterlyAssessments = async (req, res) => {
+const upsertAnnual = async (req, res) => {
   try {
     const profile = req.businessProfile;
-    const year = parseInt(req.query.year) || profile.year;
+    const year = resolveYear(req, profile);
 
+    if (!Number.isFinite(parseInt(req.body?.year, 10)) && req.body?.year !== undefined) {
+      return res.status(400).json({ success: false, message: 'year must be a valid number' });
+    }
+
+    const finErr = validateNonNegative(req.body, FINANCIAL_FIELDS);
+    if (finErr) return res.status(400).json({ success: false, message: finErr });
+    const caErr = validateNonNegative(req.body, CA_FIELDS);
+    if (caErr) return res.status(400).json({ success: false, message: caErr });
+
+    if (
+      req.body.settlementPreference !== undefined &&
+      req.body.settlementPreference !== null &&
+      !['rollover', 'refund'].includes(req.body.settlementPreference)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'settlementPreference must be rollover, refund, or null'
+      });
+    }
+
+    let record = await CITReturn.findOne({ profileId: profile._id, year });
+    if (!record) {
+      record = new CITReturn({ profileId: profile._id, year });
+    }
+
+    if (record.status === 'filed' || record.filed) {
+      return res.status(400).json({
+        success: false,
+        message: `CIT return for ${year} has already been filed`
+      });
+    }
+
+    if (!record.financials) record.financials = {};
+    if (!record.capitalAllowances) record.capitalAllowances = {};
+    if (!record.documents) record.documents = {};
+
+    for (const field of FINANCIAL_FIELDS) {
+      if (req.body[field] !== undefined) record.financials[field] = Number(req.body[field]);
+    }
+    for (const field of CA_FIELDS) {
+      if (req.body[field] !== undefined) record.capitalAllowances[field] = Number(req.body[field]);
+    }
+    if (req.body.auditedFinancialsUrl !== undefined) {
+      record.documents.auditedFinancialsUrl = req.body.auditedFinancialsUrl || undefined;
+    }
+    if (req.body.trialBalanceUrl !== undefined) {
+      record.documents.trialBalanceUrl = req.body.trialBalanceUrl || undefined;
+    }
+    if (req.body.settlementPreference !== undefined) {
+      record.settlementPreference = req.body.settlementPreference || null;
+    }
+
+    record.status = 'draft';
+    record.filed = false;
+    record.markModified('financials');
+    record.markModified('capitalAllowances');
+    record.markModified('documents');
+
+    const whtTotal = await sumCitWhtCredits(profile._id, year);
+    const computed = record.applyComputed(whtTotal);
+    await record.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `CIT return saved for ${year}`,
+      data: formatAnnual(profile, record, computed)
+    });
+  } catch (error) {
+    console.error('[CIT] upsertAnnual error:', error);
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: 'Duplicate CIT record for this year' });
+    }
+    return res.status(500).json({
+      success: false,
+      message: 'Error saving CIT return',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * POST /cit/file
+ * Body: year, legalConfirmAccuracy, legalConfirmAuthority, settlementPreference?
+ */
+const fileAnnual = async (req, res) => {
+  try {
+    const profile = req.businessProfile;
+    const year = resolveYear(req, profile);
+
+    const record = await CITReturn.findOne({ profileId: profile._id, year });
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        message: `No CIT return found for ${year}. Save the return first.`
+      });
+    }
+
+    if (record.status === 'filed' || record.filed) {
+      return res.status(400).json({
+        success: false,
+        message: `CIT return for ${year} has already been filed`,
+        data: formatAnnual(profile, record, CITReturn.computeCitFields(record, record.totalWhtCredits || 0))
+      });
+    }
+
+    const confirmAccuracy =
+      req.body.legalConfirmAccuracy === true || req.body.legalConfirmAccuracy === 'true';
+    const confirmAuthority =
+      req.body.legalConfirmAuthority === true || req.body.legalConfirmAuthority === 'true';
+
+    if (!confirmAccuracy || !confirmAuthority) {
+      return res.status(400).json({
+        success: false,
+        message: 'legalConfirmAccuracy and legalConfirmAuthority must both be true before filing'
+      });
+    }
+
+    if (
+      req.body.settlementPreference !== undefined &&
+      req.body.settlementPreference !== null &&
+      !['rollover', 'refund'].includes(req.body.settlementPreference)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'settlementPreference must be rollover, refund, or null'
+      });
+    }
+
+    if (req.body.settlementPreference !== undefined) {
+      record.settlementPreference = req.body.settlementPreference || null;
+    }
+
+    const whtTotal = await sumCitWhtCredits(profile._id, year);
+    const computed = record.applyComputed(whtTotal);
+
+    record.legalConfirmAccuracy = true;
+    record.legalConfirmAuthority = true;
+    record.status = 'filed';
+    record.filed = true;
+    record.filedAt = new Date();
+    record.filingId = `cit_${year}_${Date.now()}`;
+    await record.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `CIT return filed for ${year}`,
+      data: {
+        ...formatAnnual(profile, record, computed),
+        legalConfirmAccuracy: true,
+        legalConfirmAuthority: true
+      }
+    });
+  } catch (error) {
+    console.error('[CIT] fileAnnual error:', error);
+    return res.status(500).json({ success: false, message: 'Error filing CIT return' });
+  }
+};
+
+/**
+ * GET /cit/wht-credits?year=
+ */
+const listCitWhtCredits = async (req, res) => {
+  try {
+    const profile = req.businessProfile;
+    const year = resolveYear(req, profile);
+    const credits = await CITWhtCredit.find({ profileId: profile._id, year })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const totalWithheld = credits.reduce((s, c) => s + (c.withheldAmount || 0), 0);
+
+    return res.status(200).json({
+      success: true,
+      message: 'CIT WHT credits retrieved',
+      data: {
+        profileId: profile.profileId || profile._id,
+        year,
+        credits: credits.map(formatCredit),
+        summary: {
+          count: credits.length,
+          totalWithheld
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[CIT] listCitWhtCredits error:', error);
+    return res.status(500).json({ success: false, message: 'Error retrieving CIT WHT credits' });
+  }
+};
+
+/**
+ * POST /cit/wht-credits
+ */
+const createCitWhtCredit = async (req, res) => {
+  try {
+    const profile = req.businessProfile;
+    const year = resolveYear(req, profile);
+    const { clientName, clientTIN, creditRef, grossValue, withheldAmount } = req.body;
+
+    if (!clientName || !String(clientName).trim()) {
+      return res.status(400).json({ success: false, message: 'clientName is required' });
+    }
+    if (!creditRef || !String(creditRef).trim()) {
+      return res.status(400).json({ success: false, message: 'creditRef is required' });
+    }
+    if (!Number.isFinite(Number(grossValue)) || Number(grossValue) < 0) {
+      return res.status(400).json({ success: false, message: 'grossValue must be a non-negative number' });
+    }
+    if (!Number.isFinite(Number(withheldAmount)) || Number(withheldAmount) < 0) {
+      return res.status(400).json({ success: false, message: 'withheldAmount must be a non-negative number' });
+    }
+
+    const cit = await CITReturn.findOne({ profileId: profile._id, year });
+    if (cit && (cit.status === 'filed' || cit.filed)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot add WHT credits after CIT return for ${year} is filed`
+      });
+    }
+
+    const credit = await CITWhtCredit.create({
+      profileId: profile._id,
+      year,
+      clientName: String(clientName).trim(),
+      clientTIN: clientTIN ? String(clientTIN).trim() : undefined,
+      creditRef: String(creditRef).trim(),
+      grossValue: Number(grossValue),
+      withheldAmount: Number(withheldAmount)
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'CIT WHT credit added',
+      data: { credit: formatCredit(credit) }
+    });
+  } catch (error) {
+    console.error('[CIT] createCitWhtCredit error:', error);
+    return res.status(500).json({ success: false, message: 'Error creating CIT WHT credit' });
+  }
+};
+
+/**
+ * PUT /cit/wht-credits/:creditId
+ */
+const updateCitWhtCredit = async (req, res) => {
+  try {
+    const profile = req.businessProfile;
+    const { creditId } = req.params;
+
+    const credit = await CITWhtCredit.findOne({ _id: creditId, profileId: profile._id });
+    if (!credit) {
+      return res.status(404).json({ success: false, message: 'CIT WHT credit not found' });
+    }
+
+    const cit = await CITReturn.findOne({ profileId: profile._id, year: credit.year });
+    if (cit && (cit.status === 'filed' || cit.filed)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot update WHT credits after CIT return for ${credit.year} is filed`
+      });
+    }
+
+    if (req.body.clientName !== undefined) {
+      if (!String(req.body.clientName).trim()) {
+        return res.status(400).json({ success: false, message: 'clientName cannot be empty' });
+      }
+      credit.clientName = String(req.body.clientName).trim();
+    }
+    if (req.body.clientTIN !== undefined) {
+      credit.clientTIN = req.body.clientTIN ? String(req.body.clientTIN).trim() : undefined;
+    }
+    if (req.body.creditRef !== undefined) {
+      if (!String(req.body.creditRef).trim()) {
+        return res.status(400).json({ success: false, message: 'creditRef cannot be empty' });
+      }
+      credit.creditRef = String(req.body.creditRef).trim();
+    }
+    if (req.body.grossValue !== undefined) {
+      const v = Number(req.body.grossValue);
+      if (!Number.isFinite(v) || v < 0) {
+        return res.status(400).json({ success: false, message: 'grossValue must be a non-negative number' });
+      }
+      credit.grossValue = v;
+    }
+    if (req.body.withheldAmount !== undefined) {
+      const v = Number(req.body.withheldAmount);
+      if (!Number.isFinite(v) || v < 0) {
+        return res.status(400).json({ success: false, message: 'withheldAmount must be a non-negative number' });
+      }
+      credit.withheldAmount = v;
+    }
+
+    await credit.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'CIT WHT credit updated',
+      data: { credit: formatCredit(credit) }
+    });
+  } catch (error) {
+    console.error('[CIT] updateCitWhtCredit error:', error);
+    return res.status(500).json({ success: false, message: 'Error updating CIT WHT credit' });
+  }
+};
+
+/**
+ * DELETE /cit/wht-credits/:creditId
+ */
+const deleteCitWhtCredit = async (req, res) => {
+  try {
+    const profile = req.businessProfile;
+    const { creditId } = req.params;
+
+    const credit = await CITWhtCredit.findOne({ _id: creditId, profileId: profile._id });
+    if (!credit) {
+      return res.status(404).json({ success: false, message: 'CIT WHT credit not found' });
+    }
+
+    const cit = await CITReturn.findOne({ profileId: profile._id, year: credit.year });
+    if (cit && (cit.status === 'filed' || cit.filed)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete WHT credits after CIT return for ${credit.year} is filed`
+      });
+    }
+
+    await CITWhtCredit.deleteOne({ _id: credit._id });
+
+    return res.status(200).json({
+      success: true,
+      message: 'CIT WHT credit deleted',
+      data: { id: creditId, deleted: true }
+    });
+  } catch (error) {
+    console.error('[CIT] deleteCitWhtCredit error:', error);
+    return res.status(500).json({ success: false, message: 'Error deleting CIT WHT credit' });
+  }
+};
+
+/**
+ * GET /cit/quarterly?year=
+ * Aggregates estimates (from company-info / CITReturn) + payment state.
+ */
+const getQuarterly = async (req, res) => {
+  try {
+    const profile = req.businessProfile;
+    const year = resolveYear(req, profile);
     const cit = await getOrCreateCit(profile._id, year);
 
-    // Derive the estimated profit (revenue x margin, or a directly-set value)
-    const derivedProfit = Math.round((cit.estimatedGrossRevenue || 0) * ((cit.estimatedProfitMargin || 0) / 100));
-    const estimatedAnnualProfit = derivedProfit > 0 ? derivedProfit : (cit.estimatedAnnualProfit || 0);
+    const { estimatedAnnualProfit, quarterlyInstallment } = computeCitEstimate(
+      cit.estimatedGrossRevenue,
+      cit.estimatedProfitMargin
+    );
+    cit.estimatedAnnualProfit = estimatedAnnualProfit;
 
-    // Lay out the 4 installments if not present (or amounts are stale)
-    if (estimatedAnnualProfit > 0) {
-      const { installments } = generateInstallments(estimatedAnnualProfit, year, cit.quarterlyAssessments);
-      cit.quarterlyAssessments = installments;
-      cit.estimatedAnnualProfit = estimatedAnnualProfit;
-      await cit.save();
+    // Ensure 4 rows exist when paying quarterly (or when estimates are set)
+    if (cit.payCitQuarterly || estimatedAnnualProfit > 0) {
+      const needsLayout = !cit.quarterlyAssessments || cit.quarterlyAssessments.length !== 4;
+      if (needsLayout) {
+        cit.quarterlyAssessments = buildQuarterlyInstallments(
+          quarterlyInstallment,
+          year,
+          cit.quarterlyAssessments
+        );
+        await cit.save();
+      } else {
+        // Refresh amountDue for unpaid quarters when estimates change
+        for (const inst of cit.quarterlyAssessments) {
+          if (inst.status !== 'paid') inst.amountDue = quarterlyInstallment;
+        }
+        cit.markModified('quarterlyAssessments');
+        await cit.save();
+      }
     }
 
     return res.status(200).json({
       success: true,
       message: 'CIT quarterly assessments retrieved',
-      data: { profileId: profile._id, ...buildQuarterlyView(cit, year) }
+      data: {
+        profileId: profile.profileId || profile._id,
+        ...formatQuarterly(cit, year)
+      }
     });
   } catch (error) {
-    console.error('[CIT] getQuarterlyAssessments error:', error);
-    return res.status(500).json({ success: false, message: 'Error retrieving quarterly assessments' });
+    console.error('[CIT] getQuarterly error:', error);
+    return res.status(500).json({ success: false, message: 'Error retrieving quarterly CIT' });
   }
 };
 
 /**
- * Update quarterly assessment (change estimated profit, regenerate installments)
- * PUT /api/taxableprofile/business/:profileId/cit/quarterly
+ * POST /cit/quarterly/pay
+ * Body: { year, quarter, amount }
  */
-const updateQuarterlyAssessment = async (req, res) => {
+const payQuarter = async (req, res) => {
   try {
     const profile = req.businessProfile;
-    const { estimatedGrossRevenue, estimatedProfitMargin, estimatedAnnualProfit, payCitQuarterly } = req.body;
+    const year = resolveYear(req, profile);
+    const quarter = parseQuarter(req.body.quarter);
 
-    const year = profile.year;
-    const cit = await getOrCreateCit(profile._id, year);
-
-    // Accept either revenue + margin (preferred, from "Edit Estimates") or a direct profit
-    if (estimatedGrossRevenue !== undefined) {
-      if (typeof estimatedGrossRevenue !== 'number' || estimatedGrossRevenue < 0) {
-        return res.status(400).json({ success: false, message: 'estimatedGrossRevenue must be a non-negative number' });
-      }
-      cit.estimatedGrossRevenue = estimatedGrossRevenue;
-    }
-    if (estimatedProfitMargin !== undefined) {
-      if (typeof estimatedProfitMargin !== 'number' || estimatedProfitMargin < 0 || estimatedProfitMargin > 100) {
-        return res.status(400).json({ success: false, message: 'estimatedProfitMargin must be between 0 and 100' });
-      }
-      cit.estimatedProfitMargin = estimatedProfitMargin;
-    }
-    if (estimatedAnnualProfit !== undefined) {
-      if (typeof estimatedAnnualProfit !== 'number' || estimatedAnnualProfit < 0) {
-        return res.status(400).json({ success: false, message: 'estimatedAnnualProfit must be a non-negative number' });
-      }
-    }
-    if (payCitQuarterly !== undefined) cit.payCitQuarterly = payCitQuarterly;
-
-    // Recompute the profit used for installments
-    const derivedProfit = Math.round((cit.estimatedGrossRevenue || 0) * ((cit.estimatedProfitMargin || 0) / 100));
-    const profitForInstallments = derivedProfit > 0 ? derivedProfit : (estimatedAnnualProfit ?? cit.estimatedAnnualProfit ?? 0);
-    cit.estimatedAnnualProfit = profitForInstallments;
-
-    const { installments } = generateInstallments(profitForInstallments, year, cit.quarterlyAssessments);
-    cit.quarterlyAssessments = installments;
-    await cit.save();
-
-    return res.status(200).json({
-      success: true,
-      message: 'Quarterly CIT assessment updated',
-      data: { profileId: profile._id, ...buildQuarterlyView(cit, year) }
-    });
-  } catch (error) {
-    console.error('[CIT] updateQuarterlyAssessment error:', error);
-    return res.status(500).json({ success: false, message: 'Error updating quarterly assessment' });
-  }
-};
-
-/**
- * Pay quarterly installment
- * POST /api/taxableprofile/business/:profileId/cit/quarterly/:quarter/pay
- */
-const payQuarterlyInstallment = async (req, res) => {
-  try {
-    const profile = req.businessProfile;
-    const quarter = parseInt(req.params.quarter, 10);
-    if (quarter < 1 || quarter > 4) {
+    if (!quarter) {
       return res.status(400).json({ success: false, message: 'quarter must be 1-4' });
     }
 
-    const cit = await getOrCreateCit(profile._id, profile.year);
-    const inst = (cit.quarterlyAssessments || []).find(i => i.quarter === quarter);
+    const amount = req.body.amount !== undefined ? Number(req.body.amount) : null;
+    if (amount !== null && (!Number.isFinite(amount) || amount < 0)) {
+      return res.status(400).json({ success: false, message: 'amount must be a non-negative number' });
+    }
+
+    const cit = await getOrCreateCit(profile._id, year);
+
+    if (!cit.quarterlyAssessments || cit.quarterlyAssessments.length !== 4) {
+      const { quarterlyInstallment } = computeCitEstimate(
+        cit.estimatedGrossRevenue,
+        cit.estimatedProfitMargin
+      );
+      cit.quarterlyAssessments = buildQuarterlyInstallments(
+        quarterlyInstallment,
+        year,
+        cit.quarterlyAssessments
+      );
+    }
+
+    const inst = cit.quarterlyAssessments.find((i) => i.quarter === quarter);
     if (!inst) {
-      return res.status(404).json({ success: false, message: `Quarter ${quarter} assessment not found. Update quarterly assessment first.` });
+      return res.status(404).json({ success: false, message: `Quarter ${quarter} not found` });
     }
     if (inst.status === 'paid') {
       return res.status(400).json({ success: false, message: `Quarter ${quarter} is already paid` });
     }
 
+    const payAmount = amount != null ? amount : (inst.amountDue || 0);
+    inst.amountPaid = payAmount;
+    if (amount != null) inst.amountDue = payAmount;
     inst.status = 'paid';
     inst.paidAt = new Date();
+    cit.markModified('quarterlyAssessments');
     await cit.save();
 
     return res.status(200).json({
       success: true,
-      message: `CIT quarterly installment Q${quarter} marked as paid`,
-      data: { profileId: profile._id, paidQuarter: quarter, ...buildQuarterlyView(cit, profile.year) }
+      message: `CIT Q${quarter} marked as paid`,
+      data: {
+        profileId: profile.profileId || profile._id,
+        paidQuarter: quarter,
+        ...formatQuarterly(cit, year)
+      }
     });
   } catch (error) {
-    console.error('[CIT] payQuarterlyInstallment error:', error);
-    return res.status(500).json({ success: false, message: 'Error paying quarterly installment' });
+    console.error('[CIT] payQuarter error:', error);
+    return res.status(500).json({ success: false, message: 'Error paying quarterly CIT' });
   }
 };
 
 /**
- * Defer quarterly installment to annual filing
- * POST /api/taxableprofile/business/:profileId/cit/quarterly/:quarter/defer
+ * POST /cit/quarterly/defer
+ * Body: { year, quarter } — UI typically defers Q4 into annual filing
  */
-const deferQuarterlyInstallment = async (req, res) => {
+const deferQuarter = async (req, res) => {
   try {
     const profile = req.businessProfile;
-    const quarter = parseInt(req.params.quarter, 10);
-    if (quarter < 1 || quarter > 4) {
+    const year = resolveYear(req, profile);
+    const quarter = parseQuarter(req.body.quarter);
+
+    if (!quarter) {
       return res.status(400).json({ success: false, message: 'quarter must be 1-4' });
     }
 
-    const cit = await getOrCreateCit(profile._id, profile.year);
-    const inst = (cit.quarterlyAssessments || []).find(i => i.quarter === quarter);
+    const cit = await getOrCreateCit(profile._id, year);
+
+    if (!cit.quarterlyAssessments || cit.quarterlyAssessments.length !== 4) {
+      const { quarterlyInstallment } = computeCitEstimate(
+        cit.estimatedGrossRevenue,
+        cit.estimatedProfitMargin
+      );
+      cit.quarterlyAssessments = buildQuarterlyInstallments(
+        quarterlyInstallment,
+        year,
+        cit.quarterlyAssessments
+      );
+    }
+
+    const inst = cit.quarterlyAssessments.find((i) => i.quarter === quarter);
     if (!inst) {
-      return res.status(404).json({ success: false, message: `Quarter ${quarter} assessment not found` });
+      return res.status(404).json({ success: false, message: `Quarter ${quarter} not found` });
     }
     if (inst.status === 'paid') {
-      return res.status(400).json({ success: false, message: `Quarter ${quarter} is already paid and cannot be deferred` });
+      return res.status(400).json({
+        success: false,
+        message: `Quarter ${quarter} is already paid and cannot be deferred`
+      });
     }
 
     inst.status = 'deferred';
     inst.deferredAt = new Date();
+    cit.markModified('quarterlyAssessments');
     await cit.save();
 
     return res.status(200).json({
       success: true,
-      message: `CIT quarterly installment Q${quarter} deferred to annual filing`,
-      data: { profileId: profile._id, deferredQuarter: quarter, ...buildQuarterlyView(cit, profile.year) }
-    });
-  } catch (error) {
-    console.error('[CIT] deferQuarterlyInstallment error:', error);
-    return res.status(500).json({ success: false, message: 'Error deferring quarterly installment' });
-  }
-};
-
-/**
- * Save annual financials
- * PUT /api/taxableprofile/business/:profileId/cit/financials
- */
-const saveCitFinancials = async (req, res) => {
-  try {
-    const profile = req.businessProfile;
-    const { revenue, otherIncome, costOfSales, operatingExpenses, depreciation, interestPaid, otherExpenses } = req.body;
-
-    if (typeof revenue !== 'number' || revenue < 0) {
-      return res.status(400).json({ success: false, message: 'revenue must be a non-negative number' });
-    }
-
-    const year = profile.year;
-    const cit = await getOrCreateCit(profile._id, year);
-
-    cit.financials = {
-      revenue: revenue || 0,
-      otherIncome: otherIncome || 0,
-      costOfSales: costOfSales || 0,
-      operatingExpenses: operatingExpenses || 0,
-      depreciation: depreciation || 0,
-      interestPaid: interestPaid || 0,
-      otherExpenses: otherExpenses || 0
-    };
-    await cit.save();
-
-    const totalRevenue = (cit.financials.revenue || 0) + (cit.financials.otherIncome || 0);
-    const totalExpenses = (cit.financials.costOfSales || 0) + (cit.financials.operatingExpenses || 0) + (cit.financials.depreciation || 0) + (cit.financials.interestPaid || 0) + (cit.financials.otherExpenses || 0);
-
-    return res.status(200).json({
-      success: true,
-      message: 'CIT financials saved',
+      message: `CIT Q${quarter} deferred to annual filing`,
       data: {
-        profileId: profile._id,
-        year,
-        financials: {
-          ...cit.financials.toObject ? cit.financials.toObject() : cit.financials,
-          totalRevenue,
-          totalExpenses,
-          accountingProfit: totalRevenue - totalExpenses
-        }
+        profileId: profile.profileId || profile._id,
+        deferredQuarter: quarter,
+        ...formatQuarterly(cit, year)
       }
     });
   } catch (error) {
-    console.error('[CIT] saveCitFinancials error:', error);
-    return res.status(500).json({ success: false, message: 'Error saving CIT financials' });
-  }
-};
-
-/**
- * Save tax adjustments
- * PUT /api/taxableprofile/business/:profileId/cit/adjustments
- */
-const saveCitAdjustments = async (req, res) => {
-  try {
-    const profile = req.businessProfile;
-    const { disallowableExpenses, capitalAllowances, pioneerRelief, otherDeductions } = req.body;
-
-    const year = profile.year;
-    const cit = await getOrCreateCit(profile._id, year);
-
-    cit.taxAdjustments = {
-      disallowableExpenses: Array.isArray(disallowableExpenses) ? disallowableExpenses : [],
-      capitalAllowances: Array.isArray(capitalAllowances) ? capitalAllowances : [],
-      pioneerRelief: pioneerRelief || 0,
-      otherDeductions: otherDeductions || 0
-    };
-    await cit.save();
-
-    const totalDisallowable = cit.taxAdjustments.disallowableExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-    const totalCapitalAllowancesAmt = cit.taxAdjustments.capitalAllowances.reduce((s, e) => s + (e.amount || 0), 0);
-
-    return res.status(200).json({
-      success: true,
-      message: 'CIT tax adjustments saved',
-      data: {
-        profileId: profile._id,
-        year,
-        adjustments: {
-          totalDisallowableExpenses: totalDisallowable,
-          totalCapitalAllowances: totalCapitalAllowancesAmt,
-          pioneerRelief: cit.taxAdjustments.pioneerRelief,
-          otherDeductions: cit.taxAdjustments.otherDeductions,
-          netAdjustment: totalDisallowable - totalCapitalAllowancesAmt
-        }
-      }
-    });
-  } catch (error) {
-    console.error('[CIT] saveCitAdjustments error:', error);
-    return res.status(500).json({ success: false, message: 'Error saving CIT adjustments' });
-  }
-};
-
-/**
- * Get CIT computation & review
- * GET /api/taxableprofile/business/:profileId/cit/computation
- */
-const getCitComputation = async (req, res) => {
-  try {
-    const profile = req.businessProfile;
-    const year = parseInt(req.query.year) || profile.year;
-
-    const cit = await CITReturn.findOne({ profileId: profile._id, year });
-    if (!cit) {
-      return res.status(404).json({ success: false, message: 'No CIT records found. Save financials first.' });
-    }
-
-    const whtCredits = await WHTCredit.find({ profileId: profile._id, year }).lean();
-    const whtCreditsTotal = whtCredits.reduce((s, c) => s + (c.whtAmount || 0), 0);
-    const result = computeCit(cit, whtCreditsTotal);
-
-    // Persist computed fields
-    cit.accountingProfit = result.accountingProfit;
-    cit.totalDisallowable = result.totalDisallowable;
-    cit.totalCapitalAllowances = result.totalCapitalAllowances;
-    cit.adjustedTaxableProfit = result.adjustedTaxableProfit;
-    cit.citTaxRate = result.citTaxRate;
-    cit.grossCitOwed = result.grossCitOwed;
-    cit.tertiaryEducationTax = result.tertiaryEducationTax;
-    cit.totalWhtCreditsApplied = result.totalWhtCreditsApplied;
-    cit.quarterlyInstallmentsPaid = result.quarterlyInstallmentsPaid;
-    cit.netCitPayable = result.netCitPayable;
-    await cit.save();
-
-    return res.status(200).json({
-      success: true,
-      message: 'CIT computation retrieved',
-      data: {
-        profileId: profile._id,
-        year,
-        ...result,
-        breakdown: {
-          revenue: result.totalRevenue,
-          totalExpenses: result.totalExpenses,
-          accountingProfit: result.accountingProfit,
-          addBack: result.totalDisallowable,
-          lessAllowances: result.totalCapitalAllowances,
-          taxableProfit: result.adjustedTaxableProfit,
-          citAt30Percent: result.grossCitOwed,
-          eduTaxAt3Percent: result.tertiaryEducationTax,
-          grossTax: result.grossCitOwed + result.tertiaryEducationTax,
-          lessWhtCredits: result.totalWhtCreditsApplied,
-          lessQuarterlyPaid: result.quarterlyInstallmentsPaid,
-          netPayable: result.netCitPayable
-        }
-      }
-    });
-  } catch (error) {
-    console.error('[CIT] getCitComputation error:', error);
-    return res.status(500).json({ success: false, message: 'Error computing CIT' });
-  }
-};
-
-/**
- * Submit CIT annual return
- * POST /api/taxableprofile/business/:profileId/cit/submit
- */
-const submitCitReturn = async (req, res) => {
-  try {
-    const profile = req.businessProfile;
-    const year = profile.year;
-
-    const cit = await CITReturn.findOne({ profileId: profile._id, year });
-    if (!cit) {
-      return res.status(404).json({ success: false, message: 'No CIT records found. Save financials first.' });
-    }
-    if (cit.filed) {
-      return res.status(400).json({ success: false, message: 'CIT return has already been submitted' });
-    }
-
-    // Verify financials exist
-    if (!cit.financials || !cit.financials.revenue) {
-      return res.status(400).json({ success: false, message: 'CIT financials must be saved before submitting' });
-    }
-
-    const now = new Date();
-    cit.status = 'submitted';
-    cit.filed = true;
-    cit.filedAt = now;
-    cit.filingId = `cit_${year}_${Date.now()}`;
-    await cit.save();
-
-    return res.status(200).json({
-      success: true,
-      message: 'CIT annual return submitted',
-      data: {
-        filingId: cit.filingId,
-        year,
-        status: 'submitted',
-        submittedAt: now.toISOString(),
-        netCitPayable: cit.netCitPayable
-      }
-    });
-  } catch (error) {
-    console.error('[CIT] submitCitReturn error:', error);
-    return res.status(500).json({ success: false, message: 'Error submitting CIT return' });
+    console.error('[CIT] deferQuarter error:', error);
+    return res.status(500).json({ success: false, message: 'Error deferring quarterly CIT' });
   }
 };
 
 module.exports = {
-  getCitRecords,
-  getQuarterlyAssessments,
-  updateQuarterlyAssessment,
-  payQuarterlyInstallment,
-  deferQuarterlyInstallment,
-  saveCitFinancials,
-  saveCitAdjustments,
-  getCitComputation,
-  submitCitReturn
+  getAnnual,
+  upsertAnnual,
+  fileAnnual,
+  listCitWhtCredits,
+  createCitWhtCredit,
+  updateCitWhtCredit,
+  deleteCitWhtCredit,
+  getQuarterly,
+  payQuarter,
+  deferQuarter,
+  // Shared helpers for company-info
+  computeCitEstimate,
+  buildQuarterlyInstallments,
+  // Back-compat aliases
+  getCitRecords: getAnnual,
+  getQuarterlyAssessments: getQuarterly,
+  payQuarterlyInstallment: payQuarter,
+  deferQuarterlyInstallment: deferQuarter,
+  submitCitReturn: fileAnnual
 };
