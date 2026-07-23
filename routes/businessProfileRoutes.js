@@ -320,15 +320,18 @@ router.post('/:profileId/wht/credits', authenticate, checkEmailVerified, require
 router.put('/:profileId/wht/credits/:creditId', authenticate, checkEmailVerified, requireBusinessProfile, updateWhtCredit);
 router.delete('/:profileId/wht/credits/:creditId', authenticate, checkEmailVerified, requireBusinessProfile, deleteWhtCredit);
 
-// ── CIT Routes ──
-router.get('/:profileId/cit', authenticate, checkEmailVerified, requireBusinessProfile, getCitRecords);
-router.get('/:profileId/cit/assessments', authenticate, checkEmailVerified, requireBusinessProfile, getQuarterlyAssessments);
-router.put('/:profileId/cit/quarterly', authenticate, checkEmailVerified, requireBusinessProfile, updateQuarterlyAssessment);
-router.post('/:profileId/cit/quarterly/:quarter/pay', authenticate, checkEmailVerified, requireBusinessProfile, payQuarterlyInstallment);
-router.post('/:profileId/cit/quarterly/:quarter/defer', authenticate, checkEmailVerified, requireBusinessProfile, deferQuarterlyInstallment);
-router.put('/:profileId/cit/financials', authenticate, checkEmailVerified, requireBusinessProfile, saveCitFinancials);
-router.put('/:profileId/cit/adjustments', authenticate, checkEmailVerified, requireBusinessProfile, saveCitAdjustments);
-router.get('/:profileId/cit/computation', authenticate, checkEmailVerified, requireBusinessProfile, getCitComputation);
-router.post('/:profileId/cit/submit', authenticate, checkEmailVerified, requireBusinessProfile, submitCitReturn);
+// ── CIT Routes (year-scoped; ?year= on GETs, year in body on writes) ──
+router.get('/:profileId/cit', authenticate, checkEmailVerified, requireBusinessProfile, getAnnual);
+router.put('/:profileId/cit', authenticate, checkEmailVerified, requireBusinessProfile, upsertAnnual);
+router.post('/:profileId/cit/file', authenticate, checkEmailVerified, requireBusinessProfile, fileAnnual);
+
+router.get('/:profileId/cit/wht-credits', authenticate, checkEmailVerified, requireBusinessProfile, listCitWhtCredits);
+router.post('/:profileId/cit/wht-credits', authenticate, checkEmailVerified, requireBusinessProfile, createCitWhtCredit);
+router.put('/:profileId/cit/wht-credits/:creditId', authenticate, checkEmailVerified, requireBusinessProfile, updateCitWhtCredit);
+router.delete('/:profileId/cit/wht-credits/:creditId', authenticate, checkEmailVerified, requireBusinessProfile, deleteCitWhtCredit);
+
+router.get('/:profileId/cit/quarterly', authenticate, checkEmailVerified, requireBusinessProfile, getQuarterly);
+router.post('/:profileId/cit/quarterly/pay', authenticate, checkEmailVerified, requireBusinessProfile, payQuarter);
+router.post('/:profileId/cit/quarterly/defer', authenticate, checkEmailVerified, requireBusinessProfile, deferQuarter);
 
 module.exports = router;

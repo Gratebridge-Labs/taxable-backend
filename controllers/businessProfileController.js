@@ -6,41 +6,10 @@
 const TaxableProfile = require('../models/TaxableProfile');
 const CITReturn = require('../models/CITReturn');
 const { validationResult } = require('express-validator');
-const { CIT_RATE } = require('../config/constants');
-
-/**
- * Build a CIT installment estimate from an estimated gross revenue + profit margin.
- * Returns the estimated annual profit, estimated CIT, and the per-quarter amount.
- */
-function computeCitEstimate(grossRevenue = 0, profitMarginPercent = 0) {
-  const estimatedAnnualProfit = Math.max(0, Math.round((grossRevenue || 0) * ((profitMarginPercent || 0) / 100)));
-  const estimatedAnnualCit = Math.round(estimatedAnnualProfit * CIT_RATE);
-  const quarterlyInstallment = Math.round(estimatedAnnualCit / 4);
-  return { estimatedAnnualProfit, estimatedAnnualCit, quarterlyInstallment };
-}
-
-/** Generate the 4 quarterly installment rows, preserving existing paid/deferred status. */
-function buildQuarterlyInstallments(quarterlyInstallment, year, existing) {
-  const dueDates = [
-    new Date(year, 2, 31),  // Q1: Mar 31
-    new Date(year, 5, 30),  // Q2: Jun 30
-    new Date(year, 8, 30),  // Q3: Sep 30
-    new Date(year, 11, 31)  // Q4: Dec 31
-  ];
-  const installments = [];
-  for (let q = 1; q <= 4; q++) {
-    const prev = (existing || []).find(i => i.quarter === q);
-    installments.push({
-      quarter: q,
-      dueDate: dueDates[q - 1],
-      amount: quarterlyInstallment,
-      status: prev ? prev.status : 'pending',
-      paidAt: prev ? prev.paidAt : undefined,
-      deferredAt: prev ? prev.deferredAt : undefined
-    });
-  }
-  return installments;
-}
+const {
+  computeCitEstimate,
+  buildQuarterlyInstallments
+} = require('./citController');
 
 /** Load a Business profile owned by the user, or send the appropriate error response. */
 async function loadBusinessProfile(req, res) {
@@ -518,7 +487,7 @@ const getBusinessTaxSummary = async (req, res) => {
       const filed = vatRecords.filter(r => r.status === 'filed').length;
       vatSummary = {
         enabled: true,
-        totalNetVat: vatRecords.reduce((s, r) => s + (r.netVatPayable || 0), 0),
+        totalNetVat: vatRecords.reduce((s, r) => s + (r.netPosition || r.netVatPayable || 0), 0),
         monthsFiled: filed,
         monthsPending: 12 - vatRecords.length,
         status: filed === 12 ? 'completed' : vatRecords.length > 0 ? 'in_progress' : 'not_started'
@@ -539,21 +508,40 @@ const getBusinessTaxSummary = async (req, res) => {
     }
 
     // CIT
-    let citSummary = { enabled: !!setup.citEnabled, accountingProfit: 0, taxableProfit: 0, citDue: 0, eduTaxDue: 0, credits: { whtCredits: 0, quarterlyPayments: 0 }, netTaxPayable: 0, status: 'not_configured' };
+    let citSummary = {
+      enabled: !!setup.citEnabled,
+      accountingProfit: 0,
+      assessableProfit: 0,
+      baseCIT: 0,
+      developmentLevy: 0,
+      credits: { whtCredits: 0, quarterlyPayments: 0 },
+      finalPosition: 0,
+      status: 'not_configured'
+    };
     if (setup.citEnabled) {
       const cit = await CITReturn.findOne({ profileId: profile._id, year }).lean();
+      const CITWhtCredit = require('../models/CITWhtCredit');
+      const citCredits = await CITWhtCredit.find({ profileId: profile._id, year }).lean();
+      const whtCreditsTotal = citCredits.reduce((s, c) => s + (c.withheldAmount || 0), 0);
+
       if (cit) {
-        const whtCreditsTotal = whtSummary.totalCredits || 0;
-        const qPaid = (cit.quarterlyAssessments || []).filter(i => i.status === 'paid').reduce((s, i) => s + (i.amount || 0), 0);
+        const computed = CITReturn.computeCitFields(cit, whtCreditsTotal);
         citSummary = {
           enabled: true,
-          accountingProfit: cit.accountingProfit || 0,
-          taxableProfit: cit.adjustedTaxableProfit || 0,
-          citDue: cit.grossCitOwed || 0,
-          eduTaxDue: cit.tertiaryEducationTax || 0,
-          credits: { whtCredits: whtCreditsTotal, quarterlyPayments: qPaid },
-          netTaxPayable: cit.netCitPayable || 0,
-          status: cit.filed ? 'filed' : cit.financials && cit.financials.revenue ? 'in_progress' : 'not_started'
+          accountingProfit: computed.accountingProfit,
+          assessableProfit: computed.assessableProfit,
+          baseCIT: computed.baseCIT,
+          developmentLevy: computed.developmentLevy,
+          credits: {
+            whtCredits: computed.totalWhtCredits,
+            quarterlyPayments: computed.totalQuarterlyPaid
+          },
+          finalPosition: computed.finalPosition,
+          status: cit.filed || cit.status === 'filed'
+            ? 'filed'
+            : (cit.financials && cit.financials.totalRevenue)
+              ? 'in_progress'
+              : 'not_started'
         };
       } else {
         citSummary.status = 'not_started';
@@ -563,8 +551,8 @@ const getBusinessTaxSummary = async (req, res) => {
     const totalTaxLiability = {
       paye: payeSummary.totalPayeForYear || 0,
       vat: vatSummary.totalNetVat || 0,
-      cit: citSummary.netTaxPayable || 0,
-      total: (payeSummary.totalPayeForYear || 0) + (vatSummary.totalNetVat || 0) + (citSummary.netTaxPayable || 0)
+      cit: citSummary.finalPosition || 0,
+      total: (payeSummary.totalPayeForYear || 0) + (vatSummary.totalNetVat || 0) + (citSummary.finalPosition || 0)
     };
 
     return res.status(200).json({
