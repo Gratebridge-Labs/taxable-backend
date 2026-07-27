@@ -3,10 +3,9 @@ const Subscription = require('../models/Subscription');
 const User = require('../models/User');
 const TaxableProfile = require('../models/TaxableProfile');
 const FilingPayment = require('../models/FilingPayment');
-const IncomeData = require('../models/IncomeData');
-const Deduction = require('../models/Deduction');
 const { initializeTransaction, verifyTransaction, verifyWebhookSignature } = require('../services/paystackService');
 const { sendSubscriptionActiveEmail } = require('../utils/emailService');
+const { computePitTaxSummary } = require('../utils/pitTaxCompute');
 
 /** PDF spec: ₦4,000 monthly, ₦30,000 yearly. Period days used for currentPeriodEnd. */
 const DEFAULT_PLANS = {
@@ -117,101 +116,24 @@ async function createFilingPaymentLink(userId, profileId, type = 'accountant_rev
   };
 }
 
-function toNum(v) {
-  return (typeof v === 'number' && Number.isFinite(v)) ? v : Number(v) || 0;
+async function calculateTaxForPayment(profile, month) {
+  // Prefer shared NTA 2025 PIT compute (supports income-data blob + legacy)
+  const summary = await computePitTaxSummary(profile, { month });
+  return {
+    filingPreference: summary.filingPreference,
+    month: summary.month,
+    totalIncome: summary.taxSummary.totalIncome,
+    totalCalculatedRelief: summary.taxSummary.totalCalculatedRelief,
+    taxableIncome: summary.taxSummary.taxableIncome,
+    totalTaxAmount: summary.taxSummary.totalTaxAmount,
+    monthlyTax: summary.monthlyTax,
+    annualTax: summary.annualTax,
+    rentReliefApplied: summary.rentReliefApplied
+  };
 }
 
-async function calculateTaxForPayment(profile, month) {
-  const filingPreference = profile.filingPreference;
-  const requestedMonth = month == null ? null : Number(month);
-  if (!['monthly', 'annual'].includes(filingPreference)) {
-    throw new Error('Insufficient data: filingPreference must be monthly or annual');
-  }
-  if (filingPreference === 'monthly' && (!requestedMonth || requestedMonth < 1 || requestedMonth > 12)) {
-    throw new Error('For monthly filing, provide a valid month (1-12)');
-  }
-
-  const incomeData = await IncomeData.findOne({ profileId: profile._id, year: profile.year }).lean();
-  if (!incomeData) throw new Error('Insufficient data: income data not found');
-
-  const deductions = await Deduction.find({ profileId: profile._id, 'period.year': profile.year }).lean();
-  if (!deductions.length) throw new Error('Insufficient data: deductions data not found');
-
-  const incomeItems = (() => {
-    if (filingPreference === 'annual') return Array.isArray(incomeData.annualIncomes) ? incomeData.annualIncomes : [];
-    const monthlyMap = incomeData.monthlyIncomes || {};
-    const monthItems = monthlyMap[String(requestedMonth)] || [];
-    return Array.isArray(monthItems) ? monthItems : [];
-  })();
-  if (!incomeItems.length) throw new Error('Insufficient data: no income data found for requested period');
-
-  const periodDeductions = (() => {
-    if (filingPreference === 'annual') return deductions.filter((d) => d.frequency === 'annual' || d.month == null);
-    return deductions.filter((d) => {
-      if (d.frequency === 'monthly') return d.month === requestedMonth;
-      return d.month == null || d.frequency === 'annual';
-    });
-  })();
-  if (!periodDeductions.length) throw new Error('Insufficient data: no deductions data found for requested period');
-
-  const totalIncome = incomeItems.reduce((sum, item) => {
-    const type = String(item?.type || '').toLowerCase();
-    if (type === 'employment') return sum + toNum(item.grossSalary) + toNum(item.bonuses) + toNum(item.commissions);
-    if (type === 'digital_assets' || type === 'freelance') return sum + toNum(item.value);
-    return sum + toNum(item.value || item.amount || item.grossSalary);
-  }, 0);
-
-  const computeRentReliefAnnual = (annualRent) => Math.min(toNum(annualRent) * 0.2, 500000);
-
-  const totalCalculatedRelief = periodDeductions.reduce((sum, d) => {
-    const type = String(d?.deductionType || '').toLowerCase();
-
-    if (type === 'rent_relief') {
-      const annualRelief = computeRentReliefAnnual(d.amount);
-      return sum + (filingPreference === 'monthly' ? (annualRelief / 12) : annualRelief);
-    }
-
-    const amount = toNum(d.amount);
-    if (filingPreference === 'monthly' && d.frequency === 'annual') return sum + (amount / 12);
-    return sum + amount;
-  }, 0);
-
-  const taxableIncome = Math.max(0, totalIncome - totalCalculatedRelief);
-  const brackets = [
-    { from: 0, to: 300000, rate: 0.07 },
-    { from: 300001, to: 600000, rate: 0.11 },
-    { from: 600001, to: 1100000, rate: 0.15 },
-    { from: 1100001, to: 1600000, rate: 0.19 },
-    { from: 1600001, to: 3200000, rate: 0.21 },
-    { from: 3200001, to: Infinity, rate: 0.24 }
-  ];
-  const computeTax = (baseIncome) => {
-    let remaining = baseIncome;
-    let tax = 0;
-    for (const b of brackets) {
-      if (remaining <= 0) break;
-      const range = b.to === Infinity ? remaining : Math.min(b.to - b.from + 1, remaining);
-      const taxableInBracket = Math.min(range, remaining);
-      tax += taxableInBracket * b.rate;
-      remaining -= taxableInBracket;
-    }
-    return tax;
-  };
-
-  const annualizedTaxableIncome = filingPreference === 'monthly' ? taxableIncome * 12 : taxableIncome;
-  const annualTaxAmount = computeTax(annualizedTaxableIncome);
-  const monthlyTax = annualTaxAmount / 12;
-  const totalTaxAmount = filingPreference === 'monthly' ? monthlyTax : annualTaxAmount;
-
-  return {
-    filingPreference,
-    month: filingPreference === 'monthly' ? requestedMonth : null,
-    totalIncome,
-    totalCalculatedRelief,
-    taxableIncome,
-    totalTaxAmount,
-    monthlyTax
-  };
+function toNum(v) {
+  return (typeof v === 'number' && Number.isFinite(v)) ? v : Number(v) || 0;
 }
 
 /**

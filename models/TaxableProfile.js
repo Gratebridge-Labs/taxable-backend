@@ -183,6 +183,13 @@ const taxableProfileSchema = new mongoose.Schema({
   street: { type: String, trim: true, required: false },
   city: { type: String, trim: true, required: false },
   state: { type: String, trim: true, required: false },
+  /** Local Government Area (Individual personal info) */
+  lga: { type: String, trim: true, required: false },
+  /** Contact overrides for Individual personal info (defaults fall back to User) */
+  contactEmail: { type: String, trim: true, lowercase: true, required: false },
+  contactPhone: { type: String, trim: true, required: false },
+  /** Display full name override for Individual personal info */
+  fullName: { type: String, trim: true, required: false },
   /** Income details (collected after base setup; structure can be extended) */
   incomeDetails: { type: mongoose.Schema.Types.Mixed, required: false },
   /** Relief/deductibles details for individuals */
@@ -256,7 +263,7 @@ const taxableProfileSchema = new mongoose.Schema({
    */
   status: {
     type: String,
-    enum: ['draft', 'active', 'completed', 'archived', 'companyinformation', 'paye', 'vat', 'wht', 'cit'],
+    enum: ['draft', 'active', 'submitted', 'completed', 'archived', 'companyinformation', 'paye', 'vat', 'wht', 'cit'],
     default: 'draft'
   },
   baseQuestionsAnswered: {

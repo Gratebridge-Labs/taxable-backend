@@ -66,6 +66,11 @@ const createWebProfileValidation = [
 
 // Validation for personal info
 const personalInfoValidation = [
+  body('nin')
+    .optional({ values: 'falsy' })
+    .trim()
+    .matches(/^[0-9]{11}$/).withMessage('NIN must be exactly 11 digits'),
+
   body('tin')
     .optional({ values: 'falsy' })
     .trim()
@@ -80,7 +85,21 @@ const personalInfoValidation = [
     .optional({ values: 'falsy' })
     .trim()
     .isLength({ min: 2, max: 100 }).withMessage('Full name must be between 2 and 100 characters'),
+
+  body('email')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isEmail().withMessage('email must be a valid email'),
+
+  body('phone')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ min: 7, max: 20 }).withMessage('phone must be between 7 and 20 characters'),
   
+  body('dob')
+    .optional({ values: 'falsy' })
+    .isISO8601().withMessage('dob must be a valid date (e.g. YYYY-MM-DD)'),
+
   body('dateOfBirth')
     .optional({ values: 'falsy' })
     .isISO8601().withMessage('Date of birth must be a valid date (e.g. YYYY-MM-DD)'),
@@ -98,7 +117,12 @@ const personalInfoValidation = [
   body('state')
     .optional({ values: 'falsy' })
     .trim()
-    .isLength({ max: 100 }).withMessage('State cannot exceed 100 characters')
+    .isLength({ max: 100 }).withMessage('State cannot exceed 100 characters'),
+
+  body('lga')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ max: 100 }).withMessage('LGA cannot exceed 100 characters')
 ];
 
 // Helper endpoints (public)

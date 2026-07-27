@@ -85,6 +85,18 @@ const createWebProfile = async (req, res) => {
       profilePayload.intent = intent;
     }
 
+    // Individual: taxId = NIN (exactly 11 digits)
+    if (!isBusiness && taxId) {
+      const ninStr = String(taxId).replace(/[^0-9]/g, '');
+      if (ninStr.length !== 11) {
+        return res.status(400).json({
+          success: false,
+          message: 'taxId (NIN) must be exactly 11 digits'
+        });
+      }
+      profilePayload.primaryNIN = ninStr;
+    }
+
     // Business-only: capture Tax ID (RC/BN) and the tax types to file.
     // The `vatWht` UI checkbox is a single control that enables both VAT and WHT.
     if (isBusiness) {
@@ -268,7 +280,7 @@ const completeProfile = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Profile updated successfully',
+      message: 'Profile completed',
       data: {
         profileId: profile.profileId,
         year: profile.year,
@@ -366,20 +378,30 @@ const submitProfileForReview = async (req, res) => {
       });
     }
 
+    const { legalConfirmAccuracy, legalConfirmAuthority } = req.body || {};
+    if (legalConfirmAccuracy !== true || legalConfirmAuthority !== true) {
+      return res.status(400).json({
+        success: false,
+        message: 'legalConfirmAccuracy and legalConfirmAuthority must both be true'
+      });
+    }
+
     // Mark as submitted
     profile.submitted = true;
     profile.submittedAt = Date.now();
-    profile.status = 'active';
+    profile.status = 'submitted';
+    profile.filingStatus = 'submitted';
     await profile.save();
 
     res.status(200).json({
       success: true,
-      message: 'Profile submitted successfully for review',
+      message: 'Profile submitted',
       data: {
         profileId: profile.profileId,
         submitted: true,
         submittedAt: profile.submittedAt,
-        status: profile.status
+        status: profile.status,
+        filingStatus: profile.filingStatus
       }
     });
   } catch (error) {
@@ -646,20 +668,23 @@ const getAllowedYears = async (req, res) => {
  */
 const getIncomeSources = async (req, res) => {
   try {
-    const incomeSources = [
-      'Salary / Employment',
-      'Business/Self-employment',
-      'Freelance/Consulting',
-      'Investment income',
-      'Rental income',
-      'Digital Assets/Crypto'
+    const sources = [
+      { id: 'salary', label: 'Salary / Employment' },
+      { id: 'business', label: 'Business/Self-employment' },
+      { id: 'freelance', label: 'Freelance/Consulting' },
+      { id: 'investment', label: 'Investment income' },
+      { id: 'rental', label: 'Rental income' },
+      { id: 'crypto', label: 'Digital Assets/Crypto' }
     ];
 
     res.status(200).json({
       success: true,
+      message: 'Income sources retrieved',
       data: {
-        incomeSources,
-        count: incomeSources.length
+        sources,
+        // Backward-compatible alias
+        incomeSources: sources.map((s) => s.label),
+        count: sources.length
       }
     });
   } catch (error) {
@@ -744,7 +769,7 @@ const downloadTaxReturn = async (req, res) => {
 /**
  * Update personal information
  * PUT /taxableprofile/web/:profileId/personal-info
- * Body: { tin, residencyStatus, fullName, dateOfBirth, streetAddress, city, state }
+ * Body: { nin, fullName, email, phone, dob, streetAddress, city, state, lga, residencyStatus, tin? }
  */
 const updatePersonalInfo = async (req, res) => {
   try {
@@ -760,13 +785,18 @@ const updatePersonalInfo = async (req, res) => {
     const userId = req.user?.userId;
     const { profileId } = req.params;
     const {
+      nin,
       tin,
       residencyStatus,
       fullName,
+      email,
+      phone,
+      dob,
       dateOfBirth,
       streetAddress,
       city,
-      state
+      state,
+      lga
     } = req.body;
 
     if (!userId) {
@@ -776,7 +806,6 @@ const updatePersonalInfo = async (req, res) => {
       });
     }
 
-    // Find profile (user must own it)
     const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
     if (!profile) {
       return res.status(404).json({
@@ -785,20 +814,47 @@ const updatePersonalInfo = async (req, res) => {
       });
     }
 
-    // Update User model with fullName if provided
+    const userUpdates = {};
+
     if (fullName) {
-      const nameParts = fullName.trim().split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-      
-      await User.findByIdAndUpdate(userId, {
-        firstName,
-        lastName,
-        updatedAt: Date.now()
-      });
+      const nameParts = fullName.trim().split(/\s+/);
+      userUpdates.firstName = nameParts[0] || '';
+      userUpdates.lastName = nameParts.slice(1).join(' ') || '';
+      profile.fullName = fullName.trim();
     }
 
-    // Update TaxableProfile fields
+    if (email !== undefined) {
+      const emailStr = String(email || '').trim().toLowerCase();
+      if (emailStr) {
+        profile.contactEmail = emailStr;
+        userUpdates.email = emailStr;
+      }
+    }
+
+    if (phone !== undefined) {
+      const phoneStr = String(phone || '').trim();
+      if (phoneStr) {
+        profile.contactPhone = phoneStr;
+        userUpdates.phone = phoneStr;
+      }
+    }
+
+    if (Object.keys(userUpdates).length) {
+      userUpdates.updatedAt = Date.now();
+      await User.findByIdAndUpdate(userId, userUpdates);
+    }
+
+    if (nin !== undefined) {
+      const ninStr = String(nin || '').replace(/[^0-9]/g, '');
+      if (ninStr && ninStr.length !== 11) {
+        return res.status(400).json({
+          success: false,
+          message: 'NIN must be exactly 11 digits'
+        });
+      }
+      profile.primaryNIN = ninStr || null;
+    }
+
     if (tin !== undefined) {
       const tinStr = String(tin || '').replace(/[^0-9]/g, '');
       if (tinStr && (tinStr.length < 10 || tinStr.length > 12)) {
@@ -811,20 +867,18 @@ const updatePersonalInfo = async (req, res) => {
     }
 
     if (residencyStatus !== undefined) {
-      // Map residencyStatus to residency183Days
-      // Assuming residencyStatus values: 'resident', 'non-resident', 'part-year'
       if (residencyStatus === 'resident') {
         profile.residency183Days = true;
       } else if (residencyStatus === 'non-resident') {
         profile.residency183Days = false;
       } else if (residencyStatus === 'part-year') {
-        // For part-year residents, we might need additional logic
-        profile.residency183Days = true; // Default to true for part-year
+        profile.residency183Days = true;
       }
     }
 
-    if (dateOfBirth !== undefined) {
-      profile.dob = dateOfBirth ? new Date(dateOfBirth) : null;
+    const dobValue = dob !== undefined ? dob : dateOfBirth;
+    if (dobValue !== undefined) {
+      profile.dob = dobValue ? new Date(dobValue) : null;
     }
 
     if (streetAddress !== undefined) {
@@ -839,22 +893,34 @@ const updatePersonalInfo = async (req, res) => {
       profile.state = state;
     }
 
+    if (lga !== undefined) {
+      profile.lga = lga;
+    }
+
     await profile.save();
+
+    const user = await User.findById(userId).select('firstName lastName email phone').lean();
+    const resolvedFullName = profile.fullName ||
+      [user?.firstName, user?.lastName].filter(Boolean).join(' ') ||
+      null;
 
     res.status(200).json({
       success: true,
-      message: 'Personal information updated successfully',
+      message: 'Personal information saved',
       data: {
         profileId: profile.profileId,
         updatedFields: Object.keys(req.body).filter(key => req.body[key] !== undefined),
         personalInfo: {
-          tin: profile.primaryTIN,
-          residencyStatus: profile.residency183Days ? 'resident' : 'non-resident',
-          fullName: fullName ? `${profile.user?.firstName || ''} ${profile.user?.lastName || ''}`.trim() : undefined,
-          dateOfBirth: profile.dob,
+          nin: profile.primaryNIN,
+          fullName: resolvedFullName,
+          email: profile.contactEmail || user?.email || null,
+          phone: profile.contactPhone || user?.phone || null,
+          dob: profile.dob,
           streetAddress: profile.street,
           city: profile.city,
-          state: profile.state
+          state: profile.state,
+          lga: profile.lga || null,
+          residencyStatus: profile.residency183Days ? 'resident' : 'non-resident'
         }
       }
     });
@@ -963,7 +1029,25 @@ const getWebProfileById = async (req, res) => {
       });
     }
 
-    // Format for web interface
+    const user = await User.findById(userId).select('firstName lastName email phone').lean();
+    const fullName = profile.fullName ||
+      [user?.firstName, user?.lastName].filter(Boolean).join(' ') ||
+      null;
+
+    const isComplete = !!(
+      profile.primaryNIN &&
+      Array.isArray(profile.primaryIncomeSources) &&
+      profile.primaryIncomeSources.length &&
+      profile.filingPreference &&
+      profile.dob &&
+      profile.street &&
+      profile.city &&
+      profile.state
+    );
+    const canFile = profile.filingStatus === 'tax_agent_approved' ||
+      profile.filingStatus === 'pending_filing_payment';
+
+    // Format for web interface (Individual PIT FE contract)
     const formattedProfile = {
       id: profile._id,
       profileId: profile.profileId,
@@ -971,12 +1055,21 @@ const getWebProfileById = async (req, res) => {
       profileType: profile.profileType,
       status: profile.status,
       filingStatus: profile.filingStatus,
+      filingPreference: profile.filingPreference || null,
+      intent: profile.intent || null,
       nin: profile.primaryNIN ?? null,
       primaryNIN: profile.primaryNIN,
-      // Personal information
+      fullName,
+      email: profile.contactEmail || user?.email || null,
+      phone: profile.contactPhone || user?.phone || null,
+      dob: profile.dob || null,
+      street: profile.street || null,
+      streetAddress: profile.street || null,
+      city: profile.city || null,
+      state: profile.state || null,
+      lga: profile.lga || null,
       primaryIncomeSources: profile.primaryIncomeSources || [],
       residency183Days: profile.residency183Days,
-      state: profile.state,
       paysRent: profile.paysRent,
       rentAnnualAmount: profile.rentAnnualAmount,
       rentMonthlyAmount: profile.rentMonthlyAmount,
@@ -986,27 +1079,22 @@ const getWebProfileById = async (req, res) => {
       hasPension: profile.hasPension,
       pensionAnnualAmount: profile.pensionAnnualAmount,
       pensionMonthlyAmount: profile.pensionMonthlyAmount,
+      hasMortgage: profile.paysMortgage,
       paysMortgage: profile.paysMortgage,
       mortgageAnnualAmount: profile.mortgageAnnualAmount,
       mortgageMonthlyAmount: profile.mortgageMonthlyAmount,
-      filingPreference: profile.filingPreference,
-      // Additional info
-      dob: profile.dob,
-      street: profile.street,
-      city: profile.city,
       incomeDetails: profile.incomeDetails,
       deductiblesDetails: profile.deductiblesDetails,
-      // Timestamps
+      isComplete,
+      canFile,
       createdAt: profile.createdAt,
       updatedAt: profile.updatedAt,
-      // Metadata
-      adminMetadata: profile.adminMetadata,
-      intent: profile.intent
+      adminMetadata: profile.adminMetadata
     };
 
     res.status(200).json({
       success: true,
-      message: 'Profile retrieved successfully',
+      message: 'Profile retrieved',
       data: {
         profile: formattedProfile
       }

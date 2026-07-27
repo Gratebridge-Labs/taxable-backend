@@ -8,6 +8,7 @@ const {
   calculateCompanyTaxComplete 
 } = require('../utils/taxCalculator');
 const { generateCompleteBreakdown } = require('../utils/breakdownCalculator');
+const { computePitTaxSummary } = require('../utils/pitTaxCompute');
 
 /**
  * Calculate tax for a profile
@@ -401,8 +402,9 @@ const getTaxSummary = async (req, res) => {
 };
 
 /**
- * Web-specific tax calculation with PDF-expected format
- * GET /taxableprofile/web/:profileId/calculate
+ * Web-specific tax calculation (Individual PIT)
+ * GET /taxableprofile/web/:profileId/calculate?month=7
+ * Uses NTA 2025 PAYE bands + rent relief (20% capped at ₦500,000)
  */
 const calculateWebTax = async (req, res) => {
   try {
@@ -418,7 +420,6 @@ const calculateWebTax = async (req, res) => {
       });
     }
 
-    // Find profile (user must own it)
     const profile = await TaxableProfile.findByProfileIdOrId(profileId, userId);
     if (!profile) {
       return res.status(404).json({
@@ -427,7 +428,6 @@ const calculateWebTax = async (req, res) => {
       });
     }
 
-    // Profile completeness check for the 12 flow fields
     const requiredProfileFields = [
       'primaryNIN',
       'primaryIncomeSources',
@@ -436,11 +436,7 @@ const calculateWebTax = async (req, res) => {
       'hasHealthInsurance',
       'hasPension',
       'paysMortgage',
-      'filingPreference',
-      'dob',
-      'street',
-      'city',
-      'state'
+      'filingPreference'
     ];
     const missingProfileFields = requiredProfileFields.filter((field) => profile[field] === undefined);
     if (missingProfileFields.length > 0) {
@@ -451,159 +447,32 @@ const calculateWebTax = async (req, res) => {
       });
     }
 
-    const taxYear = profile.year;
-    const filingPreference = profile.filingPreference;
-    if (!['monthly', 'annual'].includes(filingPreference)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient data: filingPreference must be monthly or annual'
-      });
-    }
-
-    if (filingPreference === 'monthly' && (!requestedMonth || requestedMonth < 1 || requestedMonth > 12)) {
-      return res.status(400).json({
-        success: false,
-        message: 'For monthly filing, provide a valid month query (1-12)'
-      });
-    }
-
-    const incomeData = await IncomeData.findOne({
-      profileId: profile._id,
-      year: taxYear
-    }).lean();
-    if (!incomeData) {
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient data: income data not found'
-      });
-    }
-
-    const allDeductions = await Deduction.find({
-      profileId: profile._id,
-      'period.year': taxYear
-    }).lean();
-    if (!allDeductions.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient data: deductions data not found'
-      });
-    }
-
-    const incomeItemsForPeriod = (() => {
-      if (filingPreference === 'annual') {
-        return Array.isArray(incomeData.annualIncomes) ? incomeData.annualIncomes : [];
-      }
-      const monthlyMap = incomeData.monthlyIncomes || {};
-      const monthItems = monthlyMap[String(requestedMonth)] || [];
-      return Array.isArray(monthItems) ? monthItems : [];
-    })();
-
-    if (!incomeItemsForPeriod.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient data: no income data found for requested period'
-      });
-    }
-
-    const deductionItemsForPeriod = (() => {
-      if (filingPreference === 'annual') {
-        return allDeductions.filter((d) => d.frequency === 'annual' || d.month == null);
-      }
-      return allDeductions.filter((d) => {
-        if (d.frequency === 'monthly') return d.month === requestedMonth;
-        return d.month == null || d.frequency === 'annual';
-      });
-    })();
-
-    if (!deductionItemsForPeriod.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Insufficient data: no deductions data found for requested period'
-      });
-    }
-
-    const toNum = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
-    const incomeAmount = incomeItemsForPeriod.reduce((sum, item) => {
-      const type = String(item?.type || '').toLowerCase();
-      if (type === 'employment') {
-        return sum + toNum(item.grossSalary) + toNum(item.bonuses) + toNum(item.commissions);
-      }
-      if (type === 'digital_assets' || type === 'freelance') {
-        return sum + toNum(item.value);
-      }
-      return sum + toNum(item.value || item.amount || item.grossSalary);
-    }, 0);
-
-    const computeRentReliefAnnual = (annualRent) => Math.min(toNum(annualRent) * 0.2, 500000);
-
-    const totalCalculatedRelief = deductionItemsForPeriod.reduce((sum, d) => {
-      const type = String(d?.deductionType || '').toLowerCase();
-
-      // Rent is always treated as annual rent value; relief is capped and spread across months
-      if (type === 'rent_relief') {
-        const annualRelief = computeRentReliefAnnual(d.amount);
-        return sum + (filingPreference === 'monthly' ? (annualRelief / 12) : annualRelief);
-      }
-
-      // Other relief types are treated as entered values.
-      // If a deduction is annual and we are calculating a month, prorate it.
-      const amount = toNum(d.amount);
-      if (filingPreference === 'monthly' && d.frequency === 'annual') return sum + (amount / 12);
-      return sum + amount;
-    }, 0);
-
-    const taxableIncome = Math.max(0, incomeAmount - totalCalculatedRelief);
-
-    const computeProgressiveTax = (baseIncome) => {
-      const brackets = [
-        { from: 0, to: 300000, rate: 0.07 },
-        { from: 300001, to: 600000, rate: 0.11 },
-        { from: 600001, to: 1100000, rate: 0.15 },
-        { from: 1100001, to: 1600000, rate: 0.19 },
-        { from: 1600001, to: 3200000, rate: 0.21 },
-        { from: 3200001, to: Infinity, rate: 0.24 }
-      ];
-
-      let remaining = baseIncome;
-      let tax = 0;
-      for (const bracket of brackets) {
-        if (remaining <= 0) break;
-        const range = bracket.to === Infinity
-          ? remaining
-          : Math.min(bracket.to - bracket.from + 1, remaining);
-        const taxableInBracket = Math.min(range, remaining);
-        tax += taxableInBracket * bracket.rate;
-        remaining -= taxableInBracket;
-      }
-      return tax;
-    };
-
-    const annualizedTaxableIncome = filingPreference === 'monthly' ? taxableIncome * 12 : taxableIncome;
-    const annualTaxAmount = computeProgressiveTax(annualizedTaxableIncome);
-    const monthlyTax = annualTaxAmount / 12;
-    const totalTaxAmount = filingPreference === 'monthly' ? monthlyTax : annualTaxAmount;
+    const summary = await computePitTaxSummary(profile, { month: requestedMonth });
 
     return res.status(200).json({
       success: true,
+      message: 'Tax calculated',
       data: {
-        profileId: profile.profileId,
-        year: taxYear,
-        filingPreference,
-        month: filingPreference === 'monthly' ? requestedMonth : null,
-        taxSummary: {
-          totalIncome: incomeAmount,
-          totalCalculatedRelief,
-          taxableIncome,
-          totalTaxAmount,
-          monthlyTax
-        }
+        profileId: summary.profileId,
+        year: summary.year,
+        filingPreference: summary.filingPreference,
+        month: summary.month,
+        grossIncome: summary.grossIncome,
+        totalDeductions: summary.totalDeductions,
+        rentReliefApplied: summary.rentReliefApplied,
+        taxableIncome: summary.taxableIncome,
+        annualTax: summary.annualTax,
+        monthlyTax: summary.monthlyTax,
+        bands: summary.bands,
+        taxSummary: summary.taxSummary
       }
     });
   } catch (error) {
     console.error('Calculate web tax error:', error);
-    res.status(500).json({
+    const status = error.statusCode || 500;
+    res.status(status).json({
       success: false,
-      message: 'An error occurred while calculating tax',
+      message: error.statusCode ? error.message : 'An error occurred while calculating tax',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
