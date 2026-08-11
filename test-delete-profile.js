@@ -27,19 +27,19 @@ console.log('   - Deductions');
 console.log('   - Documents');
 console.log('   - Income sources');
 console.log('4. Safety checks:');
-console.log('   - Only draft or pending_upload profiles can be deleted');
+console.log('   - Only un-submitted / un-filed profiles can be deleted');
 console.log('   - Users can only delete their own profiles');
 console.log('');
 
 console.log('🚫 Restricted Deletion Statuses:');
 console.log('--------------------------------');
 console.log('Profiles CANNOT be deleted if they have:');
-console.log('- Status: active, submitted, filed, etc.');
-console.log('- Filing status beyond pending_upload');
+console.log('- filed: true, or submitted: true');
+console.log('- Filing status committed to the pipeline (upload_done, filed, submitted, review, success, etc.)');
 console.log('');
 console.log('✅ Allowed for deletion:');
-console.log('- status: "draft"');
-console.log('- filingStatus: "pending_upload"');
+console.log('- Individual drafts (status "draft" / filingStatus "pending_upload")');
+console.log('- Business drafts (status "companyinformation" / filingStatus "draft")');
 console.log('');
 
 console.log('📝 Example Usage:');

@@ -1136,19 +1136,23 @@ const deleteWebProfile = async (req, res) => {
       });
     }
 
-    // Check if profile can be deleted (only draft or pending_upload profiles can be deleted)
-    const deletableStatuses = ['draft', 'pending_upload'];
-    const deletableFilingStatuses = ['pending_upload'];
-    
-    if (!deletableStatuses.includes(profile.status) && 
-        !deletableFilingStatuses.includes(profile.filingStatus)) {
+    // Check if profile can be deleted — block only once it's committed to the
+    // filing pipeline. This allows both individual drafts (draft/pending_upload)
+    // and business drafts (companyinformation/draft) to be removed.
+    const blockedFilingStatuses = [
+      'upload_done', 'pending_accountant_payment', 'tax_agent_review',
+      'tax_agent_approved', 'pending_filing_payment', 'filed',
+      'monthly_active', 'monthly_pending', 'submitted', 'review', 'success'
+    ];
+
+    const deletable = !profile.filed && !profile.submitted && !blockedFilingStatuses.includes(profile.filingStatus);
+
+    if (!deletable) {
       return res.status(400).json({
         success: false,
-        message: 'Profile cannot be deleted. Only draft profiles or profiles with pending upload status can be deleted.',
+        message: 'Profile cannot be deleted once it has been submitted or filed.',
         currentStatus: profile.status,
-        currentFilingStatus: profile.filingStatus,
-        deletableStatuses,
-        deletableFilingStatuses
+        currentFilingStatus: profile.filingStatus
       });
     }
 
