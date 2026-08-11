@@ -814,12 +814,9 @@ const updatePersonalInfo = async (req, res) => {
       });
     }
 
-    const userUpdates = {};
-
+    // Personal info lives on the profile only — it must never mutate the User
+    // account record (name/email/phone). The account keeps its signup values.
     if (fullName) {
-      const nameParts = fullName.trim().split(/\s+/);
-      userUpdates.firstName = nameParts[0] || '';
-      userUpdates.lastName = nameParts.slice(1).join(' ') || '';
       profile.fullName = fullName.trim();
     }
 
@@ -827,7 +824,6 @@ const updatePersonalInfo = async (req, res) => {
       const emailStr = String(email || '').trim().toLowerCase();
       if (emailStr) {
         profile.contactEmail = emailStr;
-        userUpdates.email = emailStr;
       }
     }
 
@@ -835,13 +831,7 @@ const updatePersonalInfo = async (req, res) => {
       const phoneStr = String(phone || '').trim();
       if (phoneStr) {
         profile.contactPhone = phoneStr;
-        userUpdates.phone = phoneStr;
       }
-    }
-
-    if (Object.keys(userUpdates).length) {
-      userUpdates.updatedAt = Date.now();
-      await User.findByIdAndUpdate(userId, userUpdates);
     }
 
     if (nin !== undefined) {
@@ -974,6 +964,7 @@ const getWebProfiles = async (req, res) => {
       status: profile.status,
       filingStatus: profile.filingStatus,
       primaryNIN: profile.primaryNIN,
+      businessSetup: profile.businessSetup || null,
       createdAt: profile.createdAt,
       updatedAt: profile.updatedAt,
       // Include basic info for display
