@@ -101,6 +101,7 @@ function formatCredit(credit) {
     creditRef: credit.creditRef,
     grossValue: credit.grossValue || 0,
     withheldAmount: credit.withheldAmount || 0,
+    certificateUrl: credit.certificateUrl || null,
     createdAt: credit.createdAt || null,
     updatedAt: credit.updatedAt || null
   };
@@ -490,7 +491,7 @@ const createCitWhtCredit = async (req, res) => {
   try {
     const profile = req.businessProfile;
     const year = resolveYear(req, profile);
-    const { clientName, clientTIN, creditRef, grossValue, withheldAmount } = req.body;
+    const { clientName, clientTIN, creditRef, grossValue, withheldAmount, certificateUrl } = req.body;
 
     if (!clientName || !String(clientName).trim()) {
       return res.status(400).json({ success: false, message: 'clientName is required' });
@@ -520,7 +521,8 @@ const createCitWhtCredit = async (req, res) => {
       clientTIN: clientTIN ? String(clientTIN).trim() : undefined,
       creditRef: String(creditRef).trim(),
       grossValue: Number(grossValue),
-      withheldAmount: Number(withheldAmount)
+      withheldAmount: Number(withheldAmount),
+      certificateUrl: certificateUrl ? String(certificateUrl).trim() : undefined
     });
 
     return res.status(201).json({
@@ -583,6 +585,9 @@ const updateCitWhtCredit = async (req, res) => {
         return res.status(400).json({ success: false, message: 'withheldAmount must be a non-negative number' });
       }
       credit.withheldAmount = v;
+    }
+    if (req.body.certificateUrl !== undefined) {
+      credit.certificateUrl = req.body.certificateUrl ? String(req.body.certificateUrl).trim() : undefined;
     }
 
     await credit.save();

@@ -21,7 +21,8 @@ const citWhtCreditSchema = new mongoose.Schema({
   clientTIN: { type: String, trim: true },
   creditRef: { type: String, required: true, trim: true },
   grossValue: { type: Number, required: true, min: 0 },
-  withheldAmount: { type: Number, required: true, min: 0 }
+  withheldAmount: { type: Number, required: true, min: 0 },
+  certificateUrl: { type: String, trim: true }
 }, { timestamps: true });
 
 citWhtCreditSchema.index({ profileId: 1, year: 1 });
