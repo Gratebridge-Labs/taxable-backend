@@ -542,6 +542,10 @@ const login = async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        phone: user.phone,
+        tin: user.tin,
+        profileImageUrl: user.profileImageUrl,
+        receiveTaxDeadlineReminders: user.receiveTaxDeadlineReminders,
         emailVerified: user.emailVerified,
         twoFactorEnabled: user.twoFactorEnabled,
         token: token
@@ -907,6 +911,8 @@ const getMyProfile = async (req, res) => {
           lastName: user.lastName,
           email: user.email,
           phone: user.phone,
+          tin: user.tin,
+          profileImageUrl: user.profileImageUrl,
           emailVerified: user.emailVerified,
           twoFactorEnabled: user.twoFactorEnabled,
           receiveTaxDeadlineReminders: user.receiveTaxDeadlineReminders,
@@ -941,7 +947,7 @@ const updateProfile = async (req, res) => {
     }
 
     const userId = req.user?.userId;
-    const { firstName, lastName, phone, receiveTaxDeadlineReminders } = req.body;
+    const { firstName, lastName, phone, tin, profileImageUrl, receiveTaxDeadlineReminders } = req.body;
 
     if (!userId) {
       return res.status(401).json({
@@ -962,6 +968,8 @@ const updateProfile = async (req, res) => {
     if (firstName !== undefined) user.firstName = firstName;
     if (lastName !== undefined) user.lastName = lastName;
     if (phone !== undefined) user.phone = phone;
+    if (tin !== undefined) user.tin = tin;
+    if (profileImageUrl !== undefined) user.profileImageUrl = profileImageUrl;
     if (receiveTaxDeadlineReminders !== undefined) {
       user.receiveTaxDeadlineReminders = receiveTaxDeadlineReminders === true;
     }

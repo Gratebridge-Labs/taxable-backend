@@ -53,6 +53,17 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  tin: {
+    type: String,
+    trim: true,
+    maxlength: [20, 'TIN cannot exceed 20 characters'],
+    default: null
+  },
+  profileImageUrl: {
+    type: String,
+    trim: true,
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now

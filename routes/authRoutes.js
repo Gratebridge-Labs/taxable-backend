@@ -165,6 +165,17 @@ const updateProfileValidation = [
     .notEmpty().withMessage('Phone number cannot be empty')
     .matches(/^(\+?234[\s-]?)?[0-9]{3}[\s-]?[0-9]{3}[\s-]?[0-9]{4}$|^0?[0-9]{10}$/).withMessage('Please provide a valid phone number (e.g., +2348012345678, +234 801 234 5678, or 08012345678)'),
 
+  body('tin')
+    .optional()
+    .trim()
+    .notEmpty().withMessage('TIN cannot be empty')
+    .isLength({ min: 8, max: 20 }).withMessage('TIN must be between 8 and 20 characters')
+    .matches(/^[a-zA-Z0-9\s-]+$/).withMessage('TIN can only contain letters, numbers, spaces, and hyphens'),
+
+  body('profileImageUrl')
+    .optional()
+    .isURL().withMessage('profileImageUrl must be a valid URL'),
+
   body('receiveTaxDeadlineReminders')
     .optional()
     .isBoolean().withMessage('receiveTaxDeadlineReminders must be a boolean')
