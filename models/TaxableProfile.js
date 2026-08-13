@@ -364,9 +364,9 @@ taxableProfileSchema.statics.findByProfileIdOrId = function (idParam, userId) {
   return this.findOne(byProfileId);
 };
 
-// Compound index to ensure one profile per user per year per profileType
-// This allows users to have both Individual and Business profiles for the same year
-taxableProfileSchema.index({ user: 1, year: 1, profileType: 1 }, { unique: true });
+// Index for profile lookups. Non-unique — users can create multiple folders
+// for the same year and profile type (e.g. two Individual 2026 filings).
+taxableProfileSchema.index({ user: 1, year: 1, profileType: 1 });
 
 // Index for year queries
 taxableProfileSchema.index({ year: 1 });

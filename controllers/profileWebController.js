@@ -52,20 +52,6 @@ const createWebProfile = async (req, res) => {
       });
     }
 
-    // Check if profile already exists for this user, year, and profileType
-    const existingProfile = await TaxableProfile.findOne({
-      user: userId,
-      year: yearNum,
-      profileType: profileType
-    });
-
-    if (existingProfile) {
-      return res.status(409).json({
-        success: false,
-        message: `You already have a ${profileType} tax profile for the year ${yearNum}`
-      });
-    }
-
     // Build minimal profile payload.
     // Business filings track section progress in `status` (starting at the
     // company information section) and lifecycle in `filingStatus` (draft).

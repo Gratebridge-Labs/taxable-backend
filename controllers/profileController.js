@@ -54,21 +54,6 @@ const createProfile = async (req, res) => {
       });
     }
 
-    // Check if profile already exists for this user, year, and profileType
-    // Users can have both Individual and Business profiles for the same year
-    const existingProfile = await TaxableProfile.findOne({
-      user: userId,
-      year: yearNum,
-      profileType: profileType
-    });
-
-    if (existingProfile) {
-      return res.status(409).json({
-        success: false,
-        message: `You already have a ${profileType} tax profile for the year ${yearNum}`
-      });
-    }
-
     // Build profile payload (basic data collected at creation)
     const profilePayload = {
       user: userId,
