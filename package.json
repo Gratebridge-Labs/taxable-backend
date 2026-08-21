@@ -4,8 +4,8 @@
   "description": "Backend API for Taxable - Helping Nigerians prepare for 2026 Tax Reform",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node api.js && node server.js",
+    "dev": "node api.js && nodemon server.js",
     "test": "jest",
     "seed:tips": "node utils/seedTaxTips.js"
   },

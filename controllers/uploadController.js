@@ -46,10 +46,21 @@ const uploadMulter = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   fileFilter: (req, file, cb) => {
-    const allowed = /\.(pdf|jpg|jpeg|png|gif|webp)$/i.test(file.originalname) ||
-      ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.mimetype);
+    const allowed = /\.(pdf|jpg|jpeg|png|gif|webp|csv|xlsx|xls)$/i.test(file.originalname) ||
+      [
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'text/csv',
+        'text/plain',
+        'application/csv',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      ].includes(file.mimetype);
     if (allowed) cb(null, true);
-    else cb(new Error('Only PDF and images (jpg, png, gif, webp) are allowed'));
+    else cb(new Error('Only PDF, images, CSV, or Excel files are allowed'));
   }
 });
 
