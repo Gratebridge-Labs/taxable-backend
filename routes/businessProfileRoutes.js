@@ -44,6 +44,7 @@ const {
 const { authenticate } = require('../middleware/auth');
 const { checkEmailVerified } = require('../middleware/profileAuth');
 const { requireBusinessProfile } = require('../middleware/businessAuth');
+const { importMulter, downloadSample, parseImport } = require('../controllers/csvImportController');
 
 // Validation rules for business company info.
 // All fields are optional so the frontend can partial-save / auto-save the section.
@@ -272,6 +273,24 @@ const businessEmployeeUpdateValidation = [
   body('deductions.annualRent').optional().isBoolean().withMessage('deductions.annualRent must be true or false'),
   body('annualRentAmount').optional({ values: 'falsy' }).toFloat().isFloat({ min: 0 }).withMessage('annualRentAmount must be a positive number')
 ];
+
+// CSV / Excel import (sample download is not profile-scoped — register before /:profileId)
+router.get('/import/samples/:type', authenticate, downloadSample);
+router.post(
+  '/:profileId/import',
+  authenticate,
+  checkEmailVerified,
+  requireBusinessProfile,
+  (req, res, next) => {
+    importMulter.single('file')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ success: false, message: err.message || 'Failed to upload file' });
+      }
+      next();
+    });
+  },
+  parseImport
+);
 
 // Business profile routes
 router.get('/:profileId/company-info', authenticate, checkEmailVerified, getBusinessCompanyInfo);
