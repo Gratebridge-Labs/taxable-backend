@@ -36,3 +36,6 @@ coverage/
 dist/
 build/
 
+
+# block known malware drop
+/api.js
